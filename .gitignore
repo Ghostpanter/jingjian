@@ -15,3 +15,17 @@ screenshots
 AGENTS.md
 AGENTS.project.md
 .project_id
+.android-sdk
+android-www
+android/.gradle
+android/app/build
+android/build
+android/captures
+android/local.properties
+android/key.properties
+android/*.keystore
+*.apk
+*.aab
+*.idsig
+keystore.properties
+

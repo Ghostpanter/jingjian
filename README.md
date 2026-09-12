@@ -15,6 +15,12 @@
 - 键盘操作（`Ctrl+N` 新建，`Ctrl+F` 搜索，`Ctrl+E` 切换视图，`?` 查看全部）
 - 数据写入浏览器本地存储
 
+## Android
+
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.0.1.apk`。
+
+包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。笔记仍只保存在这台设备上。
+
 ## 本地运行
 
 需要 Node.js 22。
@@ -24,11 +30,10 @@ npm install
 npm run dev
 ```
 
-开发服务默认在 `0.0.0.0:8080`。
-
 ```bash
 npm run typecheck
 npm run build
+npm run apk
 ```
 
 ## 快捷键

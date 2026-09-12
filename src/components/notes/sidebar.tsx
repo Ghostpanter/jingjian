@@ -36,10 +36,15 @@ export function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface text-fg">
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-ink text-paper">
-          <span className="font-serif text-sm leading-none">笺</span>
-        </div>
-        <div className="min-w-0 flex-1">
+        <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-ink">
+          <img
+            src="/favicon.svg"
+            alt=""
+            width={36}
+            height={36}
+            className="size-9"
+          />
+        </div>        <div className="min-w-0 flex-1">
           <div className="font-serif text-lg leading-tight font-medium tracking-tight">
             静笺
           </div>
