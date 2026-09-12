@@ -1,0 +1,14 @@
+services:
+  jingjian-sync:
+    build: ./sync-server
+    image: jingjian-sync:1.3.0
+    container_name: jingjian-sync
+    restart: unless-stopped
+    ports:
+      - "${JINGJIAN_PORT:-8787}:8787"
+    environment:
+      JINGJIAN_TOKEN: ${JINGJIAN_TOKEN:-changeme}
+      NOTES_DIR: /data/notes
+      PORT: "8787"
+    volumes:
+      - ${JINGJIAN_NOTES_PATH:-./data/notes}:/data/notes

@@ -1,4 +1,4 @@
-import { Plus, Search, X } from "lucide-react";
+import { Plus, Search, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,6 +19,8 @@ type SidebarProps = {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onCloseMobile: () => void;
+  onOpenSettings: () => void;
+  syncLabel: string;
 };
 
 export function Sidebar({
@@ -30,6 +32,8 @@ export function Sidebar({
   onSelect,
   onCreate,
   onCloseMobile,
+  onOpenSettings,
+  syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
 
@@ -47,7 +51,7 @@ export function Sidebar({
           <div className="font-serif text-lg leading-tight font-medium tracking-tight">
             静笺
           </div>
-          <div className="text-xs text-muted">本地笔记</div>
+          <div className="text-xs text-muted">{syncLabel}</div>
         </div>
         <Button
           variant="ghost"
@@ -57,6 +61,14 @@ export function Sidebar({
           onClick={onCloseMobile}
         >
           <X />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="同步与保存路径"
+          onClick={onOpenSettings}
+        >
+          <Settings />
         </Button>
         <Button
           variant="ghost"

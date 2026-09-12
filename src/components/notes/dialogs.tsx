@@ -51,6 +51,7 @@ const SHORTCUTS = [
   ["F", "搜索笔记"],
   ["E", "源码 / 分栏 / 预览"],
   ["B", "显示或收起文件列表"],
+  [",", "同步与保存路径"],
   ["Shift + Backspace", "删除当前笔记"],
 ] as const;
 
@@ -83,6 +84,7 @@ export function ShortcutsDialog({
         </h2>
         <p className="mt-1 text-sm text-muted">
           点左侧文件即打开。输入自动写入本机，没有打开 / 保存菜单。
+          同步在设置里配置。
         </p>
         <ul className="mt-5 divide-y divide-border">
           {SHORTCUTS.map(([keys, label]) => (

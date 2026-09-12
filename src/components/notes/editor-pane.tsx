@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 
 type EditorPaneProps = {
   noteId: string;
+  epoch?: number;
   content: string;
   centered?: boolean;
   onChange: (value: string) => void;
@@ -9,6 +10,7 @@ type EditorPaneProps = {
 
 export function EditorPane({
   noteId,
+  epoch = 0,
   content,
   centered = true,
   onChange,
@@ -16,7 +18,7 @@ export function EditorPane({
   return (
     <div className="h-full min-h-0 overflow-hidden">
       <textarea
-        key={noteId}
+        key={`${noteId}-${epoch}`}
         id="note-editor"
         defaultValue={content}
         onChange={(event) => onChange(event.target.value)}

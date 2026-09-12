@@ -30,4 +30,6 @@ android/*.jks
 *.aab
 *.idsig
 keystore.properties
+data/
+attachments/
 

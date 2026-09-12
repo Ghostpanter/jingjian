@@ -6,14 +6,18 @@ import {
   Trash2,
   Eye,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import { DeleteNoteDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { PreviewPane } from "@/components/notes/preview-pane";
+import { SettingsDialog } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
 import { countChars, titleFromContent } from "@/lib/notes/format";
+import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
+import { runSync } from "@/lib/notes/sync";
+import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
 import {
   hydrateNotesStore,
   useActiveNote,
@@ -44,17 +48,77 @@ export function NoteApp() {
   const cyclePreviewMode = useNotesStore((state) => state.cyclePreviewMode);
   const toggleSidebar = useNotesStore((state) => state.toggleSidebar);
   const setSidebarOpen = useNotesStore((state) => state.setSidebarOpen);
+  const applySyncedNotes = useNotesStore((state) => state.applySyncedNotes);
+  const editorEpoch = useNotesStore((state) => state.editorEpoch);
+  const rawNotes = useNotesStore((state) => state.notes);
 
   const notes = useSortedNotes();
   const activeNote = useActiveNote();
   const [pendingDelete, setPendingDelete] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  const [syncConfig, setSyncConfig] = useState<SyncConfig>(DEFAULT_SYNC_CONFIG);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+    state: "idle",
+    message: "仅本机",
+    at: null,
+  });
+  const syncingRef = useRef(false);
+
+  const syncNow = useCallback(async (silent = false) => {
+    const config = readSyncConfig();
+    if (config.provider === "off") {
+      setSyncStatus({ state: "idle", message: "仅本机", at: null });
+      return;
+    }
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    setSyncStatus({ state: "syncing", message: "正在同步", at: Date.now() });
+    try {
+      const result = await runSync(config, useNotesStore.getState().notes);
+      applySyncedNotes(result.notes);
+      setSyncStatus(result.status);
+      if (!silent) toast.message(result.status.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "同步失败";
+      setSyncStatus({ state: "error", message, at: Date.now() });
+      if (!silent) toast.message(message);
+    } finally {
+      syncingRef.current = false;
+    }
+  }, [applySyncedNotes]);
 
   useEffect(() => {
     hydrateNotesStore();
+    setSyncConfig(readSyncConfig());
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const config = readSyncConfig();
+    if (config.provider !== "off" && config.autoSync) {
+      void syncNow(true);
+    }
+  }, [hydrated, syncNow]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const config = readSyncConfig();
+    if (config.provider === "off" || !config.autoSync) return;
+    const timer = window.setTimeout(() => void syncNow(true), 2800);
+    return () => window.clearTimeout(timer);
+  }, [rawNotes, hydrated, syncNow]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = window.setInterval(() => {
+      const config = readSyncConfig();
+      if (config.provider !== "off" && config.autoSync) void syncNow(true);
+    }, 90_000);
+    return () => window.clearInterval(timer);
+  }, [hydrated, syncNow]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -75,6 +139,7 @@ export function NoteApp() {
       if (key === "Escape") {
         setShortcutsOpen(false);
         setPendingDelete(false);
+        setSettingsOpen(false);
         setSidebarOpen(false);
         if (typing) target.blur();
         return;
@@ -125,6 +190,12 @@ export function NoteApp() {
         } else {
           toggleSidebar();
         }
+        return;
+      }
+
+      if (mod && (key === "," || key === "，")) {
+        event.preventDefault();
+        setSettingsOpen((open) => !open);
         return;
       }
 
@@ -191,6 +262,7 @@ export function NoteApp() {
 
   function handleDelete() {
     if (!activeNote) return;
+    recordTombstone(activeNote.id);
     deleteNote(activeNote.id);
     setPendingDelete(false);
     toast.message("笔记已删除");
@@ -228,6 +300,16 @@ export function NoteApp() {
           onSelect={selectNote}
           onCreate={handleCreate}
           onCloseMobile={() => setSidebarOpen(false)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          syncLabel={
+            syncConfig.provider === "off"
+              ? "本地笔记"
+              : syncStatus.state === "syncing"
+                ? "正在同步"
+                : syncStatus.state === "error"
+                  ? "同步失败"
+                  : "已启用同步"
+          }
         />
       </aside>
 
@@ -312,6 +394,7 @@ export function NoteApp() {
               {activeNote ? (
                 <EditorPane
                   noteId={activeNote.id}
+                  epoch={editorEpoch}
                   content={activeNote.content}
                   centered={previewMode !== "split"}
                   onChange={(value) => updateNote(activeNote.id, value)}
@@ -338,7 +421,7 @@ export function NoteApp() {
 
         <footer className="app-status">
           <span className="tabular-nums">{charCount} 字</span>
-          <span>已自动保存</span>
+          <span>{syncConfig.provider === "off" ? "已自动保存" : syncStatus.message}</span>
         </footer>
       </section>
 
@@ -351,6 +434,16 @@ export function NoteApp() {
       <ShortcutsDialog
         open={shortcutsOpen}
         onOpenChange={setShortcutsOpen}
+      />
+      <SettingsDialog
+        open={settingsOpen}
+        config={syncConfig}
+        onOpenChange={setSettingsOpen}
+        onSave={(next) => {
+          writeSyncConfig(next);
+          setSyncConfig(next);
+        }}
+        onSyncNow={() => void syncNow(false)}
       />
     </div>
   );

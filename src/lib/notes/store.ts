@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { titleFromContent } from "./format";
 import { createSeedNotes } from "./seed";
+import { notesFingerprint } from "./sync-merge";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -11,6 +12,7 @@ type NotesState = {
   previewMode: PreviewMode;
   sidebarOpen: boolean;
   hydrated: boolean;
+  editorEpoch: number;
   createNote: () => string;
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
@@ -20,6 +22,7 @@ type NotesState = {
   cyclePreviewMode: () => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  applySyncedNotes: (notes: Note[]) => void;
 };
 
 type PersistedSlice = {
@@ -88,6 +91,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   previewMode: "edit",
   sidebarOpen: true,
   hydrated: false,
+  editorEpoch: 0,
   createNote: () => {
     const existingEmpty = get().notes.find((note) => !note.content.trim());
     if (existingEmpty) {
@@ -132,6 +136,22 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   },
   toggleSidebar: () => set({ sidebarOpen: !get().sidebarOpen }),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
+  applySyncedNotes: (incoming) => {
+    const current = get();
+    if (notesFingerprint(current.notes) === notesFingerprint(incoming)) return;
+    const active = current.notes.find((note) => note.id === current.activeId);
+    const nextActive = incoming.find((note) => note.id === current.activeId);
+    const contentChanged = Boolean(active && nextActive && active.content !== nextActive.content);
+    const activeId =
+      current.activeId && incoming.some((note) => note.id === current.activeId)
+        ? current.activeId
+        : (incoming[0]?.id ?? null);
+    set({
+      notes: incoming,
+      activeId,
+      editorEpoch: contentChanged ? current.editorEpoch + 1 : current.editorEpoch,
+    });
+  },
 }));
 
 let persistBound = false;

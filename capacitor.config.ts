@@ -5,11 +5,17 @@ const config: CapacitorConfig = {
   appName: "静笺",
   webDir: "android-www",
   backgroundColor: "#F2EDE4",
+  server: {
+    cleartext: true,
+  },
   android: {
     backgroundColor: "#F2EDE4",
-    allowMixedContent: false,
+    allowMixedContent: true,
   },
   plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
     SplashScreen: {
       launchShowDuration: 900,
       launchAutoHide: true,

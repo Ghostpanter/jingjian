@@ -346,6 +346,17 @@
     outline-offset: -1px;
   }
 
+  .settings-dialog {
+    max-height: min(42rem, 90dvh);
+    overflow: auto;
+  }
+
+  .provider-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
   .dialog-overlay {
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
