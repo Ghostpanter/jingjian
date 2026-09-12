@@ -27,12 +27,13 @@ export function createSeedNotes(): Note[] {
 - 新建笔记：点左上角加号，可选 Markdown 或纯文本，或按 Ctrl + N
 - 即时搜索：点侧栏搜索框，或按 Ctrl + F、/
 - 预览排版：工具栏切换「源码 / 分栏 / 预览」，或按 Ctrl + E
-- 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区
+- 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区，或 Ctrl + Shift + I
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
 - 导入：左上角加号里导入 Markdown、TXT 或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
 - 主题与图床：侧栏齿轮 → 主题 / 图像。图床可直接填，也可粘贴 PicGo 配置
 - 插入外链：选中文字后按 Ctrl + K，或直接把网址粘到选中文字上
-- 显示或收起侧栏：Ctrl + B
+- 加粗 / 斜体 / 标题：Ctrl + B、Ctrl + I、Ctrl + 1～6，Tab 缩进列表
+- 显示或收起侧栏：Ctrl + Shift + L
 - 删除当前笔记：Ctrl + Shift + Backspace
 - 快捷键一览：按 ?
 
@@ -49,7 +50,9 @@ export function createSeedNotes(): Note[] {
 
 普通段落直接写。前后空一行。
 
-**加粗**、*斜体*、~~删除线~~、\`行内代码\`。
+**加粗**、*斜体*、<u>下划线</u>、~~删除线~~、\`行内代码\`。
+
+选中文字后按 Ctrl + B / I / U，或 Ctrl + 1～6 设标题。Tab 缩进列表。
 
 > 引用适合摘录。左侧那条线就是它的位置。
 

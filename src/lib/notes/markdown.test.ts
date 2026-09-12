@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderMarkdown, sanitizeHref } from "./markdown.ts";
+import { renderMarkdown, sanitizeHref, sanitizeInlineHtml } from "./markdown.ts";
 
 test("highlights fenced code by language", () => {
   const html = renderMarkdown("```js\nconst n = 1;\n```\n");
@@ -29,4 +29,17 @@ test("drops javascript urls", () => {
   assert.equal(sanitizeHref("javascript:alert(1)"), null);
   const html = renderMarkdown("[x](javascript:alert(1))");
   assert.doesNotMatch(html, /javascript:/);
+});
+
+test("keeps underline and other safe inline html", () => {
+  assert.equal(sanitizeInlineHtml("<u>"), "<u>");
+  assert.equal(sanitizeInlineHtml("</U>"), "</u>");
+  assert.equal(sanitizeInlineHtml("<br>"), "<br />");
+  assert.equal(sanitizeInlineHtml('<img src=x onerror=alert(1)>'), "");
+  const html = renderMarkdown("这是 <u>强调</u> 与 <mark>高亮</mark>。");
+  assert.match(html, /<u>强调<\/u>/);
+  assert.match(html, /<mark>高亮<\/mark>/);
+  const unsafe = renderMarkdown('<img src=x onerror="alert(1)"><script>alert(1)</script>');
+  assert.doesNotMatch(unsafe, /onerror/);
+  assert.doesNotMatch(unsafe, /<script/i);
 });

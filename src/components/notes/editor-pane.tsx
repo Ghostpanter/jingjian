@@ -1,6 +1,7 @@
 import type { ClipboardEvent, DragEvent } from "react";
 import { toast } from "sonner";
 import {
+  indentLines,
   looksLikeUrl,
   normalizeHref,
   wrapAsMarkup,
@@ -92,6 +93,22 @@ export function EditorPane({
         id="note-editor"
         defaultValue={content}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab" || event.nativeEvent.isComposing) return;
+          event.preventDefault();
+          const el = event.currentTarget;
+          const next = indentLines(
+            el.value,
+            el.selectionStart,
+            el.selectionEnd,
+            event.shiftKey ? -1 : 1,
+          );
+          el.value = next.value;
+          onChange(next.value);
+          requestAnimationFrame(() =>
+            el.setSelectionRange(next.start, next.end),
+          );
+        }}
         onPaste={handlePaste}
         onDragOver={(event) => {
           if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
@@ -105,7 +122,7 @@ export function EditorPane({
         enterKeyHint="enter"
         aria-label="笔记正文"
         className={cn(
-          "h-full w-full resize-none bg-transparent px-5 py-6 font-serif text-editor leading-relaxed text-fg",
+          "h-full w-full resize-none bg-transparent px-5 py-6 font-serif text-editor text-fg",
           "placeholder:text-subtle",
           "outline-none sm:px-8 sm:py-10",
           centered && "mx-auto block max-w-prose",

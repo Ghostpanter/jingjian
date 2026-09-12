@@ -26,11 +26,21 @@ import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
 import { countChars, titleFromContent } from "@/lib/notes/format";
 import {
+  indentLines,
+  insertTable,
   looksLikeUrl,
   normalizeHref,
   readEditorSelection,
+  setHeading,
+  toggleOrderedList,
+  toggleQuote,
+  toggleTaskList,
+  toggleUnorderedList,
   wrapAsMarkup,
+  wrapFence,
+  wrapInline,
   writeEditorValue,
+  type MarkupEdit,
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor, resolveInsertedImage } from "@/lib/notes/image-insert";
 import { putImage, extensionFor } from "@/lib/notes/image-store";
@@ -54,6 +64,75 @@ const VIEW_OPTIONS: { id: PreviewMode; label: string; icon: typeof Pencil }[] =
     { id: "split", label: "分栏", icon: Columns2 },
     { id: "preview", label: "预览", icon: Eye },
   ];
+
+function applyFormatHotkey(
+  event: KeyboardEvent,
+  apply: (mutator: (value: string, start: number, end: number) => MarkupEdit) => boolean,
+): boolean {
+  const mod = event.metaKey || event.ctrlKey;
+  const key = event.key;
+  const code = event.code;
+  const shift = event.shiftKey;
+  const run = (
+    mutator: (value: string, start: number, end: number) => MarkupEdit,
+  ) => {
+    event.preventDefault();
+    return apply(mutator);
+  };
+
+  if (event.altKey && shift && (key === "5" || key === "%")) {
+    return run((value, start, end) => wrapInline(value, start, end, "~~"));
+  }
+  if (!mod) return false;
+
+  if (shift && (key === "5" || key === "%")) {
+    return run((value, start, end) => wrapInline(value, start, end, "~~"));
+  }
+  if (shift && (key === "]" || key === "}" || code === "BracketRight")) {
+    return run((value, start, end) => toggleUnorderedList(value, start, end));
+  }
+  if (shift && (key === "[" || key === "{" || code === "BracketLeft")) {
+    return run((value, start, end) => toggleOrderedList(value, start, end));
+  }
+  if (shift && key.toLowerCase() === "q") {
+    return run((value, start, end) => toggleQuote(value, start, end));
+  }
+  if (shift && key.toLowerCase() === "x") {
+    return run((value, start, end) => toggleTaskList(value, start, end));
+  }
+  if (shift && key.toLowerCase() === "k") {
+    return run((value, start, end) => wrapFence(value, start, end));
+  }
+  if (shift && (key === "`" || key === "~" || code === "Backquote")) {
+    return run((value, start, end) => wrapInline(value, start, end, "`"));
+  }
+  if (shift) return false;
+
+  if (key.toLowerCase() === "b") {
+    return run((value, start, end) => wrapInline(value, start, end, "**"));
+  }
+  if (key.toLowerCase() === "i") {
+    return run((value, start, end) => wrapInline(value, start, end, "*"));
+  }
+  if (key.toLowerCase() === "u") {
+    return run((value, start, end) => wrapInline(value, start, end, "<u>", "</u>"));
+  }
+  if (key.toLowerCase() === "t") {
+    return run((value, start, end) => insertTable(value, start, end));
+  }
+  if (key === "]" || code === "BracketRight") {
+    return run((value, start, end) => indentLines(value, start, end, 1));
+  }
+  if (key === "[" || code === "BracketLeft") {
+    return run((value, start, end) => indentLines(value, start, end, -1));
+  }
+  if (key >= "0" && key <= "6") {
+    return run((value, start, end) =>
+      setHeading(value, start, end, Number(key) as 0 | 1 | 2 | 3 | 4 | 5 | 6),
+    );
+  }
+  return false;
+}
 
 export function NoteApp() {
   const hydrated = useNotesStore((state) => state.hydrated);
@@ -248,7 +327,7 @@ export function NoteApp() {
         return;
       }
 
-      if (mod && key.toLowerCase() === "b") {
+      if (mod && event.shiftKey && key.toLowerCase() === "l") {
         event.preventDefault();
         if (window.matchMedia("(min-width: 768px)").matches) {
           setDesktopCollapsed((value) => !value);
@@ -264,7 +343,13 @@ export function NoteApp() {
         return;
       }
 
-      if (mod && key.toLowerCase() === "k") {
+      if (mod && event.shiftKey && key.toLowerCase() === "i") {
+        event.preventDefault();
+        openImageDialog();
+        return;
+      }
+
+      if (mod && !event.shiftKey && key.toLowerCase() === "k") {
         event.preventDefault();
         openLinkDialog();
         return;
@@ -282,7 +367,32 @@ export function NoteApp() {
         return;
       }
 
-      if (shortcutsOpen || pendingDelete || linkOpen) return;
+      const overlayOpen =
+        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen;
+      const inEditor = target?.id === "note-editor";
+      const inOtherField = typing && !inEditor;
+      if (
+        !overlayOpen &&
+        !inOtherField &&
+        !event.isComposing &&
+        key !== "Process"
+      ) {
+        const applied = applyFormatHotkey(event, (mutator) => {
+          if (!activeNote) return false;
+          const selection = readEditorSelection();
+          if (!selection) return false;
+          const next = mutator(selection.value, selection.start, selection.end);
+          writeEditorValue(
+            next.value,
+            { start: next.start, end: next.end },
+            (value) => updateNote(activeNote.id, value),
+          );
+          return true;
+        });
+        if (applied) return;
+      }
+
+      if (overlayOpen) return;
 
       const move =
         (!typing && (key === "j" || key === "ArrowDown")) ||
@@ -316,10 +426,13 @@ export function NoteApp() {
     notes,
     pendingDelete,
     linkOpen,
+    settingsOpen,
+    exportOpen,
     selectNote,
     setSidebarOpen,
     shortcutsOpen,
     toggleSidebar,
+    updateNote,
   ]);
 
   const charCount = useMemo(
@@ -339,6 +452,22 @@ export function NoteApp() {
       text: asUrl ? "" : selected,
       href: asUrl,
       image: false,
+    });
+    setLinkOpen(true);
+  }
+
+  function openImageDialog() {
+    if (!activeNote) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    const selection = readEditorSelection();
+    const selected = selection?.selected ?? "";
+    const asUrl = looksLikeUrl(selected) ? normalizeHref(selected) : "";
+    setLinkDraft({
+      text: asUrl ? "" : selected,
+      href: asUrl,
+      image: true,
     });
     setLinkOpen(true);
   }

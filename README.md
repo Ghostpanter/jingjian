@@ -19,7 +19,7 @@
 - 左侧 +：新建 Markdown / 纯文本，导入 Markdown、TXT、EPUB
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色
 - 同步：静笺服务器、WebDAV、本机目录
-- 键盘操作（`Ctrl+N` 新建，`Ctrl+,` 设置，`Ctrl+Shift+E` 导出，`?` 查看全部）
+- 键盘操作（`Ctrl+B` 加粗，`Ctrl+I` 斜体，`Ctrl+1`～`6` 标题，`?` 查看全部）
 
 ## 导出与电子书
 
@@ -100,7 +100,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.4.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.5.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -108,9 +108,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.4-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
-- `jingjian-v1.6.4-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
-- `jingjian-v1.6.4-linux-x64.zip`：解压后运行 `Jingjian`
+- `jingjian-v1.6.5-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
+- `jingjian-v1.6.5-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
+- `jingjian-v1.6.5-linux-x64.zip`：解压后运行 `Jingjian`
 
 桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
 
@@ -132,14 +132,27 @@ npm run desktop:pack
 
 ## 快捷键
 
+排版与 Typora 相同，可在写作时不离开键盘。
+
 | 按键 | 作用 |
 | --- | --- |
+| `Ctrl + B` / `I` / `U` | 加粗 / 斜体 / 下划线 |
+| `Ctrl + Shift + 5` | 删除线 |
+| `Ctrl + 1` … `6` | 一至六级标题 |
+| `Ctrl + 0` | 正文段落 |
+| `Tab` / `Shift + Tab` | 缩进 / 取消缩进 |
+| `Ctrl + Shift + Q` | 引用 |
+| `Ctrl + Shift + ]` / `[` | 无序 / 有序列表 |
+| `Ctrl + Shift + X` | 任务列表 |
+| `Ctrl + Shift + K` | 代码块 |
+| `Ctrl + T` | 插入表格 |
+| `Ctrl + K` | 插入外链 |
+| `Ctrl + Shift + I` | 插入图片 |
 | `Ctrl + N` | 新建笔记 |
 | `Ctrl + F` 或 `/` | 搜索 |
 | `Ctrl + E` | 源码 / 分栏 / 预览 |
-| `Ctrl + B` | 显示或收起文件列表 |
+| `Ctrl + Shift + L` | 显示或收起文件列表 |
 | `Ctrl + ,` | 设置（同步 / 主题 / 图像） |
-| `Ctrl + K` | 插入外链 |
 | `Ctrl + Shift + E` | 导出 |
 | `Ctrl + Shift + Backspace` | 删除当前笔记 |
 | `J` / `K` 或方向键 | 上一条 / 下一条 |

@@ -9,8 +9,8 @@ const marked = new Marked({
 
 marked.use({
   renderer: {
-    html() {
-      return "";
+    html({ text }) {
+      return sanitizeInlineHtml(text);
     },
     code({ text, lang }) {
       if (isMermaidBlock(lang, text)) {
@@ -44,6 +44,17 @@ function isMermaidBlock(lang: string | undefined, text: string): boolean {
   const key = lang?.trim().toLowerCase() ?? "";
   if (key === "mermaid" || key === "mmd") return true;
   return !key && MERMAID_START.test(text.trimStart());
+}
+
+const SAFE_INLINE_TAG = /^<\/?(?:u|mark|sub|sup|kbd)>$/i;
+const SAFE_BR = /^<br\s*\/?>$/i;
+
+export function sanitizeInlineHtml(text: string): string {
+  const token = text.trim();
+  if (!token) return "";
+  if (SAFE_BR.test(token)) return "<br />";
+  if (SAFE_INLINE_TAG.test(token)) return token.toLowerCase();
+  return "";
 }
 
 export function sanitizeHref(href: string | null | undefined): string | null {

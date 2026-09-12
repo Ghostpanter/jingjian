@@ -101,11 +101,14 @@ export function markdownToHtmlDocument(
   const css = `
 :root { ${options.cssVars ?? ""} }
 html, body { margin: 0; background: var(--color-bg, #f2ede4); color: var(--color-fg, #1a1814); font-family: "Noto Serif SC", "Songti SC", Georgia, serif; }
-.md-body { max-width: 42rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; line-height: 1.75; font-size: 1.125rem; overflow-wrap: break-word; word-break: normal; }
-.md-body h1, .md-body h2, .md-body h3 { line-height: 1.25; letter-spacing: -0.02em; overflow-wrap: break-word; }
-.md-body h1 { font-size: 1.85rem; margin: 0 0 1rem; }
-.md-body h2 { font-size: 1.4rem; margin: 1.75rem 0 0.75rem; }
-.md-body h3 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
+.md-body { max-width: 50rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; line-height: 1.75; font-size: 1.125rem; overflow-wrap: break-word; word-break: normal; text-autospace: ideograph-alpha ideograph-numeric; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { line-height: 1.35; letter-spacing: 0; overflow-wrap: break-word; font-weight: 600; }
+.md-body h1 { font-size: 2em; margin: 0 0 0.75em; }
+.md-body h2 { font-size: 1.5em; margin: 1.45em 0 0.55em; }
+.md-body h3 { font-size: 1.25em; margin: 1.3em 0 0.45em; }
+.md-body h4 { font-size: 1.1em; margin: 1.2em 0 0.4em; }
+.md-body h5 { font-size: 1em; margin: 1.1em 0 0.35em; }
+.md-body h6 { font-size: 0.95em; margin: 1em 0 0.35em; color: var(--color-muted, #6a6358); }
 .md-body p, .md-body blockquote, .md-body table { margin: 0 0 1rem; }
 .md-body ul, .md-body ol { margin: 0 0 1rem; padding-left: 1.6em; }
 .md-body li { margin: 0 0 0.5rem; }

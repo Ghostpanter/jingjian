@@ -14,21 +14,27 @@ article {
   background: ${palette.bg};
   color: ${palette.fg};
   font-family: "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", Georgia, serif;
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.75;
   overflow-wrap: break-word;
   word-break: normal;
+  text-autospace: ideograph-alpha ideograph-numeric;
 }
-h1, h2, h3, h4 { line-height: 1.3; font-weight: 600; overflow-wrap: break-word; }
-h1 { font-size: 28px; margin: 0 0 16px; }
-h2 { font-size: 21px; margin: 28px 0 12px; }
-h3 { font-size: 18px; margin: 22px 0 8px; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.35; font-weight: 600; overflow-wrap: break-word; letter-spacing: 0; }
+h1 { font-size: 2em; margin: 0 0 0.75em; }
+h2 { font-size: 1.5em; margin: 1.45em 0 0.55em; }
+h3 { font-size: 1.25em; margin: 1.3em 0 0.45em; }
+h4 { font-size: 1.1em; margin: 1.2em 0 0.4em; }
+h5 { font-size: 1em; margin: 1.1em 0 0.35em; }
+h6 { font-size: 0.95em; margin: 1em 0 0.35em; color: ${palette.muted}; }
 p, blockquote, table { margin: 0 0 14px; }
 ul, ol { margin: 0 0 14px; padding-left: 1.6em; }
 li { margin: 0 0 8px; }
 li > p { margin: 0 0 8px; }
 li > ul, li > ol { margin: 8px 0 0; }
 a { color: ${palette.accent}; }
+u { text-decoration: underline; text-underline-offset: 0.18em; }
+del, s { text-decoration: line-through; color: ${palette.muted}; }
 blockquote {
   border-left: 3px solid ${palette.accent};
   padding: 2px 0 2px 14px;

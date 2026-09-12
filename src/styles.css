@@ -27,6 +27,7 @@
 
   --text-editor: 1.125rem;
   --text-editor--line-height: 1.75;
+  --container-prose: 50rem;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -209,7 +210,17 @@
     color: var(--color-fg);
     font-size: var(--text-editor);
     line-height: 1.75;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
+    word-wrap: break-word;
+    hyphens: none;
+    line-break: auto;
+    hanging-punctuation: first allow-end last;
+    font-kerning: normal;
+    font-optical-sizing: auto;
+    text-rendering: optimizeLegibility;
+    text-autospace: ideograph-alpha ideograph-numeric;
+    text-spacing-trim: normal;
   }
 
   .md-body > :first-child {
@@ -222,36 +233,65 @@
 
   .md-body h1,
   .md-body h2,
-  .md-body h3 {
+  .md-body h3,
+  .md-body h4,
+  .md-body h5,
+  .md-body h6 {
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
     text-wrap: balance;
-    line-height: 1.25;
+    color: inherit;
+    overflow-wrap: break-word;
   }
 
   .md-body h1 {
-    margin: 0 0 1rem;
-    font-size: 1.85rem;
+    margin: 0 0 0.75em;
+    font-size: 2em;
+    line-height: 1.3;
   }
 
   .md-body h2 {
-    margin: 1.75rem 0 0.75rem;
-    font-size: 1.4rem;
+    margin: 1.45em 0 0.55em;
+    font-size: 1.5em;
+    line-height: 1.35;
   }
 
   .md-body h3 {
-    margin: 1.5rem 0 0.5rem;
-    font-size: 1.2rem;
+    margin: 1.3em 0 0.45em;
+    font-size: 1.25em;
+    line-height: 1.4;
   }
 
-  .md-body p,
+  .md-body h4 {
+    margin: 1.2em 0 0.4em;
+    font-size: 1.1em;
+    line-height: 1.45;
+  }
+
+  .md-body h5 {
+    margin: 1.1em 0 0.35em;
+    font-size: 1em;
+    line-height: 1.5;
+  }
+
+  .md-body h6 {
+    margin: 1em 0 0.35em;
+    font-size: 0.95em;
+    line-height: 1.5;
+    color: var(--color-muted);
+  }
+
+  .md-body p {
+    margin: 0.8em 0;
+    text-wrap: pretty;
+  }
+
   .md-body ul,
   .md-body ol,
   .md-body blockquote,
   .md-body pre,
   .md-body table {
-    margin: 0 0 1rem;
-    text-wrap: pretty;
+    margin: 0.8em 0;
   }
 
   .md-body a {
@@ -264,13 +304,38 @@
     font-weight: 600;
   }
 
+  .md-body em {
+    font-style: italic;
+  }
+
+  .md-body u {
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: from-font;
+  }
+
+  .md-body del,
+  .md-body s {
+    text-decoration: line-through;
+    color: var(--color-muted);
+  }
+
   .md-body ul,
   .md-body ol {
-    padding-left: 1.4rem;
+    padding-left: 1.6em;
   }
 
   .md-body li {
-    margin: 0.25rem 0;
+    margin: 0.2em 0;
+  }
+
+  .md-body li > p {
+    margin: 0.35em 0;
+  }
+
+  .md-body li > ul,
+  .md-body li > ol {
+    margin: 0.2em 0 0.35em;
   }
 
   .md-body ul {
@@ -292,8 +357,12 @@
     color: var(--color-muted);
   }
 
+  .md-body blockquote p {
+    margin: 0.4em 0;
+  }
+
   .md-body hr {
-    margin: 1.75rem 0;
+    margin: 1.6em 0;
     border: 0;
     border-top: 1px solid var(--color-border);
   }
@@ -550,6 +619,11 @@
 
   .settings-dialog {
     max-height: min(42rem, 90dvh);
+    overflow: auto;
+  }
+
+  .shortcuts-list {
+    max-height: min(28rem, 62dvh);
     overflow: auto;
   }
 
