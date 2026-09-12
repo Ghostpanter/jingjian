@@ -1,4 +1,5 @@
 import type { Palette } from "./theme";
+import { renderMermaidBlocks } from "./mermaid-render.ts";
 
 const UNSUPPORTED_COLOR = /oklab|oklch|(?<![a-z-])lab\(|(?<![a-z-])lch\(|color-mix\s*\(|color\s*\(/i;
 
@@ -97,6 +98,27 @@ pre.plain-text {
 }
 .hljs { background: transparent; padding: 0; }
 img { max-width: 100%; height: auto; display: block; }
+.mermaid-block {
+  margin: 0 0 16px;
+  padding: 12px 10px;
+  background: ${palette.paper};
+  border-radius: 10px;
+  overflow: hidden;
+}
+.mermaid-svg, .mermaid-block svg, .mermaid-block img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+pre.mermaid {
+  background: ${palette.paper};
+  color: ${palette.fg};
+}
+pre.mermaid-failed {
+  color: ${palette.muted};
+  font-size: 12.5px;
+}
 table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 th, td {
   border-bottom: 1px solid ${palette.border};
@@ -321,7 +343,8 @@ function collectLayout(article: HTMLElement, scale: number): {
       tag === "BLOCKQUOTE" ||
       tag === "P" ||
       tag === "LI" ||
-      (node as HTMLElement).classList.contains("code-block");
+      (node as HTMLElement).classList.contains("code-block") ||
+      (node as HTMLElement).classList.contains("mermaid-block");
     if (keep) keeps.push({ start, end });
   }
   return {
@@ -358,6 +381,7 @@ export async function renderArticleCanvas(
     await Promise.race([doc.fonts.ready, new Promise((resolve) => setTimeout(resolve, 400))]);
   }
   const article = (doc.querySelector("article") ?? doc.body) as HTMLElement;
+  await renderMermaidBlocks(article, { palette, rasterize: true });
   iframe.style.height = `${Math.max(800, article.scrollHeight + 48)}px`;
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
   fitInlineCode(article);
@@ -377,6 +401,7 @@ export async function renderArticleCanvas(
       onclone(cloned) {
         flattenUnsupportedColors(cloned, palette);
         cloned.querySelectorAll("pre").forEach((pre) => {
+          if (pre.classList.contains("mermaid") || pre.classList.contains("mermaid-failed")) return;
           pre.style.whiteSpace = "pre-wrap";
           pre.style.overflow = "hidden";
           pre.style.overflowWrap = "anywhere";

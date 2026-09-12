@@ -11,6 +11,7 @@ function xml(value: string): string {
 export type EpubChapter = {
   title: string;
   content: string;
+  html?: string;
 };
 
 export type ParsedEpub = {
@@ -115,7 +116,7 @@ export async function buildEpub(options: {
     "OEBPS/styles.css",
     `body { font-family: "Noto Serif SC", serif; line-height: 1.7; margin: 1.2em; }
 h1, h2, h3 { line-height: 1.3; }
-img { max-width: 100%; }`,
+img, svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }`,
   );
   zip.file(
     "OEBPS/nav.xhtml",
@@ -123,7 +124,7 @@ img { max-width: 100%; }`,
 <html xmlns="http://www.w3.org/1999/xhtml"><body><nav><ol>${nav}</ol></nav></body></html>`,
   );
   chapters.forEach((chapter, index) => {
-    const body = xhtmlFromMarkdown(chapter.content);
+    const body = xhtmlFromMarkdown(chapter.content, chapter.html);
     zip.file(
       `OEBPS/ch${String(index + 1).padStart(3, "0")}.xhtml`,
       `<?xml version="1.0" encoding="UTF-8"?>

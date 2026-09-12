@@ -86,11 +86,13 @@ export function markdownToRtf(content: string): Uint8Array {
 
 export function markdownToHtmlDocument(
   content: string,
-  options: { title: string; cssVars?: string; styled: boolean; plain?: boolean },
+  options: { title: string; cssVars?: string; styled: boolean; plain?: boolean; bodyHtml?: string },
 ): Uint8Array {
-  const body = options.plain
-    ? `<pre class="plain-text">${escapeHtml(content)}</pre>`
-    : renderMarkdown(content);
+  const body =
+    options.bodyHtml ??
+    (options.plain
+      ? `<pre class="plain-text">${escapeHtml(content)}</pre>`
+      : renderMarkdown(content));
   if (!options.styled) {
     return utf8(
       `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(options.title)}</title></head><body>${body}</body></html>`,
@@ -114,6 +116,8 @@ html, body { margin: 0; background: var(--color-bg, #f2ede4); color: var(--color
 .md-body pre code { display: inline; max-width: none; white-space: inherit; overflow-wrap: inherit; word-break: inherit; }
 .md-body pre.plain-text { background: transparent; padding: 0; font-family: inherit; font-size: inherit; overflow-wrap: break-word; word-break: normal; }
 .md-body img { max-width: 100%; }
+.md-body .mermaid-block { margin: 0 0 1rem; padding: 1rem; background: var(--color-paper, #f7f3eb); border-radius: 12px; overflow: hidden; }
+.md-body .mermaid-block svg, .md-body .mermaid-block img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
 .md-body table { border-collapse: collapse; width: 100%; }
 .md-body th, .md-body td { border-bottom: 1px solid var(--color-border, #d5cbb8); padding: 0.5rem 0.6rem; text-align: left; overflow-wrap: break-word; }
 `.trim();
@@ -252,8 +256,10 @@ export async function markdownToOdt(content: string): Promise<Uint8Array> {
   return zip.generateAsync({ type: "uint8array", mimeType: "application/vnd.oasis.opendocument.text" });
 }
 
-export function xhtmlFromMarkdown(content: string): string {
-  return renderMarkdown(content)
+export function xhtmlFromMarkdown(content: string, html?: string): string {
+  return (html ?? renderMarkdown(content))
     .replace(/<div class="code-block"[^>]*>/g, "")
+    .replace(/<div class="mermaid-block">/g, "")
+    .replace(/<div class="mermaid-svg"[^>]*>/g, "")
     .replace(/<\/div>/g, "");
 }

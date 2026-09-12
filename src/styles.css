@@ -403,7 +403,8 @@
     box-shadow: var(--shadow-border);
   }
 
-  .md-body .mermaid-block svg {
+  .md-body .mermaid-block svg,
+  .md-body .mermaid-block img {
     max-width: 100%;
     height: auto;
     display: block;

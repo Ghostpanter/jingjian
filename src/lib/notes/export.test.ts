@@ -101,6 +101,13 @@ test("pdf capture css keeps inline code as a single box", () => {
   assert.doesNotMatch(code, /anywhere/);
 });
 
+test("pdf capture css keeps mermaid as a figure", () => {
+  const css = exportArticleCss(paletteFor(DEFAULT_THEME));
+  assert.match(css, /\.mermaid-block/);
+  assert.match(css, /\.mermaid-svg/);
+  assert.match(css, /pre\.mermaid/);
+});
+
 test("txt notes keep format through serialize and filename", () => {
   const note = {
     id: "11111111-2222-4333-a444-555555555555",

@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
+import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
 import type { NoteFormat } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +29,7 @@ export function PreviewPane({
   useLayoutEffect(() => {
     const root = articleRef.current;
     if (!root || format === "txt") return;
-    void renderMermaidBlocks(root);
+    void renderMermaidBlocks(root, { palette: paletteFor(readThemeConfig()) });
     void resolvePreviewImages(root);
   });
 

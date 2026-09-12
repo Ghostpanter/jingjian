@@ -13,6 +13,7 @@ import { canvasToJpeg, jpegPagesToPdf, sliceCanvasToPages } from "./export-pdf";
 import { renderArticleCanvas } from "./export-render";
 import { pickExportDestination, writeExportDestination } from "./export-save";
 import { buildEpub, chaptersFromNotes } from "./epub";
+import { hydrateMermaidMarkup } from "./mermaid-render.ts";
 import { safeFilename } from "./bytes";
 import type { Note } from "./types";
 
@@ -104,11 +105,14 @@ export async function exportNotes(options: {
   const markdown = await embedLocalImages(options.note.content);
 
   if (options.format === "html" || options.format === "html-plain") {
+    const body = articleHtml(options.note, markdown);
+    const hydrated = await hydrateMermaidMarkup(body, { palette });
     const bytes = markdownToHtmlDocument(markdown, {
       title,
       styled: options.format === "html",
       cssVars: cssVarsFromPalette(palette),
       plain: options.note.format === "txt",
+      bodyHtml: hydrated,
     });
     return writeExportDestination(dest, bytes);
   }
@@ -130,10 +134,14 @@ export async function exportNotes(options: {
     const bytes = await buildEpub({
       title: book.title,
       chapters: await Promise.all(
-        book.chapters.map(async (chapter) => ({
-          ...chapter,
-          content: await embedLocalImages(chapter.content),
-        })),
+        book.chapters.map(async (chapter) => {
+          const content = await embedLocalImages(chapter.content);
+          return {
+            ...chapter,
+            content,
+            html: await hydrateMermaidMarkup(renderMarkdown(content), { palette }),
+          };
+        }),
       ),
     });
     return writeExportDestination(dest, bytes);
