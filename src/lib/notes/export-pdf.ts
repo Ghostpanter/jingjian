@@ -6,7 +6,7 @@ export type PdfPage = {
   height: number;
 };
 
-export type KeepRange = { start: number; end: number };
+export type KeepRange = { start: number; end: number; atomic?: boolean };
 
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
@@ -129,8 +129,13 @@ export function choosePageCut(input: {
   const sortedKeeps = [...keeps].sort((a, b) => a.start - b.start);
   for (const keep of sortedKeeps) {
     if (keep.end - keep.start > pageHeight) continue;
-    if (keep.start < minY || keep.start >= ideal) continue;
-    if (keep.end > ideal) return Math.max(top + 1, Math.round(keep.start));
+    if (keep.start >= ideal) continue;
+    if (keep.end <= ideal) continue;
+    const startedHere = keep.start <= top + 12;
+    if (startedHere) continue;
+    if (keep.atomic || keep.start >= minY) {
+      return Math.max(top + 1, Math.round(keep.start));
+    }
   }
   let best = 0;
   for (const y of breaks) {

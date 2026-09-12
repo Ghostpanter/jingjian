@@ -106,6 +106,9 @@ test("pdf capture css keeps mermaid as a figure", () => {
   assert.match(css, /\.mermaid-block/);
   assert.match(css, /\.mermaid-svg/);
   assert.match(css, /pre\.mermaid/);
+  assert.match(css, /object-fit:\s*contain/);
+  assert.match(css, /article\.fit-figures/);
+  assert.match(css, /width:\s*fit-content/);
 });
 
 test("txt notes keep format through serialize and filename", () => {
@@ -158,6 +161,32 @@ test("pdf page cut does not leave the page almost empty", () => {
       contentHeight: 4000,
       breaks: [100, 200],
       keeps: [{ start: 200, end: 1800 }],
+    }),
+    1000,
+  );
+});
+
+test("pdf page cut keeps an atomic figure on one page", () => {
+  assert.equal(
+    choosePageCut({
+      top: 0,
+      pageHeight: 1000,
+      contentHeight: 4000,
+      breaks: [100],
+      keeps: [{ start: 400, end: 1100, atomic: true }],
+    }),
+    400,
+  );
+});
+
+test("pdf page cut still splits an atomic figure taller than the page", () => {
+  assert.equal(
+    choosePageCut({
+      top: 0,
+      pageHeight: 1000,
+      contentHeight: 4000,
+      breaks: [100, 200],
+      keeps: [{ start: 200, end: 1800, atomic: true }],
     }),
     1000,
   );

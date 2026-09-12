@@ -56,19 +56,51 @@ async function mermaidApi(palette?: Palette) {
   return mermaidMod;
 }
 
+function isSvgElement(node: Element | null): node is SVGSVGElement {
+  if (!node) return false;
+  const Ctor = node.ownerDocument?.defaultView?.SVGSVGElement ?? SVGSVGElement;
+  try {
+    if (node instanceof Ctor) return true;
+  } catch {
+    // Cross-realm instanceof can throw in some hosts.
+  }
+  return node.namespaceURI === "http://www.w3.org/2000/svg" && node.tagName.toLowerCase() === "svg";
+}
+
+function parsePx(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function svgSize(svg: SVGSVGElement): { width: number; height: number } {
+  const viewBox = svg.viewBox?.baseVal;
+  const vbW = viewBox && viewBox.width > 0 ? viewBox.width : 0;
+  const vbH = viewBox && viewBox.height > 0 ? viewBox.height : 0;
   const attr = (name: string) => {
     const raw = svg.getAttribute(name);
     if (!raw || raw.endsWith("%")) return 0;
     const value = Number.parseFloat(raw);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value) && value > 0 ? value : 0;
   };
-  let width = attr("width") || svg.clientWidth || 0;
-  let height = attr("height") || svg.clientHeight || 0;
-  const viewBox = svg.viewBox?.baseVal;
-  if ((!width || !height) && viewBox && viewBox.width && viewBox.height) {
-    width = width || viewBox.width;
-    height = height || viewBox.height;
+  const attrW = attr("width");
+  const attrH = attr("height");
+  if (attrW && attrH) return { width: attrW, height: attrH };
+
+  const styleMax = parsePx(svg.style.maxWidth);
+  const styleW = parsePx(svg.style.width);
+  const styleH = parsePx(svg.style.height);
+  let width = styleMax || attrW || styleW || vbW || svg.clientWidth || 0;
+  let height = attrH || styleH || svg.clientHeight || 0;
+  if (vbW && vbH) {
+    if (!width && !height) {
+      width = vbW;
+      height = vbH;
+    } else if (width) {
+      height = width * (vbH / vbW);
+    } else {
+      width = height * (vbW / vbH);
+    }
   }
   if (!width || !height) {
     try {
@@ -83,6 +115,44 @@ function svgSize(svg: SVGSVGElement): { width: number; height: number } {
     width: Math.max(1, width || 640),
     height: Math.max(1, height || 240),
   };
+}
+
+function figureBox(el: Element): { width: number; height: number } {
+  if (el.tagName.toLowerCase() === "img") {
+    const img = el as HTMLImageElement;
+    return {
+      width: img.naturalWidth || img.clientWidth || 0,
+      height: img.naturalHeight || img.clientHeight || 0,
+    };
+  }
+  if (isSvgElement(el)) return svgSize(el);
+  return { width: el.clientWidth, height: el.clientHeight };
+}
+
+export function fitMermaidFigure(
+  wrap: HTMLElement,
+  maxWidth: number,
+  maxHeight = Number.POSITIVE_INFINITY,
+): void {
+  const el = wrap.querySelector("img, svg");
+  if (!el) return;
+  const box = figureBox(el);
+  if (!box.width || !box.height) return;
+  const widthLimit = Math.max(1, maxWidth);
+  const heightLimit = Math.max(1, maxHeight);
+  const scale = Math.min(widthLimit / box.width, heightLimit / box.height, 1);
+  const width = Math.max(1, Math.round(box.width * scale));
+  const height = Math.max(1, Math.round(box.height * scale));
+  const node = el as HTMLElement;
+  node.style.width = `${width}px`;
+  node.style.height = `${height}px`;
+  node.style.maxWidth = `${width}px`;
+  node.style.maxHeight = `${height}px`;
+  node.style.objectFit = "contain";
+  if (el.tagName.toLowerCase() === "svg") {
+    node.setAttribute("width", String(width));
+    node.setAttribute("height", String(height));
+  }
 }
 
 async function svgToPngDataUrl(svg: SVGSVGElement, background: string): Promise<string | null> {
@@ -122,6 +192,7 @@ async function svgToPngDataUrl(svg: SVGSVGElement, background: string): Promise<
 export type MermaidRenderOptions = {
   palette?: Palette;
   rasterize?: boolean;
+  maxHeight?: number;
 };
 
 export async function renderMermaidBlocks(
@@ -155,17 +226,45 @@ export async function renderMermaidBlocks(
       wrap.setAttribute("data-processed", "true");
       wrap.innerHTML = svg;
       node.replaceWith(wrap);
-      if (!options.rasterize) continue;
-      const svgEl = wrap.querySelector("svg");
-      if (!(svgEl instanceof SVGSVGElement)) continue;
-      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-      const png = await svgToPngDataUrl(svgEl, background);
-      if (!png || !wrap.isConnected) continue;
-      const image = doc.createElement("img");
-      image.src = png;
-      image.alt = "流程图";
-      image.className = "mermaid-image";
-      wrap.replaceChildren(image);
+      const svgEl = [...wrap.querySelectorAll("svg")].find(isSvgElement) ?? null;
+      if (svgEl) {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+        const laidOut = svgSize(svgEl);
+        svgEl.setAttribute("width", String(laidOut.width));
+        svgEl.setAttribute("height", String(laidOut.height));
+        svgEl.style.width = `${laidOut.width}px`;
+        svgEl.style.height = `${laidOut.height}px`;
+        const maxWidth = Math.max(1, wrap.clientWidth || wrap.parentElement?.clientWidth || 640);
+        const maxHeight = options.maxHeight ?? Number.POSITIVE_INFINITY;
+        if (options.rasterize || Number.isFinite(maxHeight)) {
+          fitMermaidFigure(wrap, maxWidth, maxHeight);
+        }
+      }
+      if (options.rasterize && svgEl && wrap.isConnected) {
+        const fitted = [...wrap.querySelectorAll("svg")].find(isSvgElement);
+        if (fitted) {
+          const png = await svgToPngDataUrl(fitted, background);
+          if (png && wrap.isConnected) {
+            const size = svgSize(fitted);
+            const image = doc.createElement("img");
+            image.alt = "流程图";
+            image.className = "mermaid-image";
+            image.style.width = `${size.width}px`;
+            image.style.height = `${size.height}px`;
+            image.style.maxWidth = `${size.width}px`;
+            image.style.maxHeight = `${size.height}px`;
+            image.style.objectFit = "contain";
+            wrap.style.width = `${size.width}px`;
+            wrap.style.margin = "0 auto";
+            await new Promise<void>((resolve) => {
+              image.onload = () => resolve();
+              image.onerror = () => resolve();
+              image.src = png;
+            });
+            wrap.replaceChildren(image);
+          }
+        }
+      }
     } catch {
       if (!node.isConnected) continue;
       node.setAttribute("data-processed", "true");

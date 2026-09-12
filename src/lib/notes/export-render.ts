@@ -1,5 +1,6 @@
 import type { Palette } from "./theme";
 import { renderMermaidBlocks } from "./mermaid-render.ts";
+import { pageContentHeight, type KeepRange } from "./export-pdf.ts";
 
 const UNSUPPORTED_COLOR = /oklab|oklch|(?<![a-z-])lab\(|(?<![a-z-])lch\(|color-mix\s*\(|color\s*\(/i;
 
@@ -99,17 +100,30 @@ pre.plain-text {
 .hljs { background: transparent; padding: 0; }
 img { max-width: 100%; height: auto; display: block; }
 .mermaid-block {
-  margin: 0 0 16px;
+  margin: 0 auto 16px;
   padding: 12px 10px;
   background: ${palette.paper};
   border-radius: 10px;
   overflow: hidden;
+  width: fit-content;
+  max-width: 100%;
+}
+.mermaid-svg {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
 }
 .mermaid-svg, .mermaid-block svg, .mermaid-block img {
   max-width: 100%;
-  height: auto;
   display: block;
   margin: 0 auto;
+  object-fit: contain;
+}
+.mermaid-block svg { height: auto; }
+article.fit-figures .mermaid-block img,
+article.fit-figures .mermaid-block svg {
+  max-height: 980px;
 }
 pre.mermaid {
   background: ${palette.paper};
@@ -308,12 +322,16 @@ async function loadHtml2Canvas() {
   }
 }
 
-export type KeepRange = { start: number; end: number };
+export type { KeepRange };
 
 export type ArticleCapture = {
   canvas: HTMLCanvasElement;
   breaks: number[];
   keeps: KeepRange[];
+};
+
+export type ArticleCaptureOptions = {
+  fitFiguresToPage?: boolean;
 };
 
 function collectLayout(article: HTMLElement, scale: number): {
@@ -328,12 +346,15 @@ function collectLayout(article: HTMLElement, scale: number): {
     "h1,h2,h3,h4,p,ul,ol,li,pre,blockquote,table,hr,img,.code-block,.mermaid-block",
   );
   for (const node of blocks) {
-    const rect = (node as HTMLElement).getBoundingClientRect();
+    const el = node as HTMLElement;
+    if (el.tagName === "IMG" && el.closest(".mermaid-block")) continue;
+    const rect = el.getBoundingClientRect();
     const start = toY(rect.top - root.top - 2);
     const end = toY(rect.bottom - root.top + 2);
     if (end <= start) continue;
     breaks.push(start, end);
-    const tag = node.tagName;
+    const tag = el.tagName;
+    const isMermaid = el.classList.contains("mermaid-block");
     const keep =
       tag === "PRE" ||
       tag === "TABLE" ||
@@ -343,9 +364,9 @@ function collectLayout(article: HTMLElement, scale: number): {
       tag === "BLOCKQUOTE" ||
       tag === "P" ||
       tag === "LI" ||
-      (node as HTMLElement).classList.contains("code-block") ||
-      (node as HTMLElement).classList.contains("mermaid-block");
-    if (keep) keeps.push({ start, end });
+      el.classList.contains("code-block") ||
+      isMermaid;
+    if (keep) keeps.push({ start, end, atomic: isMermaid });
   }
   return {
     breaks: [...new Set(breaks)].sort((a, b) => a - b),
@@ -356,6 +377,7 @@ function collectLayout(article: HTMLElement, scale: number): {
 export async function renderArticleCanvas(
   html: string,
   palette: Palette,
+  options: ArticleCaptureOptions = {},
 ): Promise<ArticleCapture> {
   const css = stripUnsupportedColors(exportArticleCss(palette), palette.fg);
   const iframe = document.createElement("iframe");
@@ -381,7 +403,11 @@ export async function renderArticleCanvas(
     await Promise.race([doc.fonts.ready, new Promise((resolve) => setTimeout(resolve, 400))]);
   }
   const article = (doc.querySelector("article") ?? doc.body) as HTMLElement;
-  await renderMermaidBlocks(article, { palette, rasterize: true });
+  if (options.fitFiguresToPage) article.classList.add("fit-figures");
+  const maxHeight = options.fitFiguresToPage
+    ? Math.max(240, pageContentHeight(article.clientWidth || 720) - 72)
+    : undefined;
+  await renderMermaidBlocks(article, { palette, rasterize: true, maxHeight });
   iframe.style.height = `${Math.max(800, article.scrollHeight + 48)}px`;
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
   fitInlineCode(article);
@@ -406,6 +432,16 @@ export async function renderArticleCanvas(
           pre.style.overflow = "hidden";
           pre.style.overflowWrap = "anywhere";
           pre.style.wordBreak = "break-word";
+        });
+        cloned.querySelectorAll("img.mermaid-image").forEach((node) => {
+          const img = node as HTMLImageElement;
+          const width = img.style.width;
+          const height = img.style.height;
+          if (!width || !height) return;
+          img.style.width = width;
+          img.style.height = height;
+          img.style.maxWidth = width;
+          img.style.maxHeight = height;
         });
         fitInlineCode(cloned);
       },

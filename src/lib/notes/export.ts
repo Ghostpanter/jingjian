@@ -148,7 +148,9 @@ export async function exportNotes(options: {
   }
 
   const html = articleHtml(options.note, markdown);
-  const rendered = await renderArticleCanvas(html, palette);
+  const rendered = await renderArticleCanvas(html, palette, {
+    fitFiguresToPage: options.format === "pdf",
+  });
   if (options.format === "image") {
     const blob = await new Promise<Blob>((resolve, reject) => {
       rendered.canvas.toBlob(
