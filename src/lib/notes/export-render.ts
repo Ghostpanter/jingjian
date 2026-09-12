@@ -8,44 +8,86 @@ html, body { margin: 0; padding: 0; background: ${palette.bg}; color: ${palette.
 article {
   box-sizing: border-box;
   width: 720px;
-  padding: 48px 40px;
+  padding: 44px 36px 56px;
   background: ${palette.bg};
   color: ${palette.fg};
   font-family: "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", Georgia, serif;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.75;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
-h1, h2, h3 { line-height: 1.25; font-weight: 600; }
-h1 { font-size: 30px; margin: 0 0 16px; }
-h2 { font-size: 22px; margin: 28px 0 12px; }
-h3 { font-size: 19px; margin: 24px 0 8px; }
-p, ul, ol, blockquote, pre, table { margin: 0 0 16px; }
+h1, h2, h3, h4 { line-height: 1.3; font-weight: 600; overflow-wrap: anywhere; }
+h1 { font-size: 28px; margin: 0 0 16px; }
+h2 { font-size: 21px; margin: 28px 0 12px; }
+h3 { font-size: 18px; margin: 22px 0 8px; }
+p, blockquote, table { margin: 0 0 14px; }
+ul, ol { margin: 0 0 14px; padding-left: 1.6em; }
+li { margin: 0 0 8px; }
+li > p { margin: 0 0 8px; }
+li > ul, li > ol { margin: 8px 0 0; }
 a { color: ${palette.accent}; }
 blockquote {
   border-left: 3px solid ${palette.accent};
-  padding: 2px 0 2px 16px;
+  padding: 2px 0 2px 14px;
   color: ${palette.muted};
 }
 code {
-  font-family: ui-monospace, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
   background: ${palette.overlay};
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 0.1em 0.35em;
   color: ${palette.fg};
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.code-block {
+  margin: 0 0 16px;
+  border-radius: 10px;
+  background: ${palette.surface};
+  overflow: hidden;
 }
 pre {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   background: ${palette.surface};
   color: ${palette.fg};
-  border-radius: 12px;
-  padding: 16px;
-  overflow-x: auto;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0 0 16px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 2;
 }
-pre code { background: transparent; padding: 0; }
-img { max-width: 100%; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border-bottom: 1px solid ${palette.border}; padding: 8px 10px; text-align: left; color: ${palette.fg}; }
-hr { border: 0; border-top: 1px solid ${palette.border}; margin: 24px 0; }
+.code-block pre { margin: 0; background: transparent; }
+pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+}
+.hljs { background: transparent; padding: 0; }
+img { max-width: 100%; height: auto; display: block; }
+table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+th, td {
+  border-bottom: 1px solid ${palette.border};
+  padding: 8px 10px;
+  text-align: left;
+  color: ${palette.fg};
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+hr { border: 0; border-top: 1px solid ${palette.border}; margin: 22px 0; }
 `.trim();
 }
 
@@ -201,20 +243,68 @@ async function loadHtml2Canvas() {
   }
 }
 
+export type KeepRange = { start: number; end: number };
+
+export type ArticleCapture = {
+  canvas: HTMLCanvasElement;
+  breaks: number[];
+  keeps: KeepRange[];
+};
+
+function collectLayout(article: HTMLElement, scale: number): {
+  breaks: number[];
+  keeps: KeepRange[];
+} {
+  const root = article.getBoundingClientRect();
+  const toY = (value: number) => Math.max(0, Math.round(value * scale));
+  const breaks: number[] = [];
+  const keeps: KeepRange[] = [];
+  const blocks = article.querySelectorAll(
+    "h1,h2,h3,h4,p,ul,ol,li,pre,blockquote,table,hr,img,.code-block,.mermaid-block",
+  );
+  for (const node of blocks) {
+    const rect = (node as HTMLElement).getBoundingClientRect();
+    const start = toY(rect.top - root.top - 2);
+    const end = toY(rect.bottom - root.top + 2);
+    if (end <= start) continue;
+    breaks.push(start, end);
+    const tag = node.tagName;
+    const keep =
+      tag === "PRE" ||
+      tag === "TABLE" ||
+      tag === "H1" ||
+      tag === "H2" ||
+      tag === "H3" ||
+      tag === "BLOCKQUOTE" ||
+      tag === "P" ||
+      tag === "LI" ||
+      (node as HTMLElement).classList.contains("code-block");
+    if (keep) keeps.push({ start, end });
+  }
+  return {
+    breaks: [...new Set(breaks)].sort((a, b) => a - b),
+    keeps: keeps.sort((a, b) => a.start - b.start),
+  };
+}
+
 export async function renderArticleCanvas(
   html: string,
   palette: Palette,
-): Promise<HTMLCanvasElement> {
+): Promise<ArticleCapture> {
   const css = stripUnsupportedColors(exportArticleCss(palette), palette.fg);
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   iframe.style.cssText =
     "position:fixed;left:-12000px;top:0;width:720px;height:1200px;border:0;opacity:0;pointer-events:none;";
   document.body.appendChild(iframe);
+  const fallback = () => {
+    const canvas = drawPlainCanvas(html.replace(/<[^>]+>/g, " "), palette);
+    return { canvas, breaks: [], keeps: [] };
+  };
   const doc = iframe.contentDocument;
   if (!doc) {
     iframe.remove();
-    return drawPlainCanvas(html.replace(/<[^>]+>/g, " "), palette);
+    return fallback();
   }
   doc.open();
   doc.write(
@@ -224,13 +314,15 @@ export async function renderArticleCanvas(
   if (doc.fonts?.ready) {
     await Promise.race([doc.fonts.ready, new Promise((resolve) => setTimeout(resolve, 400))]);
   }
-  const article = doc.querySelector("article") ?? doc.body;
-  iframe.style.height = `${Math.max(800, article.scrollHeight + 40)}px`;
+  const article = (doc.querySelector("article") ?? doc.body) as HTMLElement;
+  iframe.style.height = `${Math.max(800, article.scrollHeight + 48)}px`;
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+  const scale = 2;
+  const layout = collectLayout(article, scale);
   try {
     const html2canvas = await loadHtml2Canvas();
-    return await html2canvas(article as HTMLElement, {
-      scale: 2,
+    const canvas = await html2canvas(article, {
+      scale,
       backgroundColor: palette.bg,
       useCORS: true,
       logging: false,
@@ -239,11 +331,18 @@ export async function renderArticleCanvas(
       foreignObjectRendering: false,
       onclone(cloned) {
         flattenUnsupportedColors(cloned, palette);
+        cloned.querySelectorAll("pre").forEach((pre) => {
+          pre.style.whiteSpace = "pre-wrap";
+          pre.style.overflow = "hidden";
+          pre.style.overflowWrap = "anywhere";
+          pre.style.wordBreak = "break-word";
+        });
       },
     });
+    return { canvas, breaks: layout.breaks, keeps: layout.keeps };
   } catch {
     const text = (article.textContent || "").replace(/\n{3,}/g, "\n\n");
-    return drawPlainCanvas(text, palette);
+    return { canvas: drawPlainCanvas(text, palette), breaks: [], keeps: [] };
   } finally {
     iframe.remove();
   }

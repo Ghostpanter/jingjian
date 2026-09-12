@@ -17,7 +17,7 @@ const root = path.resolve(".");
 const staging = path.join(root, ".desktop-stage");
 const outDir = path.join(os.tmpdir(), "jingjian-desktop");
 const artifacts = path.join(root, "artifacts");
-const version = "1.6.0";
+const version = "1.6.1";
 const electronVersion = require("electron/package.json").version;
 
 function run(command, args) {
@@ -139,9 +139,9 @@ for (const platform of platforms) {
 }
 
 const zips = [
-  ["Jingjian-linux-x64", "jingjian-v1.6.0-linux-x64.zip"],
-  ["Jingjian-win32-x64", "jingjian-v1.6.0-win-x64.zip"],
-  ["Jingjian-darwin-x64", "jingjian-v1.6.0-mac-x64.zip"],
+  ["Jingjian-linux-x64", `jingjian-v${version}-linux-x64.zip`],
+  ["Jingjian-win32-x64", `jingjian-v${version}-win-x64.zip`],
+  ["Jingjian-darwin-x64", `jingjian-v${version}-mac-x64.zip`],
 ];
 for (const [folder, zipName] of zips) {
   const source = path.join(outDir, folder);

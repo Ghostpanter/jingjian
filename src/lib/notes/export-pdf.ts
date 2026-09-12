@@ -6,6 +6,8 @@ export type PdfPage = {
   height: number;
 };
 
+export type KeepRange = { start: number; end: number };
+
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
 const MARGIN = 36;
@@ -97,7 +99,7 @@ export function jpegPagesToPdf(pages: PdfPage[]): Uint8Array {
 
 export async function canvasToJpeg(
   canvas: HTMLCanvasElement,
-  quality = 0.82,
+  quality = 0.86,
 ): Promise<Uint8Array> {
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
@@ -109,22 +111,159 @@ export async function canvasToJpeg(
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-export function sliceCanvasToPages(source: HTMLCanvasElement): HTMLCanvasElement[] {
-  const pageHeight = Math.max(1, Math.round((source.width * (PAGE_H - MARGIN * 2)) / (PAGE_W - MARGIN * 2)));
+export function pageContentHeight(canvasWidth: number): number {
+  return Math.max(1, Math.round((canvasWidth * (PAGE_H - MARGIN * 2)) / (PAGE_W - MARGIN * 2)));
+}
+
+export function choosePageCut(input: {
+  top: number;
+  pageHeight: number;
+  contentHeight: number;
+  breaks: number[];
+  keeps: KeepRange[];
+}): number {
+  const { top, pageHeight, contentHeight, breaks, keeps } = input;
+  const ideal = Math.min(top + pageHeight, contentHeight);
+  if (ideal >= contentHeight - 2) return contentHeight;
+  const minY = top + Math.floor(pageHeight * 0.68);
+  const sortedKeeps = [...keeps].sort((a, b) => a.start - b.start);
+  for (const keep of sortedKeeps) {
+    if (keep.end - keep.start > pageHeight) continue;
+    if (keep.start < minY || keep.start >= ideal) continue;
+    if (keep.end > ideal) return Math.max(top + 1, Math.round(keep.start));
+  }
+  let best = 0;
+  for (const y of breaks) {
+    if (y > minY && y <= ideal && y > best) best = y;
+  }
+  if (best >= minY) return Math.round(best);
+  return ideal;
+}
+
+function parseHex(color: string): [number, number, number] {
+  const raw = color.trim().replace("#", "");
+  const hex =
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((part) => part + part)
+          .join("")
+      : raw.padEnd(6, "0").slice(0, 6);
+  const value = Number.parseInt(hex, 16);
+  if (Number.isNaN(value)) return [255, 255, 255];
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+function findQuietCut(
+  canvas: HTMLCanvasElement,
+  minY: number,
+  ideal: number,
+  background: string,
+): number | null {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const height = ideal - minY;
+  if (height < 12) return null;
+  const width = canvas.width;
+  let image: ImageData;
+  try {
+    image = ctx.getImageData(0, minY, width, height);
+  } catch {
+    return null;
+  }
+  const [br, bg, bb] = parseHex(background);
+  const ink = new Float32Array(height);
+  for (let y = 0; y < height; y += 1) {
+    let count = 0;
+    const row = y * width * 4;
+    for (let x = 0; x < width; x += 1) {
+      const i = row + x * 4;
+      const dr = image.data[i] - br;
+      const dg = image.data[i + 1] - bg;
+      const db = image.data[i + 2] - bb;
+      if (dr * dr + dg * dg + db * db > 900) count += 1;
+    }
+    ink[y] = count / width;
+  }
+  const threshold = 0.02;
+  let y = height - 1;
+  while (y >= 0) {
+    if (ink[y] > threshold) {
+      y -= 1;
+      continue;
+    }
+    let start = y;
+    while (start >= 0 && ink[start] <= threshold) start -= 1;
+    start += 1;
+    if (y - start + 1 >= 8) return minY + y;
+    y = start - 1;
+  }
+  return null;
+}
+
+function copySlice(
+  source: HTMLCanvasElement,
+  top: number,
+  sliceHeight: number,
+  background: string,
+): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = source.width;
+  canvas.height = Math.max(1, sliceHeight);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(
+    source,
+    0,
+    top,
+    source.width,
+    sliceHeight,
+    0,
+    0,
+    source.width,
+    sliceHeight,
+  );
+  return canvas;
+}
+
+export function sliceCanvasToPages(
+  source: HTMLCanvasElement,
+  options?: {
+    background?: string;
+    breaks?: number[];
+    keeps?: KeepRange[];
+  },
+): HTMLCanvasElement[] {
+  const pageHeight = pageContentHeight(source.width);
+  const background = options?.background ?? "#ffffff";
+  const breaks = options?.breaks ?? [];
+  const keeps = options?.keeps ?? [];
   const pages: HTMLCanvasElement[] = [];
   let top = 0;
   while (top < source.height) {
-    const slice = Math.min(pageHeight, source.height - top);
-    const canvas = document.createElement("canvas");
-    canvas.width = source.width;
-    canvas.height = slice;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) break;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(source, 0, top, source.width, slice, 0, 0, source.width, slice);
-    pages.push(canvas);
-    top += slice;
+    const remaining = source.height - top;
+    if (remaining <= pageHeight + 4) {
+      pages.push(copySlice(source, top, remaining, background));
+      break;
+    }
+    const minY = top + Math.floor(pageHeight * 0.68);
+    const ideal = top + pageHeight;
+    let cut = choosePageCut({
+      top,
+      pageHeight,
+      contentHeight: source.height,
+      breaks,
+      keeps,
+    });
+    if (cut >= ideal - 1) {
+      const quiet = findQuietCut(source, minY, ideal, background);
+      if (quiet != null) cut = quiet;
+    }
+    cut = Math.max(top + 32, Math.min(cut, source.height));
+    pages.push(copySlice(source, top, cut - top, background));
+    top = cut;
   }
   return pages.length > 0 ? pages : [source];
 }

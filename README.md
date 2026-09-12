@@ -24,7 +24,7 @@
 
 工具栏下载按钮打开导出，对应 Typora「通用」里框出的格式。
 
-每次导出会打开系统对话框，由你选择保存到哪个文件夹。平板用系统「另存为」，电脑用保存对话框或浏览器下载。
+每次导出会打开系统对话框，由你选择保存到哪个文件夹。平板用系统「另存为」，电脑用保存对话框或浏览器下载。PDF 按段落和代码块分页，长命令会自动换行，不会从一行中间裁开。
 
 导入 EPUB 后章节出现在侧栏。阅读页可翻章，铅笔即可改这一章，改完再「导出本书」。
 
@@ -99,7 +99,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.0.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.1.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -107,9 +107,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.0-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
-- `jingjian-v1.6.0-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
-- `jingjian-v1.6.0-linux-x64.zip`：解压后运行 `Jingjian`
+- `jingjian-v1.6.1-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
+- `jingjian-v1.6.1-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
+- `jingjian-v1.6.1-linux-x64.zip`：解压后运行 `Jingjian`
 
 桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
 

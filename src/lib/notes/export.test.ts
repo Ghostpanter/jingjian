@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { markdownToDocx, markdownToHtmlDocument, markdownToOdt, markdownToRtf } from "./export-formats.ts";
-import { jpegPagesToPdf } from "./export-pdf.ts";
+import { jpegPagesToPdf, choosePageCut } from "./export-pdf.ts";
 import { cssUsesUnsupportedColor, exportArticleCss, stripUnsupportedColors } from "./export-render.ts";
 import { buildEpub, parseEpub } from "./epub.ts";
 import { sanitizeHref } from "./markdown.ts";
@@ -80,4 +80,50 @@ test("strips oklab color functions from cloned css", () => {
   assert.equal(cssUsesUnsupportedColor(safe), false);
   assert.ok(!/oklab|color-mix/i.test(safe));
   assert.match(safe, /#111111/);
+});
+
+test("pdf capture css wraps code instead of clipping", () => {
+  const css = exportArticleCss(paletteFor(DEFAULT_THEME));
+  assert.match(css, /pre-wrap/);
+  assert.match(css, /break-word/);
+  assert.doesNotMatch(css, /overflow-x:\s*auto/);
+});
+
+test("pdf page cut prefers a block end near the page bottom", () => {
+  assert.equal(
+    choosePageCut({
+      top: 0,
+      pageHeight: 1000,
+      contentHeight: 4000,
+      breaks: [200, 640, 910, 1500],
+      keeps: [],
+    }),
+    910,
+  );
+});
+
+test("pdf page cut moves an unsplittable block onto the next page", () => {
+  assert.equal(
+    choosePageCut({
+      top: 0,
+      pageHeight: 1000,
+      contentHeight: 4000,
+      breaks: [500],
+      keeps: [{ start: 800, end: 1500 }],
+    }),
+    800,
+  );
+});
+
+test("pdf page cut does not leave the page almost empty", () => {
+  assert.equal(
+    choosePageCut({
+      top: 0,
+      pageHeight: 1000,
+      contentHeight: 4000,
+      breaks: [100, 200],
+      keeps: [{ start: 200, end: 1800 }],
+    }),
+    1000,
+  );
 });

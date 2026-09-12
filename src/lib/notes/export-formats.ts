@@ -102,11 +102,14 @@ html, body { margin: 0; background: var(--color-bg, #f2ede4); color: var(--color
 .md-body h1 { font-size: 1.85rem; margin: 0 0 1rem; }
 .md-body h2 { font-size: 1.4rem; margin: 1.75rem 0 0.75rem; }
 .md-body h3 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
-.md-body p, .md-body ul, .md-body ol, .md-body blockquote, .md-body pre, .md-body table { margin: 0 0 1rem; }
+.md-body p, .md-body blockquote, .md-body table { margin: 0 0 1rem; }
+.md-body ul, .md-body ol { margin: 0 0 1rem; padding-left: 1.6em; }
+.md-body li { margin: 0 0 0.5rem; }
 .md-body a { color: var(--color-accent, #2c4a42); }
 .md-body blockquote { border-left: 3px solid var(--color-accent, #2c4a42); padding-left: 1rem; color: var(--color-muted, #6a6358); }
-.md-body code { font-family: ui-monospace, monospace; background: var(--color-overlay, #ddd4c4); border-radius: 6px; padding: 0.1em 0.35em; }
-.md-body pre { background: var(--color-surface, #e8e0d2); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+.md-body code { font-family: ui-monospace, monospace; background: var(--color-overlay, #ddd4c4); border-radius: 6px; padding: 0.1em 0.35em; overflow-wrap: anywhere; }
+.md-body pre { background: var(--color-surface, #e8e0d2); border-radius: 12px; padding: 1rem; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.md-body pre code { white-space: inherit; }
 .md-body img { max-width: 100%; }
 .md-body table { border-collapse: collapse; width: 100%; }
 .md-body th, .md-body td { border-bottom: 1px solid var(--color-border, #d5cbb8); padding: 0.5rem 0.6rem; text-align: left; }

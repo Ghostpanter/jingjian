@@ -124,10 +124,10 @@ export async function exportNotes(options: {
   }
 
   const html = renderMarkdown(markdown);
-  const canvas = await renderArticleCanvas(html, palette);
+  const rendered = await renderArticleCanvas(html, palette);
   if (options.format === "image") {
     const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
+      rendered.canvas.toBlob(
         (value) => (value ? resolve(value) : reject(new Error("无法导出图片"))),
         "image/png",
       );
@@ -136,7 +136,11 @@ export async function exportNotes(options: {
   }
 
   const pages = [];
-  for (const slice of sliceCanvasToPages(canvas)) {
+  for (const slice of sliceCanvasToPages(rendered.canvas, {
+    background: palette.bg,
+    breaks: rendered.breaks,
+    keeps: rendered.keeps,
+  })) {
     pages.push({
       jpeg: await canvasToJpeg(slice),
       width: slice.width,
