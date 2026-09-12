@@ -1,6 +1,7 @@
 import { cssVarsFromPalette, paletteFor, readThemeConfig } from "./theme";
 import { firstLineTitle } from "./markdown-file";
 import { renderMarkdown } from "./markdown";
+import { escapeHtml } from "./escape-html";
 import { getImage } from "./image-store";
 import {
   markdownToDocx,
@@ -10,7 +11,7 @@ import {
 } from "./export-formats";
 import { canvasToJpeg, jpegPagesToPdf, sliceCanvasToPages } from "./export-pdf";
 import { renderArticleCanvas } from "./export-render";
-import { saveExportedFile } from "./export-save";
+import { pickExportDestination, writeExportDestination } from "./export-save";
 import { buildEpub, chaptersFromNotes } from "./epub";
 import { safeFilename } from "./bytes";
 import type { Note } from "./types";
@@ -76,13 +77,28 @@ async function embedLocalImages(markdown: string): Promise<string> {
   return next;
 }
 
+function articleHtml(note: Note, markdown: string): string {
+  if (note.format === "txt") {
+    return `<pre class="plain-text">${escapeHtml(markdown)}</pre>`;
+  }
+  return renderMarkdown(markdown);
+}
+
 export async function exportNotes(options: {
   format: ExportFormat;
   note: Note;
   notes: Note[];
+  onPicked?: () => void;
 }): Promise<string> {
   const title = firstLineTitle(options.note.content);
   const filename = `${safeFilename(title)}.${EXT[options.format]}`;
+  const destName =
+    options.format === "epub" && options.note.bookId
+      ? `${safeFilename(options.note.bookTitle || title)}.epub`
+      : filename;
+  const dest = await pickExportDestination(destName, MIME[options.format]);
+  options.onPicked?.();
+
   const theme = readThemeConfig();
   const palette = paletteFor(theme);
   const markdown = await embedLocalImages(options.note.content);
@@ -92,18 +108,19 @@ export async function exportNotes(options: {
       title,
       styled: options.format === "html",
       cssVars: cssVarsFromPalette(palette),
+      plain: options.note.format === "txt",
     });
-    return saveExportedFile(filename, bytes, MIME[options.format]);
+    return writeExportDestination(dest, bytes);
   }
 
   if (options.format === "rtf") {
-    return saveExportedFile(filename, markdownToRtf(markdown), MIME.rtf);
+    return writeExportDestination(dest, markdownToRtf(markdown));
   }
   if (options.format === "docx") {
-    return saveExportedFile(filename, await markdownToDocx(markdown), MIME.docx);
+    return writeExportDestination(dest, await markdownToDocx(markdown));
   }
   if (options.format === "odt") {
-    return saveExportedFile(filename, await markdownToOdt(markdown), MIME.odt);
+    return writeExportDestination(dest, await markdownToOdt(markdown));
   }
   if (options.format === "epub") {
     const siblings = options.note.bookId
@@ -119,11 +136,10 @@ export async function exportNotes(options: {
         })),
       ),
     });
-    const bookName = `${safeFilename(book.title)}.epub`;
-    return saveExportedFile(bookName, bytes, MIME.epub);
+    return writeExportDestination(dest, bytes);
   }
 
-  const html = renderMarkdown(markdown);
+  const html = articleHtml(options.note, markdown);
   const rendered = await renderArticleCanvas(html, palette);
   if (options.format === "image") {
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -132,7 +148,7 @@ export async function exportNotes(options: {
         "image/png",
       );
     });
-    return saveExportedFile(filename, new Uint8Array(await blob.arrayBuffer()), MIME.image);
+    return writeExportDestination(dest, new Uint8Array(await blob.arrayBuffer()));
   }
 
   const pages = [];
@@ -147,5 +163,5 @@ export async function exportNotes(options: {
       height: slice.height,
     });
   }
-  return saveExportedFile(filename, jpegPagesToPdf(pages), MIME.pdf);
+  return writeExportDestination(dest, jpegPagesToPdf(pages));
 }

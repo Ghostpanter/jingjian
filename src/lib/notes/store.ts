@@ -13,7 +13,7 @@ type NotesState = {
   sidebarOpen: boolean;
   hydrated: boolean;
   editorEpoch: number;
-  createNote: () => string;
+  createNote: (options?: { format?: Note["format"] }) => string;
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
   selectNote: (id: string) => void;
@@ -96,8 +96,14 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   sidebarOpen: true,
   hydrated: false,
   editorEpoch: 0,
-  createNote: () => {
-    const existingEmpty = get().notes.find((note) => !note.content.trim());
+  createNote: (options?) => {
+    const format = options?.format === "txt" ? "txt" : undefined;
+    const existingEmpty = get().notes.find(
+      (note) =>
+        !note.content.trim() &&
+        !note.bookId &&
+        (note.format ?? "md") === (format ?? "md"),
+    );
     if (existingEmpty) {
       set({ activeId: existingEmpty.id, query: "", sidebarOpen: false });
       return existingEmpty.id;
@@ -108,6 +114,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       content: "",
       createdAt: now,
       updatedAt: now,
+      ...(format ? { format } : {}),
     };
     set({
       notes: [note, ...get().notes],

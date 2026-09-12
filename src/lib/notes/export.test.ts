@@ -4,6 +4,7 @@ import { markdownToDocx, markdownToHtmlDocument, markdownToOdt, markdownToRtf } 
 import { jpegPagesToPdf, choosePageCut } from "./export-pdf.ts";
 import { cssUsesUnsupportedColor, exportArticleCss, stripUnsupportedColors } from "./export-render.ts";
 import { buildEpub, parseEpub } from "./epub.ts";
+import { filenameForNote, parseNoteFile, serializeNote } from "./markdown-file.ts";
 import { sanitizeHref } from "./markdown.ts";
 import { DEFAULT_THEME, paletteFor } from "./theme.ts";
 
@@ -82,11 +83,38 @@ test("strips oklab color functions from cloned css", () => {
   assert.match(safe, /#111111/);
 });
 
-test("pdf capture css wraps code instead of clipping", () => {
+test("pdf capture css wraps fenced code instead of clipping", () => {
   const css = exportArticleCss(paletteFor(DEFAULT_THEME));
-  assert.match(css, /pre-wrap/);
-  assert.match(css, /break-word/);
+  assert.match(css, /pre \{[\s\S]*white-space:\s*pre-wrap/);
+  assert.match(css, /pre \{[\s\S]*break-word/);
   assert.doesNotMatch(css, /overflow-x:\s*auto/);
+});
+
+test("pdf capture css keeps inline code as a single box", () => {
+  const css = exportArticleCss(paletteFor(DEFAULT_THEME));
+  const article = css.match(/article \{[\s\S]*?\n\}/)?.[0] ?? "";
+  const code = css.match(/\ncode \{[\s\S]*?\n\}/)?.[0] ?? "";
+  assert.match(article, /overflow-wrap:\s*break-word/);
+  assert.doesNotMatch(article, /anywhere/);
+  assert.match(code, /white-space:\s*nowrap/);
+  assert.match(code, /inline-block/);
+  assert.doesNotMatch(code, /anywhere/);
+});
+
+test("txt notes keep format through serialize and filename", () => {
+  const note = {
+    id: "11111111-2222-4333-a444-555555555555",
+    content: "私有网络\ncmdb-standalone",
+    createdAt: 1,
+    updatedAt: 2,
+    format: "txt" as const,
+  };
+  const raw = serializeNote(note);
+  assert.match(raw, /format: txt/);
+  const parsed = parseNoteFile(raw, "fallback");
+  assert.equal(parsed.format, "txt");
+  assert.equal(parsed.content, note.content);
+  assert.match(filenameForNote(note), /\.txt$/);
 });
 
 test("pdf page cut prefers a block end near the page bottom", () => {

@@ -15,18 +15,19 @@
 - 新建 / 删除（删除前确认）
 - 字数与自动保存
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
-- 电子书：导入 EPUB、阅读翻章、按章编辑后再导出
+- 电子书：左侧 + 导入 EPUB、阅读翻章、按章编辑后再导出
+- 左侧 +：新建 Markdown / 纯文本，导入 Markdown、TXT、EPUB
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色
 - 同步：静笺服务器、WebDAV、本机目录
 - 键盘操作（`Ctrl+N` 新建，`Ctrl+,` 设置，`Ctrl+Shift+E` 导出，`?` 查看全部）
 
 ## 导出与电子书
 
-工具栏下载按钮打开导出，对应 Typora「通用」里框出的格式。
+工具栏下载按钮只负责导出，对应 Typora「通用」里框出的格式。新建和导入都在左侧 + 号。
 
-每次导出会打开系统对话框，由你选择保存到哪个文件夹。平板用系统「另存为」，电脑用保存对话框或浏览器下载。PDF 按段落和代码块分页，长命令会自动换行，不会从一行中间裁开。
+每次导出会先打开系统对话框，选好位置后再生成文件。平板用系统「另存为」，电脑用保存对话框或浏览器下载。PDF 按段落和代码块分页；行内代码保持一整块，长命令会在代码块内换行，不会从单词中间裁开。
 
-导入 EPUB 后章节出现在侧栏。阅读页可翻章，铅笔即可改这一章，改完再「导出本书」。
+导入 EPUB、Markdown、TXT 后出现在侧栏。阅读页可翻章，铅笔即可改这一章，改完再「导出本书」。
 
 ## 主题
 
@@ -99,7 +100,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.1.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.2.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -107,9 +108,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.1-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
-- `jingjian-v1.6.1-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
-- `jingjian-v1.6.1-linux-x64.zip`：解压后运行 `Jingjian`
+- `jingjian-v1.6.2-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
+- `jingjian-v1.6.2-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
+- `jingjian-v1.6.2-linux-x64.zip`：解压后运行 `Jingjian`
 
 桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
 

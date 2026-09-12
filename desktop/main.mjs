@@ -31,6 +31,26 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle("export-pick", async (_event, payload) => {
+    const filename = String(payload?.filename || "export.bin");
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "导出",
+      defaultPath: filename,
+      filters: [{ name: filename, extensions: [filename.split(".").pop() || "bin"] }],
+    });
+    if (canceled || !filePath) {
+      throw new Error("cancelled");
+    }
+    return filePath;
+  });
+  ipcMain.handle("export-write", async (_event, payload) => {
+    const filePath = String(payload?.filePath || "");
+    if (!filePath) {
+      throw new Error("缺少保存路径");
+    }
+    await writeFile(filePath, Buffer.from(String(payload?.base64 || ""), "base64"));
+    return filePath;
+  });
   ipcMain.handle("export-save", async (_event, payload) => {
     const filename = String(payload?.filename || "export.bin");
     const mime = String(payload?.mime || "application/octet-stream");

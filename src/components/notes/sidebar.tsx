@@ -1,4 +1,6 @@
+import { useRef, useState } from "react";
 import { BookOpen, Plus, Search, Settings, X } from "lucide-react";
+import { CreateMenu } from "@/components/notes/create-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +20,12 @@ type SidebarProps = {
   onQueryChange: (value: string) => void;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onCreateText: () => void;
+  onImportMarkdown: () => void;
+  onImportTxt: () => void;
+  onImportEpub: () => void;
+  onMakeBook: () => void;
+  onAddChapter: () => void;
   onCloseMobile: () => void;
   onOpenSettings: () => void;
   onReadBook?: (noteId: string) => void;
@@ -32,12 +40,27 @@ export function Sidebar({
   onQueryChange,
   onSelect,
   onCreate,
+  onCreateText,
+  onImportMarkdown,
+  onImportTxt,
+  onImportEpub,
+  onMakeBook,
+  onAddChapter,
   onCloseMobile,
   onOpenSettings,
   onReadBook,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
+  const [createOpen, setCreateOpen] = useState(false);
+  const createBtnRef = useRef<HTMLDivElement>(null);
+  const active = notes.find((note) => note.id === activeId);
+  const hasBook = Boolean(active?.bookId);
+  const canMakeBook = Boolean(active) && !active?.bookId;
+
+  function closeCreate() {
+    setCreateOpen(false);
+  }
 
   return (
     <div className="app-sidebar-inner bg-surface text-fg">
@@ -72,14 +95,52 @@ export function Sidebar({
         >
           <Settings />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="新建笔记"
-          onClick={onCreate}
-        >
-          <Plus />
-        </Button>
+        <div className="relative" ref={createBtnRef}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="新建或导入"
+            aria-expanded={createOpen}
+            onClick={() => setCreateOpen((open) => !open)}
+          >
+            <Plus />
+          </Button>
+          <CreateMenu
+            open={createOpen}
+            anchor={createBtnRef.current}
+            hasBook={hasBook}
+            canMakeBook={canMakeBook}
+            onOpenChange={setCreateOpen}
+            onCreateMarkdown={() => {
+              closeCreate();
+              onCreate();
+            }}
+            onCreateText={() => {
+              closeCreate();
+              onCreateText();
+            }}
+            onImportMarkdown={() => {
+              closeCreate();
+              onImportMarkdown();
+            }}
+            onImportTxt={() => {
+              closeCreate();
+              onImportTxt();
+            }}
+            onImportEpub={() => {
+              closeCreate();
+              onImportEpub();
+            }}
+            onMakeBook={() => {
+              closeCreate();
+              onMakeBook();
+            }}
+            onAddChapter={() => {
+              closeCreate();
+              onAddChapter();
+            }}
+          />
+        </div>
       </div>
 
       <div className="px-3 pb-3">
@@ -160,6 +221,11 @@ export function Sidebar({
                           <span className="min-w-0 flex-1 truncate font-medium text-fg">
                             {titleFromContent(note.content)}
                           </span>
+                          {note.format === "txt" ? (
+                            <span className="shrink-0 text-[10px] tracking-wide text-subtle">
+                              TXT
+                            </span>
+                          ) : null}
                         </span>
                         <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
                           {snippetFromContent(note.content)}

@@ -6,29 +6,19 @@ import { cn } from "@/lib/utils";
 type ExportMenuProps = {
   open: boolean;
   busy?: boolean;
-  canRead?: boolean;
   hasBook?: boolean;
   onOpenChange: (open: boolean) => void;
   onExport: (format: ExportFormat) => void;
-  onImport: () => void;
-  onRead: () => void;
   onExportBook: () => void;
-  onMakeBook: () => void;
-  onAddChapter: () => void;
 };
 
 export function ExportMenu({
   open,
   busy = false,
-  canRead = false,
   hasBook = false,
   onOpenChange,
   onExport,
-  onImport,
-  onRead,
   onExportBook,
-  onMakeBook,
-  onAddChapter,
 }: ExportMenuProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +45,7 @@ export function ExportMenu({
         通用
       </div>
       <p className="mb-1 px-1 text-xs leading-relaxed text-subtle">
-        导出时会打开系统对话框，选择保存的文件夹。
+        先选择保存位置，再生成文件。
       </p>
       <div className="export-formats">
         {EXPORT_OPTIONS.map((item) => (
@@ -75,35 +65,9 @@ export function ExportMenu({
           </button>
         ))}
       </div>
-      <div className="my-2 h-px bg-border" />
-      <div className="px-1 py-1 text-xs text-subtle">电子书</div>
-      <button
-        type="button"
-        role="menuitem"
-        className="btn-press flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-overlay"
-        onClick={onImport}
-      >
-        导入 EPUB
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        disabled={!canRead}
-        className="btn-press flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-overlay disabled:opacity-40"
-        onClick={onRead}
-      >
-        阅读
-      </button>
       {hasBook ? (
         <>
-          <button
-            type="button"
-            role="menuitem"
-            className="btn-press flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-overlay"
-            onClick={onAddChapter}
-          >
-            新建章节
-          </button>
+          <div className="my-2 h-px bg-border" />
           <button
             type="button"
             role="menuitem"
@@ -114,17 +78,7 @@ export function ExportMenu({
             导出本书
           </button>
         </>
-      ) : (
-        <button
-          type="button"
-          role="menuitem"
-          disabled={!canRead}
-          className="btn-press flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-overlay disabled:opacity-40"
-          onClick={onMakeBook}
-        >
-          做成电子书
-        </button>
-      )}
+      ) : null}
       <div className="mt-2 flex justify-end">
         <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
           关闭

@@ -7,6 +7,13 @@ type NativeFolderPlugin = {
   write(options: { name: string; content: string; shortId: string }): Promise<void>;
   remove(options: { shortId: string }): Promise<void>;
   saveFile(options: { name: string; mime: string; data: string }): Promise<{ uri: string; name: string }>;
+  pickSaveFile(options: { name: string; mime: string }): Promise<{ uri: string; name: string }>;
+  writeSaveFile(options: {
+    uri: string;
+    name: string;
+    mime: string;
+    data: string;
+  }): Promise<{ uri: string; name: string }>;
 };
 
 const plugin = registerPlugin<NativeFolderPlugin>("JingjianFolder");

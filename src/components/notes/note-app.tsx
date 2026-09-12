@@ -44,7 +44,8 @@ import {
   useNotesStore,
   useSortedNotes,
 } from "@/lib/notes/store";
-import type { PreviewMode } from "@/lib/notes/types";
+import { parseNoteFile } from "@/lib/notes/markdown-file";
+import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
 const VIEW_OPTIONS: { id: PreviewMode; label: string; icon: typeof Pencil }[] =
@@ -100,6 +101,8 @@ export function NoteApp() {
   const syncingRef = useRef(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bookInputRef = useRef<HTMLInputElement>(null);
+  const markdownInputRef = useRef<HTMLInputElement>(null);
+  const txtInputRef = useRef<HTMLInputElement>(null);
 
   const syncNow = useCallback(async (silent = false) => {
     const config = readSyncConfig();
@@ -376,6 +379,7 @@ export function NoteApp() {
         format,
         note: activeNote,
         notes: rawNotes,
+        onPicked: () => toast.message("正在生成…"),
       });
       setExportOpen(false);
       toast.message(`已保存到 ${path.split("/").pop() || path}`);
@@ -414,6 +418,34 @@ export function NoteApp() {
     }
   }
 
+  async function handleImportTextFiles(files: File[], format: "md" | "txt") {
+    const imported: Note[] = [];
+    try {
+      for (const file of files) {
+        const raw = await file.text();
+        if (format === "txt") {
+          imported.push({
+            id: crypto.randomUUID(),
+            content: raw.replace(/^\uFEFF/, ""),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            format: "txt",
+          });
+          continue;
+        }
+        imported.push(parseNoteFile(raw.replace(/^\uFEFF/, ""), crypto.randomUUID()));
+      }
+      if (imported.length === 0) {
+        toast.message("没有可导入的文件");
+        return;
+      }
+      importNotes(imported);
+      toast.message(imported.length === 1 ? "已导入 1 篇笔记" : `已导入 ${imported.length} 篇笔记`);
+    } catch (error) {
+      toast.message(error instanceof Error ? error.message : "导入失败");
+    }
+  }
+
   async function handlePickImage(file: File) {
     if (!activeNote) return;
     const selection = readEditorSelection();
@@ -431,8 +463,8 @@ export function NoteApp() {
     }
   }
 
-  function handleCreate() {
-    createNote();
+  function handleCreate(format: "md" | "txt" = "md") {
+    createNote(format === "txt" ? { format: "txt" } : undefined);
     window.setTimeout(() => document.getElementById("note-editor")?.focus(), 0);
   }
 
@@ -496,7 +528,27 @@ export function NoteApp() {
           now={now}
           onQueryChange={setQuery}
           onSelect={selectNote}
-          onCreate={handleCreate}
+          onCreate={() => handleCreate("md")}
+          onCreateText={() => handleCreate("txt")}
+          onImportMarkdown={() => markdownInputRef.current?.click()}
+          onImportTxt={() => txtInputRef.current?.click()}
+          onImportEpub={() => bookInputRef.current?.click()}
+          onMakeBook={() => {
+            if (!activeNote) {
+              toast.message("先打开一篇笔记");
+              return;
+            }
+            makeBookFromNote(activeNote.id);
+            toast.message("已做成电子书，可继续添加章节或导出 EPUB");
+          }}
+          onAddChapter={() => {
+            if (!activeNote?.bookId) {
+              toast.message("先做成电子书");
+              return;
+            }
+            addChapter(activeNote.bookId);
+            toast.message("已新建章节");
+          }}
           onCloseMobile={() => setSidebarOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
           onReadBook={(id) => {
@@ -579,31 +631,10 @@ export function NoteApp() {
             <ExportMenu
               open={exportOpen}
               busy={exportBusy}
-              canRead={Boolean(activeNote)}
               hasBook={Boolean(activeNote?.bookId)}
               onOpenChange={setExportOpen}
               onExport={(format) => void handleExport(format)}
-              onImport={() => {
-                setExportOpen(false);
-                bookInputRef.current?.click();
-              }}
-              onRead={() => {
-                setExportOpen(false);
-                setReaderOpen(true);
-              }}
               onExportBook={() => void handleExport("epub")}
-              onMakeBook={() => {
-                if (!activeNote) return;
-                makeBookFromNote(activeNote.id);
-                setExportOpen(false);
-                toast.message("已做成电子书，可继续添加章节或导出 EPUB");
-              }}
-              onAddChapter={() => {
-                if (!activeNote?.bookId) return;
-                addChapter(activeNote.bookId);
-                setExportOpen(false);
-                toast.message("已新建章节");
-              }}
             />
           </div>
 
@@ -681,6 +712,7 @@ export function NoteApp() {
               {activeNote ? (
                 <PreviewPane
                   content={activeNote.content}
+                  format={activeNote.format}
                   centered={previewMode !== "split"}
                 />
               ) : (
@@ -742,6 +774,30 @@ export function NoteApp() {
           const file = event.target.files?.[0];
           event.target.value = "";
           if (file) void handleImportBook(file);
+        }}
+      />
+      <input
+        ref={markdownInputRef}
+        type="file"
+        accept=".md,.markdown,text/markdown"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])];
+          event.target.value = "";
+          if (files.length) void handleImportTextFiles(files, "md");
+        }}
+      />
+      <input
+        ref={txtInputRef}
+        type="file"
+        accept=".txt,text/plain"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])];
+          event.target.value = "";
+          if (files.length) void handleImportTextFiles(files, "txt");
         }}
       />
     </div>

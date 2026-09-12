@@ -1,5 +1,5 @@
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
-import { filenameForNote, parseNoteFile, serializeNote } from "./markdown-file";
+import { filenameForNote, isNoteFilename, parseNoteFile, serializeNote } from "./markdown-file";
 import { isNativeApp, nativeFolder } from "./native-folder";
 import type { SyncAdapter, SyncConfig } from "./sync-types";
 import type { Note } from "./types";
@@ -133,13 +133,13 @@ async function nativeList(folder: string): Promise<Note[]> {
     const notes: Note[] = [];
     for (const entry of listing.files) {
       const name = typeof entry === "string" ? entry : entry.name;
-      if (!name.toLowerCase().endsWith(".md")) continue;
+      if (!isNoteFilename(name)) continue;
       const file = await Filesystem.readFile({
         path: `${folder}/${name}`,
         directory: Directory.Documents,
         encoding: Encoding.UTF8,
       });
-      notes.push(parseNoteFile(String(file.data), name.replace(/\.md$/i, "")));
+      notes.push(parseNoteFile(String(file.data), name.replace(/\.(md|markdown|txt)$/i, "")));
     }
     return notes;
   } catch {
@@ -155,9 +155,9 @@ async function nativeList(folder: string): Promise<Note[]> {
 async function handleList(handle: FileSystemDirectoryHandle): Promise<Note[]> {
   const notes: Note[] = [];
   for await (const [name, entry] of asDir(handle).entries()) {
-    if (entry.kind !== "file" || !name.toLowerCase().endsWith(".md")) continue;
+    if (entry.kind !== "file" || !isNoteFilename(name)) continue;
     const file = await (entry as FileSystemFileHandle).getFile();
-    notes.push(parseNoteFile(await file.text(), name.replace(/\.md$/i, "")));
+    notes.push(parseNoteFile(await file.text(), name.replace(/\.(md|markdown|txt)$/i, "")));
   }
   return notes;
 }
@@ -168,8 +168,8 @@ async function nativeTreeList(): Promise<Note[] | null> {
     if (!status.ok) return null;
     const { files } = await nativeFolder.list();
     return files
-      .filter((file) => file.name.toLowerCase().endsWith(".md"))
-      .map((file) => parseNoteFile(file.content, file.name.replace(/\.md$/i, "")));
+      .filter((file) => isNoteFilename(file.name))
+      .map((file) => parseNoteFile(file.content, file.name.replace(/\.(md|markdown|txt)$/i, "")));
   } catch {
     return null;
   }

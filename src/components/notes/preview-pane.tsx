@@ -2,26 +2,32 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
+import type { NoteFormat } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
 type PreviewPaneProps = {
   content: string;
+  format?: NoteFormat;
   centered?: boolean;
   reader?: boolean;
 };
 
 export function PreviewPane({
   content,
+  format = "md",
   centered = true,
   reader = false,
 }: PreviewPaneProps) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const html = useMemo(
+    () => (format === "txt" ? "" : renderMarkdown(content)),
+    [content, format],
+  );
   const empty = !content.trim();
   const articleRef = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
     const root = articleRef.current;
-    if (!root) return;
+    if (!root || format === "txt") return;
     void renderMermaidBlocks(root);
     void resolvePreviewImages(root);
   });
@@ -37,6 +43,8 @@ export function PreviewPane({
       >
         {empty ? (
           <p className="font-serif text-lg text-subtle">预览会显示在这里</p>
+        ) : format === "txt" ? (
+          <article className="md-body plain-note font-serif">{content}</article>
         ) : (
           <article
             ref={articleRef}

@@ -304,6 +304,16 @@
     background: var(--color-overlay);
     border-radius: 6px;
     padding: 0.1em 0.35em;
+    overflow-wrap: break-word;
+    word-break: normal;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .md-body.plain-note {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   .md-body pre {

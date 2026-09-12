@@ -14,6 +14,14 @@ export function firstLineTitle(content: string): string {
   return stripped || "未命名笔记";
 }
 
+export function isNoteFilename(name: string): boolean {
+  return /\.(md|markdown|txt)$/i.test(name);
+}
+
+export function noteExtension(note: Pick<Note, "format">): "md" | "txt" {
+  return note.format === "txt" ? "txt" : "md";
+}
+
 export function filenameForNote(note: Note): string {
   const stem = firstLineTitle(note.content)
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
@@ -21,14 +29,15 @@ export function filenameForNote(note: Note): string {
     .trim()
     .slice(0, 42);
   const shortId = note.id.replace(/-/g, "").slice(0, 8);
-  return `${stem || "未命名笔记"}.${shortId}.md`;
+  return `${stem || "未命名笔记"}.${shortId}.${noteExtension(note)}`;
 }
 
 export function serializeNote(note: Note): string {
   const book = note.bookId
     ? `\nbookId: ${note.bookId}\nbookTitle: ${JSON.stringify(note.bookTitle ?? "")}\nchapterIndex: ${note.chapterIndex ?? 0}`
     : "";
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${book}\n---\n${note.content}`;
+  const format = note.format === "txt" ? "\nformat: txt" : "";
+  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}\n---\n${note.content}`;
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
@@ -53,11 +62,13 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     ? meta.bookTitle.replace(/^"|"$/g, "")
     : undefined;
   const chapterIndex = meta.chapterIndex ? Number(meta.chapterIndex) : undefined;
+  const format = meta.format === "txt" ? ("txt" as const) : undefined;
   return {
     id: meta.id || fallbackId,
     createdAt: Number(meta.createdAt) || Date.now(),
     updatedAt: Number(meta.updatedAt) || Date.now(),
     content: raw.slice(match[0].length).replace(/^\uFEFF/, ""),
+    ...(format ? { format } : {}),
     ...(bookId ? { bookId, bookTitle, chapterIndex } : {}),
   };
 }

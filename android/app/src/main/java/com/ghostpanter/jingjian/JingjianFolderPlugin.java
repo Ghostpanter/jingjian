@@ -31,6 +31,99 @@ public class JingjianFolderPlugin extends Plugin {
     private static final String KEY_NAME = "tree_name";
 
     @PluginMethod
+    public void pickSaveFile(PluginCall call) {
+        String name = call.getString("name", "export.bin");
+        String mime = call.getString("mime", "application/octet-stream");
+        if (mime.contains(";")) {
+            mime = mime.split(";")[0].trim();
+        }
+        if (mime.isEmpty()) {
+            mime = "application/octet-stream";
+        }
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mime);
+        intent.putExtra(Intent.EXTRA_TITLE, name);
+        intent.addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        );
+        startActivityForResult(call, intent, "onSaveLocationPicked");
+    }
+
+    @ActivityCallback
+    private void onSaveLocationPicked(PluginCall call, ActivityResult result) {
+        if (call == null) {
+            return;
+        }
+        if (result.getResultCode() != Activity.RESULT_OK
+            || result.getData() == null
+            || result.getData().getData() == null) {
+            call.reject("cancelled");
+            return;
+        }
+        Uri uri = result.getData().getData();
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            );
+        } catch (SecurityException ignored) {
+            // CREATE_DOCUMENT grants are often not persistable; same-session write still works.
+        }
+        JSObject payload = new JSObject();
+        payload.put("uri", uri.toString());
+        payload.put("name", call.getString("name", ""));
+        call.resolve(payload);
+    }
+
+    @PluginMethod
+    public void writeSaveFile(PluginCall call) {
+        String rawUri = call.getString("uri", "");
+        if (rawUri == null || rawUri.isEmpty()) {
+            call.reject("缺少保存位置");
+            return;
+        }
+        Uri uri;
+        try {
+            uri = Uri.parse(rawUri);
+        } catch (Exception error) {
+            call.reject("保存位置无效");
+            return;
+        }
+        String raw = call.getString("data", "");
+        byte[] bytes;
+        try {
+            bytes = android.util.Base64.decode(raw != null ? raw : "", android.util.Base64.DEFAULT);
+        } catch (IllegalArgumentException error) {
+            call.reject("文件内容损坏");
+            return;
+        }
+        try {
+            OutputStream out = getContext().getContentResolver().openOutputStream(uri, "w");
+            if (out == null) {
+                out = getContext().getContentResolver().openOutputStream(uri);
+            }
+            if (out == null) {
+                call.reject("无法写入所选位置");
+                return;
+            }
+            try {
+                out.write(bytes);
+                out.flush();
+            } finally {
+                out.close();
+            }
+            JSObject payload = new JSObject();
+            payload.put("uri", uri.toString());
+            payload.put("name", call.getString("name", ""));
+            call.resolve(payload);
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "写入失败");
+        }
+    }
+
+    @PluginMethod
     public void saveFile(PluginCall call) {
         String name = call.getString("name", "export.bin");
         String mime = call.getString("mime", "application/octet-stream");
@@ -165,7 +258,9 @@ public class JingjianFolderPlugin extends Plugin {
                 for (DocumentFile file : children) {
                     if (file == null || !file.isFile()) continue;
                     String name = file.getName();
-                    if (name == null || !name.toLowerCase(Locale.ROOT).endsWith(".md")) continue;
+                    if (name == null || !(name.toLowerCase(Locale.ROOT).endsWith(".md")
+                        || name.toLowerCase(Locale.ROOT).endsWith(".markdown")
+                        || name.toLowerCase(Locale.ROOT).endsWith(".txt"))) continue;
                     JSObject item = new JSObject();
                     item.put("name", name);
                     item.put("content", readText(file.getUri()));
@@ -200,7 +295,10 @@ public class JingjianFolderPlugin extends Plugin {
                 target = findByName(dir, name);
             }
             if (target == null) {
-                target = dir.createFile("text/markdown", name);
+                String mime = name.toLowerCase(Locale.ROOT).endsWith(".txt")
+                    ? "text/plain"
+                    : "text/markdown";
+                target = dir.createFile(mime, name);
                 if (target == null) {
                     target = dir.createFile("text/plain", name);
                 }

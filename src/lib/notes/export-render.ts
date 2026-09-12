@@ -14,10 +14,10 @@ article {
   font-family: "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", Georgia, serif;
   font-size: 17px;
   line-height: 1.75;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
-h1, h2, h3, h4 { line-height: 1.3; font-weight: 600; overflow-wrap: anywhere; }
+h1, h2, h3, h4 { line-height: 1.3; font-weight: 600; overflow-wrap: break-word; }
 h1 { font-size: 28px; margin: 0 0 16px; }
 h2 { font-size: 21px; margin: 28px 0 12px; }
 h3 { font-size: 18px; margin: 22px 0 8px; }
@@ -39,8 +39,14 @@ code {
   border-radius: 5px;
   padding: 0.1em 0.35em;
   color: ${palette.fg};
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 .code-block {
   margin: 0 0 16px;
@@ -68,6 +74,8 @@ pre {
 }
 .code-block pre { margin: 0; background: transparent; }
 pre code {
+  display: inline;
+  max-width: none;
   background: transparent;
   padding: 0;
   font-size: inherit;
@@ -75,6 +83,17 @@ pre code {
   white-space: inherit;
   overflow-wrap: inherit;
   word-break: inherit;
+}
+pre.plain-text {
+  background: transparent;
+  padding: 0;
+  margin: 0 0 14px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 .hljs { background: transparent; padding: 0; }
 img { max-width: 100%; height: auto; display: block; }
@@ -84,8 +103,8 @@ th, td {
   padding: 8px 10px;
   text-align: left;
   color: ${palette.fg};
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 hr { border: 0; border-top: 1px solid ${palette.border}; margin: 22px 0; }
 `.trim();
@@ -233,6 +252,30 @@ function flattenUnsupportedColors(root: ParentNode, palette: Palette) {
   }
 }
 
+export function fitInlineCode(root: ParentNode): void {
+  const article =
+    ("querySelector" in root ? root.querySelector("article") : null) ??
+    (root instanceof HTMLElement ? root : null);
+  if (!article) return;
+  const width = article instanceof HTMLElement && article.clientWidth > 0
+    ? article.clientWidth
+    : 720;
+  article.querySelectorAll("code").forEach((node) => {
+    if (!(node instanceof HTMLElement) || node.closest("pre")) return;
+    node.style.display = "inline-block";
+    node.style.maxWidth = "100%";
+    node.style.whiteSpace = "nowrap";
+    node.style.overflowWrap = "normal";
+    node.style.wordBreak = "keep-all";
+    node.style.verticalAlign = "baseline";
+    if (node.scrollWidth > width - 8) {
+      node.style.whiteSpace = "pre-wrap";
+      node.style.overflowWrap = "anywhere";
+      node.style.wordBreak = "break-word";
+    }
+  });
+}
+
 async function loadHtml2Canvas() {
   try {
     const mod = await import("html2canvas-pro");
@@ -317,6 +360,8 @@ export async function renderArticleCanvas(
   const article = (doc.querySelector("article") ?? doc.body) as HTMLElement;
   iframe.style.height = `${Math.max(800, article.scrollHeight + 48)}px`;
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+  fitInlineCode(article);
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
   const scale = 2;
   const layout = collectLayout(article, scale);
   try {
@@ -337,6 +382,7 @@ export async function renderArticleCanvas(
           pre.style.overflowWrap = "anywhere";
           pre.style.wordBreak = "break-word";
         });
+        fitInlineCode(cloned);
       },
     });
     return { canvas, breaks: layout.breaks, keeps: layout.keeps };

@@ -200,7 +200,7 @@ export function ReaderView({
               onChange={(value) => onChange(current.id, value)}
             />
           ) : (
-            <PreviewPane content={current.content} reader />
+            <PreviewPane content={current.content} format={current.format} reader />
           )}
         </div>
       </div>

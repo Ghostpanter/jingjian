@@ -86,9 +86,11 @@ export function markdownToRtf(content: string): Uint8Array {
 
 export function markdownToHtmlDocument(
   content: string,
-  options: { title: string; cssVars?: string; styled: boolean },
+  options: { title: string; cssVars?: string; styled: boolean; plain?: boolean },
 ): Uint8Array {
-  const body = renderMarkdown(content);
+  const body = options.plain
+    ? `<pre class="plain-text">${escapeHtml(content)}</pre>`
+    : renderMarkdown(content);
   if (!options.styled) {
     return utf8(
       `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(options.title)}</title></head><body>${body}</body></html>`,
@@ -97,8 +99,8 @@ export function markdownToHtmlDocument(
   const css = `
 :root { ${options.cssVars ?? ""} }
 html, body { margin: 0; background: var(--color-bg, #f2ede4); color: var(--color-fg, #1a1814); font-family: "Noto Serif SC", "Songti SC", Georgia, serif; }
-.md-body { max-width: 42rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; line-height: 1.75; font-size: 1.125rem; overflow-wrap: anywhere; }
-.md-body h1, .md-body h2, .md-body h3 { line-height: 1.25; letter-spacing: -0.02em; }
+.md-body { max-width: 42rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; line-height: 1.75; font-size: 1.125rem; overflow-wrap: break-word; word-break: normal; }
+.md-body h1, .md-body h2, .md-body h3 { line-height: 1.25; letter-spacing: -0.02em; overflow-wrap: break-word; }
 .md-body h1 { font-size: 1.85rem; margin: 0 0 1rem; }
 .md-body h2 { font-size: 1.4rem; margin: 1.75rem 0 0.75rem; }
 .md-body h3 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
@@ -107,12 +109,13 @@ html, body { margin: 0; background: var(--color-bg, #f2ede4); color: var(--color
 .md-body li { margin: 0 0 0.5rem; }
 .md-body a { color: var(--color-accent, #2c4a42); }
 .md-body blockquote { border-left: 3px solid var(--color-accent, #2c4a42); padding-left: 1rem; color: var(--color-muted, #6a6358); }
-.md-body code { font-family: ui-monospace, monospace; background: var(--color-overlay, #ddd4c4); border-radius: 6px; padding: 0.1em 0.35em; overflow-wrap: anywhere; }
+.md-body code { font-family: ui-monospace, monospace; background: var(--color-overlay, #ddd4c4); border-radius: 6px; padding: 0.1em 0.35em; display: inline-block; max-width: 100%; white-space: nowrap; overflow-wrap: normal; word-break: keep-all; vertical-align: baseline; }
 .md-body pre { background: var(--color-surface, #e8e0d2); border-radius: 12px; padding: 1rem; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-.md-body pre code { white-space: inherit; }
+.md-body pre code { display: inline; max-width: none; white-space: inherit; overflow-wrap: inherit; word-break: inherit; }
+.md-body pre.plain-text { background: transparent; padding: 0; font-family: inherit; font-size: inherit; overflow-wrap: break-word; word-break: normal; }
 .md-body img { max-width: 100%; }
 .md-body table { border-collapse: collapse; width: 100%; }
-.md-body th, .md-body td { border-bottom: 1px solid var(--color-border, #d5cbb8); padding: 0.5rem 0.6rem; text-align: left; }
+.md-body th, .md-body td { border-bottom: 1px solid var(--color-border, #d5cbb8); padding: 0.5rem 0.6rem; text-align: left; overflow-wrap: break-word; }
 `.trim();
   return utf8(
     `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(options.title)}</title><style>${css}</style></head><body><article class="md-body">${body}</article></body></html>`,
