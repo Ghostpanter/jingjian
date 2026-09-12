@@ -22,6 +22,7 @@ import { SettingsDialog } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
 import { exportNotes, type ExportFormat } from "@/lib/notes/export";
+import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
 import { countChars, titleFromContent } from "@/lib/notes/format";
 import {
@@ -110,7 +111,12 @@ export function NoteApp() {
     syncingRef.current = true;
     setSyncStatus({ state: "syncing", message: "正在同步", at: Date.now() });
     try {
-      const result = await runSync(config, useNotesStore.getState().notes);
+      const state = useNotesStore.getState();
+      const protectActive = document.activeElement?.id === "note-editor";
+      const result = await runSync(config, state.notes, {
+        activeId: state.activeId,
+        protectActive,
+      });
       applySyncedNotes(result.notes);
       setSyncStatus(result.status);
       if (!silent) toast.message(result.status.message);
@@ -144,17 +150,27 @@ export function NoteApp() {
     if (!hydrated) return;
     const config = readSyncConfig();
     if (config.provider === "off" || !config.autoSync) return;
-    const timer = window.setTimeout(() => void syncNow(true), 2800);
+    const timer = window.setTimeout(() => void syncNow(true), 900);
     return () => window.clearTimeout(timer);
   }, [rawNotes, hydrated, syncNow]);
 
   useEffect(() => {
     if (!hydrated) return;
     const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       const config = readSyncConfig();
       if (config.provider !== "off" && config.autoSync) void syncNow(true);
-    }, 90_000);
-    return () => window.clearInterval(timer);
+    }, 4_000);
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      const config = readSyncConfig();
+      if (config.provider !== "off" && config.autoSync) void syncNow(true);
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [hydrated, syncNow]);
 
   useEffect(() => {
@@ -362,8 +378,9 @@ export function NoteApp() {
         notes: rawNotes,
       });
       setExportOpen(false);
-      toast.message(`已导出 ${path.split("/").pop()}`);
+      toast.message(`已保存到 ${path.split("/").pop() || path}`);
     } catch (error) {
+      if (isCancelled(error)) return;
       toast.message(error instanceof Error ? error.message : "导出失败");
     } finally {
       setExportBusy(false);

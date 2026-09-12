@@ -6,6 +6,7 @@ type NativeFolderPlugin = {
   list(): Promise<{ files: Array<{ name: string; content: string }> }>;
   write(options: { name: string; content: string; shortId: string }): Promise<void>;
   remove(options: { shortId: string }): Promise<void>;
+  saveFile(options: { name: string; mime: string; data: string }): Promise<{ uri: string; name: string }>;
 };
 
 const plugin = registerPlugin<NativeFolderPlugin>("JingjianFolder");

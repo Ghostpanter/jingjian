@@ -258,7 +258,7 @@ function SyncPanel({
   return (
     <>
       <p className="mt-3 text-sm text-muted">
-        输入会先写到本机，再按最后修改时间与远端对齐。
+        输入会先写到本机。开着自动同步时，平板和电脑可以同时改同一篇云端笔记，正在写的这一篇不会被远端覆盖。
       </p>
       <div className="provider-grid mt-4">
         {PROVIDERS.map((item) => {

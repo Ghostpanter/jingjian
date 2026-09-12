@@ -9,6 +9,7 @@ import {
   markdownToRtf,
 } from "./export-formats";
 import { canvasToJpeg, jpegPagesToPdf, sliceCanvasToPages } from "./export-pdf";
+import { renderArticleCanvas } from "./export-render";
 import { saveExportedFile } from "./export-save";
 import { buildEpub, chaptersFromNotes } from "./epub";
 import { safeFilename } from "./bytes";
@@ -75,25 +76,6 @@ async function embedLocalImages(markdown: string): Promise<string> {
   return next;
 }
 
-async function renderArticleCanvas(html: string, background: string): Promise<HTMLCanvasElement> {
-  const html2canvas = (await import("html2canvas")).default;
-  const host = document.createElement("div");
-  host.style.cssText = `position:fixed;left:-12000px;top:0;width:720px;background:${background};color:var(--color-fg);padding:48px 40px;`;
-  host.innerHTML = `<article class="md-body">${html}</article>`;
-  document.body.appendChild(host);
-  try {
-    if (document.fonts?.ready) await document.fonts.ready;
-    return await html2canvas(host, {
-      scale: 2,
-      backgroundColor: background,
-      useCORS: true,
-      logging: false,
-    });
-  } finally {
-    host.remove();
-  }
-}
-
 export async function exportNotes(options: {
   format: ExportFormat;
   note: Note;
@@ -142,7 +124,7 @@ export async function exportNotes(options: {
   }
 
   const html = renderMarkdown(markdown);
-  const canvas = await renderArticleCanvas(html, palette.bg);
+  const canvas = await renderArticleCanvas(html, palette);
   if (options.format === "image") {
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { titleFromContent } from "./format";
 import { createSeedNotes } from "./seed";
-import { notesFingerprint } from "./sync-merge";
+import { notesFingerprint, reconcileNotes } from "./sync-merge";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -143,17 +143,17 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   applySyncedNotes: (incoming) => {
     const current = get();
     if (notesFingerprint(current.notes) === notesFingerprint(incoming)) return;
-    const active = current.notes.find((note) => note.id === current.activeId);
-    const nextActive = incoming.find((note) => note.id === current.activeId);
-    const contentChanged = Boolean(active && nextActive && active.content !== nextActive.content);
+    const reconciled = reconcileNotes(current.notes, incoming, current.activeId);
     const activeId =
-      current.activeId && incoming.some((note) => note.id === current.activeId)
+      current.activeId && reconciled.notes.some((note) => note.id === current.activeId)
         ? current.activeId
-        : (incoming[0]?.id ?? null);
+        : (reconciled.notes[0]?.id ?? null);
     set({
-      notes: incoming,
+      notes: reconciled.notes,
       activeId,
-      editorEpoch: contentChanged ? current.editorEpoch + 1 : current.editorEpoch,
+      editorEpoch: reconciled.activeContentChanged
+        ? current.editorEpoch + 1
+        : current.editorEpoch,
     });
   },
   importNotes: (incoming) => {

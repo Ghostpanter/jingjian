@@ -20,6 +20,7 @@ export async function testSync(config: SyncConfig): Promise<string> {
 export async function runSync(
   config: SyncConfig,
   local: Note[],
+  options?: { activeId?: string | null; protectActive?: boolean },
 ): Promise<{ notes: Note[]; status: SyncStatus }> {
   if (config.provider === "off") {
     return {
@@ -34,6 +35,8 @@ export async function runSync(
     local,
     remote,
     tombstones: readTombstones(),
+    activeId: options?.activeId ?? null,
+    protectActive: options?.protectActive ?? false,
   });
 
   for (const note of merged.toUpload) {

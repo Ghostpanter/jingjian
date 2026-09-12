@@ -31,6 +31,71 @@ public class JingjianFolderPlugin extends Plugin {
     private static final String KEY_NAME = "tree_name";
 
     @PluginMethod
+    public void saveFile(PluginCall call) {
+        String name = call.getString("name", "export.bin");
+        String mime = call.getString("mime", "application/octet-stream");
+        if (mime.contains(";")) {
+            mime = mime.split(";")[0].trim();
+        }
+        if (mime.isEmpty()) {
+            mime = "application/octet-stream";
+        }
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mime);
+        intent.putExtra(Intent.EXTRA_TITLE, name);
+        intent.addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        );
+        startActivityForResult(call, intent, "onExportPicked");
+    }
+
+    @ActivityCallback
+    private void onExportPicked(PluginCall call, ActivityResult result) {
+        if (call == null) {
+            return;
+        }
+        if (result.getResultCode() != Activity.RESULT_OK
+            || result.getData() == null
+            || result.getData().getData() == null) {
+            call.reject("cancelled");
+            return;
+        }
+        Uri uri = result.getData().getData();
+        String raw = call.getString("data", "");
+        byte[] bytes;
+        try {
+            bytes = android.util.Base64.decode(raw != null ? raw : "", android.util.Base64.DEFAULT);
+        } catch (IllegalArgumentException error) {
+            call.reject("文件内容损坏");
+            return;
+        }
+        try {
+            OutputStream out = getContext().getContentResolver().openOutputStream(uri, "w");
+            if (out == null) {
+                out = getContext().getContentResolver().openOutputStream(uri);
+            }
+            if (out == null) {
+                call.reject("无法写入所选位置");
+                return;
+            }
+            try {
+                out.write(bytes);
+                out.flush();
+            } finally {
+                out.close();
+            }
+            JSObject payload = new JSObject();
+            payload.put("uri", uri.toString());
+            payload.put("name", call.getString("name", ""));
+            call.resolve(payload);
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "写入失败");
+        }
+    }
+
+    @PluginMethod
     public void pick(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(

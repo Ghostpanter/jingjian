@@ -24,9 +24,9 @@
 
 工具栏下载按钮打开导出，对应 Typora「通用」里框出的格式。
 
-平板上文件写到「文档 / Jingjian / exports」。电脑上由浏览器下载。
+每次导出会打开系统对话框，由你选择保存到哪个文件夹。平板用系统「另存为」，电脑用保存对话框或浏览器下载。
 
-导入 EPUB 后章节出现在侧栏。阅读页可翻章，铅笔回到编辑，改完再「导出本书」。
+导入 EPUB 后章节出现在侧栏。阅读页可翻章，铅笔即可改这一章，改完再「导出本书」。
 
 ## 主题
 
@@ -48,7 +48,7 @@
 
 也可把 PicGo 的 `data.json` 粘进「从 PicGo 配置导入」，平板无需安装 PicGo。
 
-## 同步
+## 同步与同时编辑
 
 侧栏齿轮打开设置里的「同步」。三种方式：
 
@@ -57,6 +57,8 @@
 | 静笺服务器 | 自建 Docker | 宿主机目录 `JINGJIAN_NOTES_PATH` |
 | WebDAV | 坚果云、Nextcloud、群晖、NAS | 远程目录，如 `/静笺` |
 | 本机目录 | 电脑选文件夹，安卓写入文档目录 | 文件夹名，默认 `Jingjian` |
+
+开着自动同步时，平板和电脑可以同时改同一篇云端笔记。正在编辑的这一篇不会被远端覆盖；停笔后几秒内会对齐。
 
 冲突按最后修改时间对齐。远端目录里是带少量 frontmatter 的 `.md` 文件，可用 Typora 打开同一文件夹。
 
@@ -97,9 +99,19 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.5.0.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.0.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
+
+## Windows / macOS / Linux
+
+同一发布页提供桌面压缩包：
+
+- `jingjian-v1.6.0-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
+- `jingjian-v1.6.0-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
+- `jingjian-v1.6.0-linux-x64.zip`：解压后运行 `Jingjian`
+
+桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
 
 ## 本地运行
 
@@ -114,6 +126,7 @@ npm run dev
 npm run typecheck
 npm run build
 npm run apk
+npm run desktop:pack
 ```
 
 ## 快捷键

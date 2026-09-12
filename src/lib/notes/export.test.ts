@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { markdownToDocx, markdownToHtmlDocument, markdownToOdt, markdownToRtf } from "./export-formats.ts";
 import { jpegPagesToPdf } from "./export-pdf.ts";
+import { cssUsesUnsupportedColor, exportArticleCss, stripUnsupportedColors } from "./export-render.ts";
 import { buildEpub, parseEpub } from "./epub.ts";
 import { sanitizeHref } from "./markdown.ts";
+import { DEFAULT_THEME, paletteFor } from "./theme.ts";
 
 test("html export includes title and optional styles", () => {
   const styled = new TextDecoder().decode(
@@ -63,4 +65,19 @@ test("allows relative images and jpeg data urls", () => {
   assert.ok(sanitizeHref("data:image/jpeg;base64,AAAA"));
   assert.equal(sanitizeHref("data:text/html;base64,AAAA"), null);
   assert.equal(sanitizeHref("javascript:alert(1)"), null);
+});
+
+test("pdf capture css uses only hex colors", () => {
+  const css = exportArticleCss(paletteFor(DEFAULT_THEME));
+  assert.equal(cssUsesUnsupportedColor(css), false);
+  assert.match(css, /#/);
+  assert.ok(!/oklab|color-mix/i.test(css));
+});
+
+test("strips oklab color functions from cloned css", () => {
+  const css = "color: oklab(0.5 0.1 -0.1); background: color-mix(in oklab, red 50%, blue);";
+  const safe = stripUnsupportedColors(css, "#111111");
+  assert.equal(cssUsesUnsupportedColor(safe), false);
+  assert.ok(!/oklab|color-mix/i.test(safe));
+  assert.match(safe, /#111111/);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mergeNotes } from "./sync-merge.ts";
+import { mergeNotes, mergeNoteContent, reconcileNotes } from "./sync-merge.ts";
 import type { Note } from "./types.ts";
 
 function note(id: string, updatedAt: number, content = id): Note {
@@ -57,4 +57,40 @@ test("newer remote restores a tombstone", () => {
   });
   assert.equal(result.notes[0]?.content, "kept");
   assert.equal(result.tombstones.a, undefined);
+});
+
+test("merge keeps the longer side when one is a prefix", () => {
+  assert.equal(mergeNoteContent("你好", "你好世界"), "你好世界");
+  const reconciled = reconcileNotes(
+    [note("a", Date.now(), "正在写")],
+    [note("a", Date.now() - 50_000, "云端旧稿")],
+    "a",
+  );
+  assert.equal(reconciled.notes[0]?.content, "正在写");
+  assert.equal(reconciled.activeContentChanged, false);
+});
+
+test("active local draft is uploaded even if remote is newer", () => {
+  const result = mergeNotes({
+    local: [note("a", 90_000, "正在写")],
+    remote: [note("a", 95_000, "云端旧稿")],
+    tombstones: {},
+    activeId: "a",
+    now: 100_000,
+    protectActive: true,
+  });
+  assert.equal(result.notes[0]?.content, "正在写");
+  assert.equal(result.toUpload[0]?.content, "正在写");
+});
+
+test("idle remote wins when the editor is not active", () => {
+  const result = mergeNotes({
+    local: [note("a", 10, "本机旧稿")],
+    remote: [note("a", 20, "云端新稿")],
+    tombstones: {},
+    activeId: "b",
+    now: 1_000_000,
+  });
+  assert.equal(result.notes[0]?.content, "云端新稿");
+  assert.equal(result.toUpload.length, 0);
 });

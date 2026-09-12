@@ -4,6 +4,9 @@ export type MergeInput = {
   local: Note[];
   remote: Note[];
   tombstones: Record<string, number>;
+  activeId?: string | null;
+  now?: number;
+  protectActive?: boolean;
 };
 
 export type MergeResult = {
@@ -13,6 +16,14 @@ export type MergeResult = {
   toDeleteRemote: string[];
 };
 
+const EDITING_WINDOW_MS = 60_000;
+
+function isEditing(local: Note, input: MergeInput, now: number): boolean {
+  if (!input.activeId || local.id !== input.activeId) return false;
+  if (input.protectActive) return true;
+  return now - local.updatedAt < EDITING_WINDOW_MS;
+}
+
 export function mergeNotes(input: MergeInput): MergeResult {
   const localMap = new Map(input.local.map((note) => [note.id, note]));
   const remoteMap = new Map(input.remote.map((note) => [note.id, note]));
@@ -21,6 +32,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
   const toUpload: Note[] = [];
   const toDeleteRemote: string[] = [];
   const seen = new Set<string>();
+  const now = input.now ?? Date.now();
 
   for (const [id, remote] of remoteMap) {
     seen.add(id);
@@ -39,12 +51,36 @@ export function mergeNotes(input: MergeInput): MergeResult {
       notes.set(id, remote);
       continue;
     }
-    if (remote.updatedAt > local.updatedAt) {
-      notes.set(id, remote);
-    } else {
-      notes.set(id, local);
-      if (local.updatedAt > remote.updatedAt) toUpload.push(local);
+    if (local.content === remote.content) {
+      notes.set(id, local.updatedAt >= remote.updatedAt ? local : remote);
+      continue;
     }
+    if (isEditing(local, input, now)) {
+      notes.set(id, local);
+      toUpload.push(local);
+      continue;
+    }
+    if (local.updatedAt > remote.updatedAt) {
+      notes.set(id, local);
+      toUpload.push(local);
+      continue;
+    }
+    if (remote.updatedAt > local.updatedAt) {
+      if (
+        local.content.startsWith(remote.content) ||
+        local.content.includes(remote.content)
+      ) {
+        notes.set(id, local);
+        toUpload.push(local);
+      } else {
+        notes.set(id, remote);
+      }
+      continue;
+    }
+    const mergedContent = mergeNoteContent(local.content, remote.content);
+    const next = { ...local, content: mergedContent };
+    notes.set(id, next);
+    if (mergedContent !== remote.content) toUpload.push(next);
   }
 
   for (const [id, local] of localMap) {
@@ -67,4 +103,62 @@ export function notesFingerprint(notes: Note[]): string {
     .map((note) => `${note.id}:${note.updatedAt}`)
     .sort()
     .join("|");
+}
+
+export function mergeNoteContent(local: string, remote: string): string {
+  if (local === remote) return local;
+  if (!local.trim()) return remote;
+  if (!remote.trim()) return local;
+  if (local.startsWith(remote) || local.includes(remote)) return local;
+  if (remote.startsWith(local) || remote.includes(local)) return remote;
+  return local;
+}
+
+export function reconcileNotes(
+  local: Note[],
+  remote: Note[],
+  activeId: string | null,
+  now = Date.now(),
+): { notes: Note[]; activeContentChanged: boolean } {
+  const localMap = new Map(local.map((note) => [note.id, note]));
+  const notes: Note[] = [];
+  const seen = new Set<string>();
+  let activeContentChanged = false;
+
+  for (const remoteNote of remote) {
+    seen.add(remoteNote.id);
+    const current = localMap.get(remoteNote.id);
+    if (!current) {
+      notes.push(remoteNote);
+      continue;
+    }
+    if (current.content === remoteNote.content) {
+      notes.push(current.updatedAt >= remoteNote.updatedAt ? current : remoteNote);
+      continue;
+    }
+    const editing =
+      current.id === activeId && now - current.updatedAt < EDITING_WINDOW_MS;
+    if (editing || current.updatedAt >= remoteNote.updatedAt) {
+      notes.push(current);
+      continue;
+    }
+    const mergedContent = mergeNoteContent(current.content, remoteNote.content);
+    notes.push({
+      ...remoteNote,
+      content: mergedContent,
+      updatedAt: Math.max(current.updatedAt, remoteNote.updatedAt),
+    });
+    if (current.id === activeId && mergedContent !== current.content) {
+      activeContentChanged = true;
+    }
+  }
+
+  for (const current of local) {
+    if (!seen.has(current.id)) notes.push(current);
+  }
+
+  return {
+    notes: notes.sort((a, b) => b.updatedAt - a.updatedAt),
+    activeContentChanged,
+  };
 }

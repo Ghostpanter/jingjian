@@ -17,6 +17,7 @@ AGENTS.project.md
 .project_id
 .android-sdk
 android-www
+.desktop-stage
 android/.gradle
 android/app/build
 android/build

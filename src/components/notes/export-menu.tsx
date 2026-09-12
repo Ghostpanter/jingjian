@@ -54,6 +54,9 @@ export function ExportMenu({
       <div className="mb-2 inline-flex rounded-md bg-overlay px-3 py-1 text-xs text-muted">
         通用
       </div>
+      <p className="mb-1 px-1 text-xs leading-relaxed text-subtle">
+        导出时会打开系统对话框，选择保存的文件夹。
+      </p>
       <div className="export-formats">
         {EXPORT_OPTIONS.map((item) => (
           <button
