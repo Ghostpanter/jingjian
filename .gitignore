@@ -24,6 +24,8 @@ android/captures
 android/local.properties
 android/key.properties
 android/*.keystore
+android/*.jks
+*.jks
 *.apk
 *.aab
 *.idsig

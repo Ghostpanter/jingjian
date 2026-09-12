@@ -17,7 +17,7 @@
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.0.1.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.1.0.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。笔记仍只保存在这台设备上。
 
