@@ -1,0 +1,313 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f2ede4;
+  --color-surface: #e8e0d2;
+  --color-paper: #f7f3eb;
+  --color-fg: #1a1814;
+  --color-ink: #1a1814;
+  --color-muted: #6a6358;
+  --color-subtle: #8a8276;
+  --color-accent: #2c4a42;
+  --color-accent-fg: #f2ede4;
+  --color-border: #d5cbb8;
+  --color-overlay: #ddd4c4;
+  --color-overlay-strong: #d0c6b4;
+  --color-ring: #2c4a42;
+  --color-danger: #8f3d32;
+  --color-mark: #dfe8d8;
+
+  --font-sans: "Noto Sans SC", "WenQuanYi Zen Hei", "PingFang SC",
+    "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-serif: "Noto Serif SC", "Noto Serif CJK SC", "Songti SC",
+    "Source Han Serif SC", "WenQuanYi Zen Hei", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --text-editor: 1.125rem;
+  --text-editor--line-height: 1.75;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-border:
+    0 0 0 1px rgb(26 24 20 / 0.06), 0 1px 2px -1px rgb(26 24 20 / 0.06),
+    0 2px 4px 0 rgb(26 24 20 / 0.04);
+  --shadow-raised:
+    0 0 0 1px rgb(26 24 20 / 0.06), 0 12px 32px -16px rgb(26 24 20 / 0.28);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+  --motion-slow: 400ms;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    touch-action: manipulation;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  #note-editor {
+    font-size: max(1.125rem, 16px);
+  }
+
+  kbd {
+    font-family: var(--font-sans);
+  }
+
+  ::selection {
+    background: var(--color-mark);
+    color: var(--color-fg);
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer components {
+  .btn-press {
+    transition-property: scale, opacity, background-color, color, box-shadow;
+    transition-duration: var(--motion-quick);
+    transition-timing-function: var(--ease-out);
+  }
+
+  .btn-press:active:not(:disabled) {
+    scale: 0.96;
+  }
+
+  .note-item {
+    min-height: 44px;
+  }
+
+  .md-body {
+    color: var(--color-fg);
+    font-size: var(--text-editor);
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+  }
+
+  .md-body > :first-child {
+    margin-top: 0;
+  }
+
+  .md-body > :last-child {
+    margin-bottom: 0;
+  }
+
+  .md-body h1,
+  .md-body h2,
+  .md-body h3 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    line-height: 1.25;
+  }
+
+  .md-body h1 {
+    margin: 0 0 1rem;
+    font-size: 1.85rem;
+  }
+
+  .md-body h2 {
+    margin: 1.75rem 0 0.75rem;
+    font-size: 1.4rem;
+  }
+
+  .md-body h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.2rem;
+  }
+
+  .md-body p,
+  .md-body ul,
+  .md-body ol,
+  .md-body blockquote,
+  .md-body pre,
+  .md-body table {
+    margin: 0 0 1rem;
+    text-wrap: pretty;
+  }
+
+  .md-body a {
+    color: var(--color-accent);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+
+  .md-body strong {
+    font-weight: 600;
+  }
+
+  .md-body ul,
+  .md-body ol {
+    padding-left: 1.4rem;
+  }
+
+  .md-body li {
+    margin: 0.25rem 0;
+  }
+
+  .md-body ul {
+    list-style: disc;
+  }
+
+  .md-body ol {
+    list-style: decimal;
+  }
+
+  .md-body li input[type="checkbox"] {
+    margin-right: 0.45rem;
+    accent-color: var(--color-accent);
+  }
+
+  .md-body blockquote {
+    border-left: 3px solid var(--color-accent);
+    padding: 0.15rem 0 0.15rem 1rem;
+    color: var(--color-muted);
+  }
+
+  .md-body hr {
+    margin: 1.75rem 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .md-body code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--color-overlay);
+    border-radius: 6px;
+    padding: 0.1em 0.35em;
+  }
+
+  .md-body pre {
+    background: var(--color-surface);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+  }
+
+  .md-body pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .md-body table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    font-family: var(--font-sans);
+  }
+
+  .md-body th,
+  .md-body td {
+    border-bottom: 1px solid var(--color-border);
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+  }
+
+  .md-body th {
+    font-weight: 600;
+    color: var(--color-muted);
+  }
+
+  .md-body img {
+    max-width: 100%;
+    border-radius: 12px;
+    outline: 1px solid rgb(26 24 20 / 0.1);
+    outline-offset: -1px;
+  }
+
+  .dialog-overlay {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
+
+  .dialog-content {
+    animation: dialog-in var(--motion-fast) var(--ease-smooth-out);
+  }
+
+  .dialog-center {
+    left: 50%;
+    top: 50%;
+    translate: -50% -50%;
+  }
+
+  .safe-shell {
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+}
+
+@media (pointer: coarse) {
+  .note-item {
+    min-height: 56px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-press,
+  .dialog-overlay,
+  .dialog-content,
+  aside {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .btn-press:active:not(:disabled) {
+    scale: 1;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+[data-sonner-toaster] [data-sonner-toast] {
+  background: var(--color-paper) !important;
+  color: var(--color-fg) !important;
+  border: 1px solid var(--color-border) !important;
+  font-family: var(--font-sans) !important;
+  box-shadow: var(--shadow-border) !important;
+}
