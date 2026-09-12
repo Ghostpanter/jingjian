@@ -1,3 +1,5 @@
+import { desktopRequest, isDesktopApp } from "./desktop.ts";
+
 export function joinUrl(...parts: string[]): string {
   return parts
     .map((part, index) => {
@@ -23,6 +25,14 @@ export async function request(
   url: string,
   init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<Response> {
+  if (isDesktopApp()) {
+    try {
+      return await desktopRequest(url, init);
+    } catch (error) {
+      if (error instanceof Error && error.message === "连接超时") throw error;
+      throw new Error("无法连接同步服务，请检查地址与网络");
+    }
+  }
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), init.timeoutMs ?? 20_000);
   try {

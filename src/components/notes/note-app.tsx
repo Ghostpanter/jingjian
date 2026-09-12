@@ -62,6 +62,7 @@ import {
   stableIncomingId,
 } from "@/lib/notes/open-incoming";
 import { isNativeApp, nativeFolder, type LaunchFile } from "@/lib/notes/native-folder";
+import { desktopApi, isDesktopApp } from "@/lib/notes/desktop";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -170,6 +171,16 @@ function launchKey(file: LaunchFile): string {
   return "";
 }
 
+async function readIncoming(file: LaunchFile) {
+  if (!file.uri) throw new Error("没有可打开的文件");
+  if (isDesktopApp()) {
+    const api = desktopApi();
+    if (!api) throw new Error("无法读取文件");
+    return api.readOpenFile({ path: file.uri, name: file.name });
+  }
+  return nativeFolder.readOpenUri({ uri: file.uri, name: file.name });
+}
+
 async function ingestLaunchFile(file: LaunchFile): Promise<void> {
   if (file.text && !file.uri) {
     const name = file.name || "分享.txt";
@@ -186,7 +197,7 @@ async function ingestLaunchFile(file: LaunchFile): Promise<void> {
     toast.message("没有可打开的文件");
     return;
   }
-  const opened = await nativeFolder.readOpenUri({ uri: file.uri, name: file.name });
+  const opened = await readIncoming(file);
   const name = opened.name || file.name || "未命名";
   const mime = opened.mime || file.mime || "";
   const kind = classifyIncoming(name, mime);
@@ -315,10 +326,14 @@ export function NoteApp() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated || !isNativeApp()) return;
+    if (!hydrated) return;
+    const native = isNativeApp();
+    const desktop = isDesktopApp();
+    if (!native && !desktop) return;
     const seen = new Set<string>();
     let cancelled = false;
     let handle: { remove: () => Promise<void> } | undefined;
+    let unsub: (() => void) | undefined;
 
     const ingest = (file: LaunchFile) => {
       if (cancelled) return;
@@ -330,18 +345,35 @@ export function NoteApp() {
       });
     };
 
-    void nativeFolder
-      .consumeLaunchFile()
-      .then((file) => {
-        if (file?.uri || file?.text) ingest(file);
-      })
-      .catch(() => {});
-    void nativeFolder.addListener("openFile", ingest).then((listener) => {
-      handle = listener;
-    });
+    if (native) {
+      void nativeFolder
+        .consumeLaunchFile()
+        .then((file) => {
+          if (file?.uri || file?.text) ingest(file);
+        })
+        .catch(() => {});
+      void nativeFolder.addListener("openFile", ingest).then((listener) => {
+        handle = listener;
+      });
+    }
+
+    if (desktop) {
+      const api = desktopApi();
+      if (api) {
+        void (async () => {
+          for (;;) {
+            const file = await api.consumeLaunchFile();
+            if (!file?.uri && !file?.text) break;
+            ingest(file);
+          }
+        })().catch(() => {});
+        unsub = api.onOpenFile(ingest);
+      }
+    }
 
     return () => {
       cancelled = true;
+      unsub?.();
       void handle?.remove();
     };
   }, [hydrated]);
@@ -684,6 +716,15 @@ export function NoteApp() {
     }
   }
 
+  async function handleDroppedFiles(files: File[]) {
+    const books = files.filter((file) => classifyIncoming(file.name, file.type) === "epub");
+    const markdown = files.filter((file) => classifyIncoming(file.name, file.type) === "markdown");
+    const txt = files.filter((file) => classifyIncoming(file.name, file.type) === "txt");
+    for (const book of books) await handleImportBook(book);
+    if (markdown.length) await handleImportTextFiles(markdown, "md");
+    if (txt.length) await handleImportTextFiles(txt, "txt");
+  }
+
   async function handlePickImage(file: File) {
     if (!activeNote) return;
     const selection = readEditorSelection();
@@ -750,6 +791,15 @@ export function NoteApp() {
         sidebarOpen && "is-files-open",
         desktopCollapsed && "is-sidebar-collapsed",
       )}
+      onDragOver={(event) => {
+        if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const files = [...event.dataTransfer.files];
+        if (!files.length) return;
+        event.preventDefault();
+        void handleDroppedFiles(files);
+      }}
     >
       <Toaster
         position="bottom-center"
@@ -938,6 +988,7 @@ export function NoteApp() {
                   content={activeNote.content}
                   centered={previewMode !== "split"}
                   onChange={(value) => updateNote(activeNote.id, value)}
+                  onImportFiles={(files) => void handleDroppedFiles(files)}
                 />
               ) : (
                 <EmptyEditor onCreate={handleCreate} />

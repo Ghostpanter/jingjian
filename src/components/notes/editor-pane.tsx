@@ -7,6 +7,7 @@ import {
   wrapAsMarkup,
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor } from "@/lib/notes/image-insert";
+import { classifyIncoming } from "@/lib/notes/open-incoming";
 import { cn } from "@/lib/utils";
 
 type EditorPaneProps = {
@@ -15,6 +16,7 @@ type EditorPaneProps = {
   content: string;
   centered?: boolean;
   onChange: (value: string) => void;
+  onImportFiles?: (files: File[]) => void;
 };
 
 export function EditorPane({
@@ -23,6 +25,7 @@ export function EditorPane({
   content,
   centered = true,
   onChange,
+  onImportFiles,
 }: EditorPaneProps) {
   async function insertFiles(
     el: HTMLTextAreaElement,
@@ -81,9 +84,18 @@ export function EditorPane({
 
   function handleDrop(event: DragEvent<HTMLTextAreaElement>) {
     const files = [...event.dataTransfer.files];
-    if (!files.some((file) => file.type.startsWith("image/"))) return;
+    const images = files.filter((file) => {
+      const kind = classifyIncoming(file.name, file.type);
+      return kind === "image" || file.type.startsWith("image/");
+    });
+    const docs = files.filter((file) => {
+      const kind = classifyIncoming(file.name, file.type);
+      return kind === "markdown" || kind === "txt" || kind === "epub";
+    });
+    if (images.length === 0 && docs.length === 0) return;
     event.preventDefault();
-    void insertFiles(event.currentTarget, files);
+    if (images.length) void insertFiles(event.currentTarget, images);
+    if (docs.length) onImportFiles?.(docs);
   }
 
   return (

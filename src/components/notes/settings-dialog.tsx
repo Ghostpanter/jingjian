@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isNativeApp } from "@/lib/notes/native-folder";
+import { isDesktopApp } from "@/lib/notes/desktop";
 import { pickSyncFolder } from "@/lib/notes/sync-folder";
 import { type SyncConfig, type SyncProvider } from "@/lib/notes/sync-types";
 import {
@@ -91,6 +92,7 @@ export function SettingsDialog({
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState(false);
   const native = isNativeApp();
+  const desktop = isDesktopApp();
 
   useEffect(() => {
     if (open) {
@@ -213,6 +215,7 @@ export function SettingsDialog({
           <SyncPanel
             draft={draft}
             native={native}
+            desktop={desktop}
             busy={busy}
             onPatch={patch}
             onPickFolder={() => void handlePickFolder()}
@@ -251,12 +254,14 @@ export function SettingsDialog({
 function SyncPanel({
   draft,
   native,
+  desktop,
   busy,
   onPatch,
   onPickFolder,
 }: {
   draft: SyncConfig;
   native: boolean;
+  desktop: boolean;
   busy: boolean;
   onPatch: (partial: Partial<SyncConfig>) => void;
   onPickFolder: () => void;
@@ -357,7 +362,9 @@ function SyncPanel({
           <p className="text-xs leading-relaxed text-muted">
             {native
               ? "点「选择文件夹」会打开系统目录。不选的话，笔记写到「文档」里的这个名字。"
-              : "点「选择文件夹」打开系统目录。文件名为「标题 + 短 id.md」。"}
+              : desktop
+                ? "点「选择文件夹」打开电脑上的目录。笔记以「标题 + 短 id.md」写入该文件夹。"
+                : "点「选择文件夹」打开系统目录。文件名为「标题 + 短 id.md」。"}
           </p>
           <Button variant="subtle" disabled={busy} onClick={onPickFolder}>
             {busy ? "正在打开…" : "选择文件夹"}

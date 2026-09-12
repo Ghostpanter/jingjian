@@ -31,7 +31,7 @@ export function createSeedNotes(): Note[] {
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
 - 导入：左上角加号里导入 Markdown、TXT 或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
 - 主题与图床：侧栏齿轮 → 主题 / 图像。宣纸是默认，代码高亮已单独加深。图床可直接填，也可粘贴 PicGo 配置
-- 安卓：在文件管理器里用「打开方式」选静笺，可直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
+- 安卓 / 电脑：在文件管理器里用「打开方式」选静笺，可直接打开 Markdown、TXT、EPUB；也可把文件拖进编辑区
 - 插入外链：选中文字后按 Ctrl + K，或直接把网址粘到选中文字上
 - 加粗 / 斜体 / 标题：Ctrl + B、Ctrl + I、Ctrl + 1～6，Tab 缩进列表
 - 显示或收起侧栏：Ctrl + Shift + L

@@ -1,4 +1,5 @@
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
+import { desktopApi, isDesktopApp } from "./desktop";
 import { filenameForNote, isNoteFilename, parseNoteFile, serializeNote } from "./markdown-file";
 import { isNativeApp, nativeFolder } from "./native-folder";
 import type { SyncAdapter, SyncConfig } from "./sync-types";
@@ -89,6 +90,17 @@ function isCancel(error: unknown): boolean {
 }
 
 export async function pickSyncFolder(): Promise<string> {
+  if (isDesktopApp()) {
+    try {
+      const result = await desktopApi()!.pickFolder();
+      return result.path || result.name || "已选择的文件夹";
+    } catch (error) {
+      if (isCancel(error)) {
+        throw new DOMException("cancelled", "AbortError");
+      }
+      throw error instanceof Error ? error : new Error("无法打开系统文件夹");
+    }
+  }
   if (isNativeApp()) {
     try {
       const result = await nativeFolder.pick();
@@ -178,9 +190,15 @@ async function nativeTreeList(): Promise<Note[] | null> {
 export function createFolderAdapter(config: SyncConfig): SyncAdapter {
   const folder = config.folderPath.trim().replace(/^\/+|\/+$/g, "") || "Jingjian";
   const native = isNativeApp();
+  const desktop = isDesktopApp();
 
   return {
     async test() {
+      if (desktop) {
+        const status = await desktopApi()!.folderStatus();
+        if (!status.ok) throw new Error("请先选择保存文件夹");
+        return `本机目录 ${status.name}`;
+      }
       if (native) {
         try {
           const status = await nativeFolder.status();
@@ -201,6 +219,14 @@ export function createFolderAdapter(config: SyncConfig): SyncAdapter {
       return `本机目录 ${handle.name}`;
     },
     async list() {
+      if (desktop) {
+        const status = await desktopApi()!.folderStatus();
+        if (!status.ok) throw new Error("请先选择保存文件夹");
+        const { files } = await desktopApi()!.folderList();
+        return files
+          .filter((file) => isNoteFilename(file.name))
+          .map((file) => parseNoteFile(file.content, file.name.replace(/\.(md|markdown|txt)$/i, "")));
+      }
       if (native) {
         const tree = await nativeTreeList();
         if (tree) return tree;
@@ -215,6 +241,12 @@ export function createFolderAdapter(config: SyncConfig): SyncAdapter {
       const name = filenameForNote(note);
       const data = serializeNote(note);
       const shortId = note.id.replace(/-/g, "").slice(0, 8);
+      if (desktop) {
+        const status = await desktopApi()!.folderStatus();
+        if (!status.ok) throw new Error("请先选择保存文件夹");
+        await desktopApi()!.folderWrite({ name, content: data, shortId });
+        return;
+      }
       if (native) {
         try {
           const status = await nativeFolder.status();
@@ -247,6 +279,10 @@ export function createFolderAdapter(config: SyncConfig): SyncAdapter {
     },
     async remove(id) {
       const short = id.replace(/-/g, "").slice(0, 8);
+      if (desktop) {
+        await desktopApi()!.folderRemove({ shortId: short });
+        return;
+      }
       if (native) {
         try {
           const status = await nativeFolder.status();

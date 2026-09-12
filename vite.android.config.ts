@@ -5,7 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   root: path.resolve("android-web"),
-  base: "/",
+  // Relative URLs so Electron file:// and Capacitor both resolve assets.
+  base: "./",
   publicDir: path.resolve("public"),
   plugins: [viteReact(), tailwindcss()],
   resolve: {

@@ -17,7 +17,7 @@ const root = path.resolve(".");
 const staging = path.join(root, ".desktop-stage");
 const outDir = path.join(os.tmpdir(), "jingjian-desktop");
 const artifacts = path.join(root, "artifacts");
-const version = "1.6.6";
+const version = "1.6.7";
 const electronVersion = require("electron/package.json").version;
 
 function run(command, args) {
@@ -91,6 +91,19 @@ cpSync(path.join(root, "desktop", "preload.cjs"), path.join(staging, "preload.cj
 if (existsSync(path.join(root, "public/icon-512.png"))) {
   cpSync(path.join(root, "public/icon-512.png"), path.join(staging, "icon.png"));
 }
+const icoPath = path.join(staging, "icon.ico");
+const pngIcon = path.join(staging, "icon.png");
+if (existsSync(pngIcon)) {
+  const icoScript = `
+import struct, sys
+from pathlib import Path
+png = Path(sys.argv[1]).read_bytes()
+header = struct.pack("<HHH", 0, 1, 1)
+entry = struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(png), 22)
+Path(sys.argv[2]).write_bytes(header + entry + png)
+`;
+  spawnSync("python3", ["-c", icoScript, pngIcon, icoPath], { stdio: "inherit" });
+}
 writeFileSync(
   path.join(staging, "package.json"),
   JSON.stringify(
@@ -98,6 +111,7 @@ writeFileSync(
       name: "jingjian",
       productName: "Jingjian",
       version,
+      type: "module",
       main: "main.mjs",
       author: "Ghostpanter",
       license: "MIT",
@@ -110,9 +124,8 @@ writeFileSync(
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 mkdirSync(artifacts, { recursive: true });
-const icon = existsSync(path.join(staging, "icon.png"))
-  ? path.join(staging, "icon.png")
-  : undefined;
+const pngIconPath = existsSync(pngIcon) ? pngIcon : undefined;
+const winIcon = existsSync(icoPath) ? icoPath : pngIconPath;
 
 const platforms = ["linux", "win32", "darwin"];
 for (const platform of platforms) {
@@ -124,12 +137,21 @@ for (const platform of platforms) {
       overwrite: true,
       platform,
       arch: "x64",
-      asar: true,
+      // Unpack the SPA so jingjian:// and file:// both get real JS/CSS files.
+      asar: false,
       name: "Jingjian",
       appVersion: version,
       appCopyright: "Ghostpanter",
+      appBundleId: "com.ghostpanter.jingjian",
       electronVersion,
-      icon,
+      icon: platform === "win32" ? winIcon : pngIconPath,
+      win32metadata: {
+        CompanyName: "Ghostpanter",
+        FileDescription: "静笺",
+        ProductName: "静笺",
+        InternalName: "Jingjian",
+        OriginalFilename: "Jingjian.exe",
+      },
       quiet: false,
       ignore: [/node_modules/, /\.map$/],
     });
