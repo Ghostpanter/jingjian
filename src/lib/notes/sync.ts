@@ -1,6 +1,7 @@
 import { readTombstones, writeTombstones } from "./sync-config";
 import { createFolderAdapter } from "./sync-folder";
 import { mergeNotes, notesFingerprint } from "./sync-merge";
+import { createOssAdapter } from "./sync-oss";
 import { createServerAdapter } from "./sync-server";
 import type { SyncAdapter, SyncConfig, SyncStatus } from "./sync-types";
 import { createWebdavAdapter } from "./sync-webdav";
@@ -9,6 +10,7 @@ import type { Note } from "./types";
 export function createAdapter(config: SyncConfig): SyncAdapter {
   if (config.provider === "webdav") return createWebdavAdapter(config);
   if (config.provider === "folder") return createFolderAdapter(config);
+  if (config.provider === "oss") return createOssAdapter(config);
   return createServerAdapter(config);
 }
 

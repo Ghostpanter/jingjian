@@ -104,6 +104,12 @@ pre.plain-text {
   word-break: normal;
 }
 .hljs { background: transparent; padding: 0; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type, .hljs-deletion { color: ${palette.syntaxKeyword}; font-weight: 600; }
+.hljs-string, .hljs-attr, .hljs-attribute, .hljs-template-tag, .hljs-addition, .hljs-regexp { color: ${palette.syntaxString}; }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-meta { color: ${palette.syntaxNumber}; }
+.hljs-title, .hljs-section { color: ${palette.syntaxFunction}; font-weight: 600; }
+.hljs-comment, .hljs-quote { color: ${palette.syntaxComment}; font-style: italic; }
+
 img { max-width: 100%; height: auto; display: block; }
 .mermaid-block {
   margin: 0 auto 16px;

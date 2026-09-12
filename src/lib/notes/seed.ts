@@ -18,7 +18,7 @@ export function createSeedNotes(): Note[] {
 
 静笺是一款专注写作的本地 Markdown 笔记。没有账号。输入即保存，没有打开 / 保存菜单。
 
-需要的话，可在侧栏齿轮里打开同步：自建服务器、WebDAV 或本机文件夹。
+需要的话，可在侧栏齿轮里打开同步：自建服务器、WebDAV、本机文件夹，或对象存储（阿里云 / 腾讯云 / 华为云 / 七牛 / 火山 / Amazon S3 / MinIO）。
 
 在平板上，侧栏与编辑区并排；打开分栏后，左边写 Markdown，右边立刻看到排版。
 
@@ -30,7 +30,8 @@ export function createSeedNotes(): Note[] {
 - 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区，或 Ctrl + Shift + I
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
 - 导入：左上角加号里导入 Markdown、TXT 或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
-- 主题与图床：侧栏齿轮 → 主题 / 图像。图床可直接填，也可粘贴 PicGo 配置
+- 主题与图床：侧栏齿轮 → 主题 / 图像。宣纸是默认，代码高亮已单独加深。图床可直接填，也可粘贴 PicGo 配置
+- 安卓：在文件管理器里用「打开方式」选静笺，可直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
 - 插入外链：选中文字后按 Ctrl + K，或直接把网址粘到选中文字上
 - 加粗 / 斜体 / 标题：Ctrl + B、Ctrl + I、Ctrl + 1～6，Tab 缩进列表
 - 显示或收起侧栏：Ctrl + Shift + L

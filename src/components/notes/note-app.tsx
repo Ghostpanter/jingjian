@@ -42,7 +42,7 @@ import {
   writeEditorValue,
   type MarkupEdit,
 } from "@/lib/notes/insert-markup";
-import { insertImageAtCursor, resolveInsertedImage } from "@/lib/notes/image-insert";
+import { insertImageAtCursor, resolveInsertedImage, storeLocalImage } from "@/lib/notes/image-insert";
 import { putImage, extensionFor } from "@/lib/notes/image-store";
 import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
 import { runSync } from "@/lib/notes/sync";
@@ -55,6 +55,13 @@ import {
   useSortedNotes,
 } from "@/lib/notes/store";
 import { parseNoteFile } from "@/lib/notes/markdown-file";
+import { base64ToBytes, toArrayBuffer } from "@/lib/notes/bytes";
+import {
+  classifyIncoming,
+  noteFromIncoming,
+  stableIncomingId,
+} from "@/lib/notes/open-incoming";
+import { isNativeApp, nativeFolder, type LaunchFile } from "@/lib/notes/native-folder";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -132,6 +139,93 @@ function applyFormatHotkey(
     );
   }
   return false;
+}
+
+async function notesFromEpubBuffer(
+  buffer: ArrayBuffer,
+): Promise<{ title: string; notes: Note[] }> {
+  const parsed = await parseEpub(buffer);
+  for (const image of parsed.images) {
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const ext = extensionFor(image.mime, image.href);
+    await putImage({
+      id,
+      name: image.href.split("/").pop() || `image.${ext}`,
+      mime: image.mime,
+      blob: new Blob([new Uint8Array(image.bytes)], { type: image.mime }),
+    });
+    const from = image.href;
+    const to = `images/${id}.${ext}`;
+    parsed.chapters = parsed.chapters.map((chapter) => ({
+      ...chapter,
+      content: chapter.content.replaceAll(from, to),
+    }));
+  }
+  return { title: parsed.title, notes: notesFromEpub(parsed) };
+}
+
+function launchKey(file: LaunchFile): string {
+  if (file.uri) return file.uri;
+  if (file.text) return `text:${file.text}`;
+  return "";
+}
+
+async function ingestLaunchFile(file: LaunchFile): Promise<void> {
+  if (file.text && !file.uri) {
+    const name = file.name || "分享.txt";
+    const note = noteFromIncoming(
+      file.text,
+      classifyIncoming(name, file.mime),
+      stableIncomingId(`text:${file.text}`),
+    );
+    useNotesStore.getState().importNotes([note]);
+    toast.message("已打开分享的文字");
+    return;
+  }
+  if (!file.uri) {
+    toast.message("没有可打开的文件");
+    return;
+  }
+  const opened = await nativeFolder.readOpenUri({ uri: file.uri, name: file.name });
+  const name = opened.name || file.name || "未命名";
+  const mime = opened.mime || file.mime || "";
+  const kind = classifyIncoming(name, mime);
+
+  if (kind === "epub") {
+    const buffer = await new Blob([toArrayBuffer(base64ToBytes(opened.data))]).arrayBuffer();
+    const { title, notes } = await notesFromEpubBuffer(buffer);
+    useNotesStore.getState().importNotes(notes);
+    toast.message(`已导入《${title}》，${notes.length} 章`);
+    return;
+  }
+
+  if (kind === "image") {
+    const blob = new Blob([toArrayBuffer(base64ToBytes(opened.data))], {
+      type: mime || "image/png",
+    });
+    const href = await storeLocalImage(blob, name);
+    const alt = name.replace(/\.[^.]+$/, "") || "图片";
+    useNotesStore.getState().importNotes([
+      {
+        id: stableIncomingId(file.uri),
+        content: `# ${alt}\n\n![${alt}](${href})\n`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
+    toast.message(`已打开图片 ${alt}`);
+    return;
+  }
+
+  if (kind === "markdown" || kind === "txt" || kind === "text") {
+    const raw = opened.text ?? new TextDecoder().decode(base64ToBytes(opened.data));
+    const note = noteFromIncoming(raw, kind, stableIncomingId(file.uri));
+    useNotesStore.getState().importNotes([note]);
+    toast.message(`已打开 ${name}`);
+    return;
+  }
+
+  toast.message("暂不支持该文件");
 }
 
 export function NoteApp() {
@@ -219,6 +313,38 @@ export function NoteApp() {
     hydrateNotesStore();
     setSyncConfig(readSyncConfig());
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || !isNativeApp()) return;
+    const seen = new Set<string>();
+    let cancelled = false;
+    let handle: { remove: () => Promise<void> } | undefined;
+
+    const ingest = (file: LaunchFile) => {
+      if (cancelled) return;
+      const key = launchKey(file);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      void ingestLaunchFile(file).catch((error) => {
+        toast.message(error instanceof Error ? error.message : "无法打开文件");
+      });
+    };
+
+    void nativeFolder
+      .consumeLaunchFile()
+      .then((file) => {
+        if (file?.uri || file?.text) ingest(file);
+      })
+      .catch(() => {});
+    void nativeFolder.addListener("openFile", ingest).then((listener) => {
+      handle = listener;
+    });
+
+    return () => {
+      cancelled = true;
+      void handle?.remove();
+    };
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -522,26 +648,9 @@ export function NoteApp() {
 
   async function handleImportBook(file: File) {
     try {
-      const parsed = await parseEpub(await file.arrayBuffer());
-      for (const image of parsed.images) {
-        const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-        const ext = extensionFor(image.mime, image.href);
-        await putImage({
-          id,
-          name: image.href.split("/").pop() || `image.${ext}`,
-          mime: image.mime,
-          blob: new Blob([new Uint8Array(image.bytes)], { type: image.mime }),
-        });
-        const from = image.href;
-        const to = `images/${id}.${ext}`;
-        parsed.chapters = parsed.chapters.map((chapter) => ({
-          ...chapter,
-          content: chapter.content.replaceAll(from, to),
-        }));
-      }
-      const imported = notesFromEpub(parsed);
-      importNotes(imported);
-      toast.message(`已导入《${parsed.title}》，${imported.length} 章`);
+      const { title, notes } = await notesFromEpubBuffer(await file.arrayBuffer());
+      importNotes(notes);
+      toast.message(`已导入《${title}》，${notes.length} 章`);
     } catch (error) {
       toast.message(error instanceof Error ? error.message : "无法打开电子书");
     }

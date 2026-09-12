@@ -1,10 +1,17 @@
-import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncProvider } from "./sync-types";
+import { isOssVendor } from "./sync-oss.ts";
+import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncProvider } from "./sync-types.ts";
 
 const CONFIG_KEY = "jingjian.sync.v1";
 const TOMBSTONE_KEY = "jingjian.sync.tombstones.v1";
 
 function isProvider(value: unknown): value is SyncProvider {
-  return value === "off" || value === "server" || value === "webdav" || value === "folder";
+  return (
+    value === "off" ||
+    value === "server" ||
+    value === "webdav" ||
+    value === "folder" ||
+    value === "oss"
+  );
 }
 
 export function readSyncConfig(): SyncConfig {
@@ -17,6 +24,8 @@ export function readSyncConfig(): SyncConfig {
       ...parsed,
       provider: isProvider(parsed.provider) ? parsed.provider : "off",
       autoSync: parsed.autoSync !== false,
+      ossVendor: isOssVendor(parsed.ossVendor) ? parsed.ossVendor : "aliyun",
+      ossPathStyle: Boolean(parsed.ossPathStyle),
     };
   } catch {
     return { ...DEFAULT_SYNC_CONFIG };

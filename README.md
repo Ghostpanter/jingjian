@@ -17,8 +17,9 @@
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
 - 电子书：左侧 + 导入 EPUB、阅读翻章、按章编辑后再导出
 - 左侧 +：新建 Markdown / 纯文本，导入 Markdown、TXT、EPUB
-- 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色
-- 同步：静笺服务器、WebDAV、本机目录
+- 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
+- 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
+- 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
 - 键盘操作（`Ctrl+B` 加粗，`Ctrl+I` 斜体，`Ctrl+1`～`6` 标题，`?` 查看全部）
 
 ## 导出与电子书
@@ -31,7 +32,7 @@
 
 ## 主题
 
-齿轮 → 主题。内置宣纸、墨夜、GitHub、GitHub 夜间。自定义浅色 / 深色可改纸色、字色、强调色。
+齿轮 → 主题。内置宣纸、墨夜、GitHub、GitHub 夜间。自定义浅色 / 深色可改纸色、字色、强调色。宣纸是默认：代码关键字、字符串、函数用独立高对比配色，不再混进正文。要整体最清楚，选 GitHub 夜间。
 
 ## 图像 / 图床
 
@@ -51,13 +52,14 @@
 
 ## 同步与同时编辑
 
-侧栏齿轮打开设置里的「同步」。三种方式：
+侧栏齿轮打开设置里的「同步」。四种方式：
 
 | 方式 | 适用 | 保存路径 |
 | --- | --- | --- |
 | 静笺服务器 | 自建 Docker | 宿主机目录 `JINGJIAN_NOTES_PATH` |
 | WebDAV | 坚果云、Nextcloud、群晖、NAS | 远程目录，如 `/静笺` |
 | 本机目录 | 电脑选文件夹，安卓写入文档目录 | 文件夹名，默认 `Jingjian` |
+| 对象存储 | 阿里云 OSS、腾讯云 COS、华为 OBS、七牛 Kodo、火山 TOS、Amazon S3、MinIO | 桶内前缀，默认 `jingjian/` |
 
 开着自动同步时，平板和电脑可以同时改同一篇云端笔记。正在编辑的这一篇不会被远端覆盖；停笔后几秒内会对齐。
 
@@ -98,19 +100,25 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 - 密码：坚果云「账户信息」里的应用密码
 - 远程保存路径：`/静笺`
 
+### 对象存储
+
+齿轮 → 同步 → 对象存储，再选一家云厂商。填写 Bucket、地域、AccessKey、SecretKey。笔记以 Markdown 文件写入桶内前缀（默认 `jingjian/`）。网页需在桶 CORS 放行当前站点；安卓与电脑应用可直连。
+
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.5.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.6.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
+
+在文件管理器、下载记录里点 Markdown、TXT 或 EPUB，「用其他应用打开」会出现静笺。分享文字或图片到静笺也会收入笔记。
 
 ## Windows / macOS / Linux
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.5-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
-- `jingjian-v1.6.5-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
-- `jingjian-v1.6.5-linux-x64.zip`：解压后运行 `Jingjian`
+- `jingjian-v1.6.6-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
+- `jingjian-v1.6.6-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）
+- `jingjian-v1.6.6-linux-x64.zip`：解压后运行 `Jingjian`
 
 桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
 

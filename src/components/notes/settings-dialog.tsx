@@ -5,6 +5,11 @@ import { Input } from "@/components/ui/input";
 import { isNativeApp } from "@/lib/notes/native-folder";
 import { pickSyncFolder } from "@/lib/notes/sync-folder";
 import { type SyncConfig, type SyncProvider } from "@/lib/notes/sync-types";
+import {
+  OSS_VENDORS,
+  endpointForVendor,
+  patchOssVendor,
+} from "@/lib/notes/sync-oss";
 import { testSync } from "@/lib/notes/sync";
 import {
   applyTheme,
@@ -34,6 +39,7 @@ const PROVIDERS: { id: SyncProvider; label: string; hint: string }[] = [
   { id: "server", label: "静笺服务器", hint: "自建 Docker" },
   { id: "webdav", label: "WebDAV", hint: "坚果云 / 群晖" },
   { id: "folder", label: "本机目录", hint: "指定文件夹" },
+  { id: "oss", label: "对象存储", hint: "云厂商存储桶" },
 ];
 
 const TABS = [
@@ -358,6 +364,99 @@ function SyncPanel({
           </Button>
         </div>
       ) : null}
+      {draft.provider === "oss" ? (
+        <div className="mt-4 flex flex-col gap-3">
+          <p className="text-sm text-muted">
+            选一家云厂商，笔记以 Markdown 文件写入存储桶。网页需在桶 CORS 放行当前站点；安卓与电脑应用可直连。
+          </p>
+          <div className="provider-grid">
+            {OSS_VENDORS.map((item) => {
+              const selected = draft.ossVendor === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onPatch(patchOssVendor(item.id, draft))}
+                  className={cn(
+                    "btn-press rounded-md px-3 py-2 text-left",
+                    selected ? "bg-paper text-fg shadow-border" : "bg-overlay text-muted",
+                  )}
+                >
+                  <div className="text-sm font-medium text-fg">{item.label}</div>
+                  <div className="text-xs text-subtle">{item.hint}</div>
+                </button>
+              );
+            })}
+          </div>
+          <Field label="Bucket">
+            <Input
+              value={draft.ossBucket}
+              onChange={(event) => onPatch({ ossBucket: event.target.value })}
+              placeholder="jingjian-notes"
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </Field>
+          <Field label="地域">
+            <Input
+              value={draft.ossRegion}
+              onChange={(event) => {
+                const ossRegion = event.target.value;
+                const ossEndpoint =
+                  draft.ossVendor === "minio"
+                    ? draft.ossEndpoint
+                    : endpointForVendor(draft.ossVendor, ossRegion);
+                onPatch({ ossRegion, ossEndpoint });
+              }}
+              placeholder="cn-hangzhou"
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </Field>
+          <Field label="Endpoint">
+            <Input
+              value={draft.ossEndpoint}
+              onChange={(event) => onPatch({ ossEndpoint: event.target.value })}
+              placeholder="oss-cn-hangzhou.aliyuncs.com"
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </Field>
+          <Field label="AccessKey">
+            <Input
+              value={draft.ossAccessKey}
+              onChange={(event) => onPatch({ ossAccessKey: event.target.value })}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="SecretKey">
+            <Input
+              type="password"
+              value={draft.ossSecretKey}
+              onChange={(event) => onPatch({ ossSecretKey: event.target.value })}
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="目录前缀">
+            <Input
+              value={draft.ossPrefix}
+              onChange={(event) => onPatch({ ossPrefix: event.target.value })}
+              placeholder="jingjian"
+              autoCapitalize="off"
+            />
+          </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={draft.ossPathStyle}
+              onChange={(event) => onPatch({ ossPathStyle: event.target.checked })}
+            />
+            Path-style 访问（MinIO / 部分兼容接口需要）
+          </label>
+        </div>
+      ) : null}
       {draft.provider !== "off" ? (
         <label className="mt-4 flex items-center gap-2 text-sm">
           <input
@@ -391,7 +490,7 @@ function ThemePanel({
   return (
     <>
       <p className="mt-3 text-sm text-muted">
-        宣纸与墨夜是静笺默认。GitHub 两套按白底 / 夜间 Markdown。自定义白底、黑底可改纸色、字色、强调色。
+        宣纸是默认。代码关键字、字符串、函数用独立高对比配色，不再混进正文颜色，浅底也能看清。整体最清楚的是 GitHub 夜间。
       </p>
       <div className="provider-grid mt-4">
         {THEME_OPTIONS.map((item) => {

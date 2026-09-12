@@ -3,7 +3,11 @@ package com.ghostpanter.jingjian;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
+import android.provider.OpenableColumns;
+import android.webkit.MimeTypeMap;
 
 import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
@@ -17,6 +21,7 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -407,5 +412,216 @@ public class JingjianFolderPlugin extends Plugin {
         } finally {
             out.close();
         }
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        super.handleOnNewIntent(intent);
+        Activity activity = getActivity();
+        if (activity != null && intent != null) {
+            activity.setIntent(intent);
+        }
+        JSObject data = describeLaunch(intent);
+        if (data != null) {
+            notifyListeners("openFile", data, true);
+        }
+    }
+
+    @PluginMethod
+    public void consumeLaunchFile(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.resolve();
+            return;
+        }
+        Intent intent = activity.getIntent();
+        JSObject data = describeLaunch(intent);
+        if (data != null) {
+            consumeIntent(intent);
+            call.resolve(data);
+            return;
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void readOpenUri(PluginCall call) {
+        String raw = call.getString("uri", "");
+        if (raw == null || raw.isEmpty()) {
+            call.reject("缺少文件");
+            return;
+        }
+        Uri uri;
+        try {
+            uri = Uri.parse(raw);
+        } catch (Exception error) {
+            call.reject("文件位置无效");
+            return;
+        }
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (SecurityException ignored) {
+            // One-shot grants from VIEW/SEND are enough for this read.
+        }
+        try {
+            byte[] bytes = readAll(uri);
+            String name = queryDisplayName(uri, call.getString("name", ""));
+            String mime = queryMime(uri, name);
+            JSObject payload = new JSObject();
+            payload.put("uri", uri.toString());
+            payload.put("name", name);
+            payload.put("mime", mime);
+            payload.put("data", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP));
+            if (isTextName(name, mime)) {
+                payload.put("text", new String(bytes, StandardCharsets.UTF_8));
+            }
+            call.resolve(payload);
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "无法读取文件");
+        }
+    }
+
+    private JSObject describeLaunch(Intent intent) {
+        if (intent == null) {
+            return null;
+        }
+        String action = intent.getAction();
+        if (Intent.ACTION_VIEW.equals(action) || Intent.ACTION_EDIT.equals(action)) {
+            Uri uri = intent.getData();
+            if (uri == null) {
+                return null;
+            }
+            return describeUri(uri, intent.getType());
+        }
+        if (Intent.ACTION_SEND.equals(action)) {
+            Uri stream = extraStream(intent);
+            if (stream != null) {
+                return describeUri(stream, intent.getType());
+            }
+            String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+            if (text != null && !text.trim().isEmpty()) {
+                JSObject payload = new JSObject();
+                payload.put("kind", "text");
+                payload.put("text", text);
+                payload.put("name", "分享.txt");
+                payload.put("mime", "text/plain");
+                return payload;
+            }
+        }
+        return null;
+    }
+
+    private JSObject describeUri(Uri uri, String mime) {
+        JSObject payload = new JSObject();
+        String name = queryDisplayName(uri, uri.getLastPathSegment());
+        payload.put("kind", "uri");
+        payload.put("uri", uri.toString());
+        payload.put("name", name);
+        payload.put("mime", mime != null ? mime : queryMime(uri, name));
+        return payload;
+    }
+
+    private void consumeIntent(Intent intent) {
+        intent.setData(null);
+        intent.setAction(null);
+        intent.removeExtra(Intent.EXTRA_STREAM);
+        intent.removeExtra(Intent.EXTRA_TEXT);
+    }
+
+    private Uri extraStream(Intent intent) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            return intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
+        }
+        return intent.getParcelableExtra(Intent.EXTRA_STREAM);
+    }
+
+    private String queryDisplayName(Uri uri, String fallback) {
+        Cursor cursor = null;
+        try {
+            cursor = getContext().getContentResolver().query(
+                uri,
+                new String[]{OpenableColumns.DISPLAY_NAME},
+                null,
+                null,
+                null
+            );
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String name = cursor.getString(index);
+                    if (name != null && !name.isEmpty()) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall through to URI last segment.
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        if (fallback != null && !fallback.isEmpty()) {
+            return fallback;
+        }
+        String last = uri.getLastPathSegment();
+        return last != null ? last : "未命名.md";
+    }
+
+    private String queryMime(Uri uri, String name) {
+        String mime = getContext().getContentResolver().getType(uri);
+        if (mime != null && !mime.isEmpty() && !"application/octet-stream".equals(mime)) {
+            return mime;
+        }
+        String ext = "";
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0 && dot < name.length() - 1) {
+            ext = name.substring(dot + 1).toLowerCase(Locale.ROOT);
+        }
+        if (ext.isEmpty()) {
+            return mime != null ? mime : "";
+        }
+        String mapped = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+        if (mapped != null) {
+            return mapped;
+        }
+        if ("md".equals(ext) || "markdown".equals(ext)) {
+            return "text/markdown";
+        }
+        if ("epub".equals(ext)) {
+            return "application/epub+zip";
+        }
+        return mime != null ? mime : "";
+    }
+
+    private boolean isTextName(String name, String mime) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        String type = mime == null ? "" : mime.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".md")
+            || lower.endsWith(".markdown")
+            || lower.endsWith(".txt")
+            || type.startsWith("text/")
+            || type.contains("markdown");
+    }
+
+    private byte[] readAll(Uri uri) throws IOException {
+        InputStream in = getContext().getContentResolver().openInputStream(uri);
+        if (in == null) {
+            throw new IOException("无法读取文件");
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int count;
+        try {
+            while ((count = in.read(buffer)) != -1) {
+                out.write(buffer, 0, count);
+            }
+        } finally {
+            in.close();
+        }
+        return out.toByteArray();
     }
 }

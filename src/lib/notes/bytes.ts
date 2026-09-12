@@ -30,6 +30,21 @@ export function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
 
+export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+export function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const out = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    out[index] = binary.charCodeAt(index);
+  }
+  return out;
+}
+
 export function safeFilename(name: string, fallback = "未命名"): string {
   const cleaned = name
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")

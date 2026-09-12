@@ -36,3 +36,25 @@ test("custom dark derives readable muted text", () => {
   assert.ok(THEME_OPTIONS.some((item) => item.label.includes("白底")));
   assert.ok(THEME_OPTIONS.some((item) => item.id === "github" && item.label === "GitHub"));
 });
+
+test("paper syntax colors stay distinct from body text", () => {
+  const palette = paletteFor({
+    id: "paper",
+    customLight: { bg: "#fff", fg: "#111", accent: "#2c4a42" },
+    customDark: { bg: "#111", fg: "#eee", accent: "#8fafa4" },
+  });
+  assert.notEqual(palette.syntaxKeyword.toLowerCase(), palette.fg.toLowerCase());
+  assert.notEqual(palette.syntaxKeyword.toLowerCase(), palette.accent.toLowerCase());
+  assert.notEqual(palette.syntaxString.toLowerCase(), palette.syntaxKeyword.toLowerCase());
+  assert.notEqual(palette.syntaxFunction.toLowerCase(), palette.syntaxNumber.toLowerCase());
+});
+
+test("github-dark uses high-contrast syntax colors", () => {
+  const palette = paletteFor({
+    id: "github-dark",
+    customLight: { bg: "#fff", fg: "#111", accent: "#0969da" },
+    customDark: { bg: "#111", fg: "#eee", accent: "#4493f8" },
+  });
+  assert.equal(palette.syntaxKeyword.toLowerCase(), "#ff7b72");
+  assert.equal(palette.syntaxFunction.toLowerCase(), "#d2a8ff");
+});

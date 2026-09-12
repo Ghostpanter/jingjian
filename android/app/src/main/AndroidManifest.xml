@@ -25,6 +25,53 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="application/markdown" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.MD" />
+                <data android:pathPattern=".*\\.markdown" />
+                <data android:pathPattern=".*\\.txt" />
+                <data android:pathPattern=".*\\.TXT" />
+                <data android:pathPattern=".*\\.epub" />
+                <data android:pathPattern=".*\\..*\\.md" />
+                <data android:pathPattern=".*\\..*\\.markdown" />
+                <data android:pathPattern=".*\\..*\\.txt" />
+                <data android:pathPattern=".*\\..*\\.epub" />
+                <data android:pathPattern=".*\\..*\\..*\\.md" />
+                <data android:pathPattern=".*\\..*\\..*\\.txt" />
+                <data android:pathPattern=".*\\..*\\..*\\.epub" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -41,4 +88,5 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 </manifest>

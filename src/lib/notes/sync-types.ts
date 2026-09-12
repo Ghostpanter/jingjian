@@ -1,4 +1,13 @@
-export type SyncProvider = "off" | "server" | "webdav" | "folder";
+export type SyncProvider = "off" | "server" | "webdav" | "folder" | "oss";
+
+export type OssVendor =
+  | "aliyun"
+  | "tencent"
+  | "huawei"
+  | "qiniu"
+  | "volcengine"
+  | "aws"
+  | "minio";
 
 export type SyncConfig = {
   provider: SyncProvider;
@@ -10,6 +19,14 @@ export type SyncConfig = {
   webdavPassword: string;
   webdavPath: string;
   folderPath: string;
+  ossVendor: OssVendor;
+  ossEndpoint: string;
+  ossRegion: string;
+  ossBucket: string;
+  ossAccessKey: string;
+  ossSecretKey: string;
+  ossPrefix: string;
+  ossPathStyle: boolean;
 };
 
 export type SyncStatus = {
@@ -28,6 +45,14 @@ export const DEFAULT_SYNC_CONFIG: SyncConfig = {
   webdavPassword: "",
   webdavPath: "/静笺",
   folderPath: "Jingjian",
+  ossVendor: "aliyun",
+  ossEndpoint: "oss-cn-hangzhou.aliyuncs.com",
+  ossRegion: "cn-hangzhou",
+  ossBucket: "",
+  ossAccessKey: "",
+  ossSecretKey: "",
+  ossPrefix: "jingjian",
+  ossPathStyle: false,
 };
 
 export type SyncAdapter = {

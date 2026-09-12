@@ -34,6 +34,11 @@ export type Palette = {
   ring: string;
   danger: string;
   mark: string;
+  syntaxKeyword: string;
+  syntaxString: string;
+  syntaxNumber: string;
+  syntaxFunction: string;
+  syntaxComment: string;
 };
 
 const STORAGE_KEY = "jingjian.theme.v1";
@@ -57,13 +62,29 @@ export const DEFAULT_THEME: ThemeConfig = {
 };
 
 export const THEME_OPTIONS: { id: ThemeId; label: string; hint: string }[] = [
-  { id: "paper", label: "宣纸", hint: "浅底，松绿" },
+  { id: "paper", label: "宣纸", hint: "浅底，代码着色更清楚" },
   { id: "ink", label: "墨夜", hint: "深底，暖字" },
   { id: "github", label: "GitHub", hint: "白底蓝链，Markdown" },
-  { id: "github-dark", label: "GitHub 夜间", hint: "深底蓝链，Markdown" },
+  { id: "github-dark", label: "GitHub 夜间", hint: "深底，代码着色最清楚" },
   { id: "custom-light", label: "自定义白底", hint: "自定纸色 / 字色" },
   { id: "custom-dark", label: "自定义黑底", hint: "自定纸色 / 字色" },
 ];
+
+const LIGHT_SYNTAX = {
+  syntaxKeyword: "#cf222e",
+  syntaxString: "#0a3069",
+  syntaxNumber: "#0550ae",
+  syntaxFunction: "#8250df",
+  syntaxComment: "#57606a",
+};
+
+const DARK_SYNTAX = {
+  syntaxKeyword: "#ff7b72",
+  syntaxString: "#a5d6ff",
+  syntaxNumber: "#79c0ff",
+  syntaxFunction: "#d2a8ff",
+  syntaxComment: "#8b949e",
+};
 
 const PRESETS: Record<"paper" | "ink" | "github" | "github-dark", Palette> = {
   paper: {
@@ -82,6 +103,8 @@ const PRESETS: Record<"paper" | "ink" | "github" | "github-dark", Palette> = {
     ring: "#2c4a42",
     danger: "#8f3d32",
     mark: "#dfe8d8",
+    ...LIGHT_SYNTAX,
+    syntaxComment: "#6a6358",
   },
   ink: {
     bg: "#161513",
@@ -99,6 +122,8 @@ const PRESETS: Record<"paper" | "ink" | "github" | "github-dark", Palette> = {
     ring: "#8fafa4",
     danger: "#e08b7a",
     mark: "#2c4038",
+    ...DARK_SYNTAX,
+    syntaxComment: "#8a8276",
   },
   github: {
     bg: "#ffffff",
@@ -116,6 +141,7 @@ const PRESETS: Record<"paper" | "ink" | "github" | "github-dark", Palette> = {
     ring: "#0969da",
     danger: "#d1242f",
     mark: "#fff8c5",
+    ...LIGHT_SYNTAX,
   },
   "github-dark": {
     bg: "#0d1117",
@@ -133,6 +159,7 @@ const PRESETS: Record<"paper" | "ink" | "github" | "github-dark", Palette> = {
     ring: "#4493f8",
     danger: "#f85149",
     mark: "#3a2e00",
+    ...DARK_SYNTAX,
   },
 };
 
@@ -152,6 +179,11 @@ const VAR_MAP: Record<keyof Palette, string> = {
   ring: "--color-ring",
   danger: "--color-danger",
   mark: "--color-mark",
+  syntaxKeyword: "--color-syntax-keyword",
+  syntaxString: "--color-syntax-string",
+  syntaxNumber: "--color-syntax-number",
+  syntaxFunction: "--color-syntax-function",
+  syntaxComment: "--color-syntax-comment",
 };
 
 export function parseHex(hex: string): [number, number, number] | null {
@@ -225,6 +257,7 @@ export function derivePalette(colors: ThemeColors, dark: boolean): Palette {
     ring: accent,
     danger: dark ? "#e08b7a" : "#8f3d32",
     mark: mix(accent, bg, dark ? 0.55 : 0.78),
+    ...(dark ? DARK_SYNTAX : LIGHT_SYNTAX),
   };
 }
 

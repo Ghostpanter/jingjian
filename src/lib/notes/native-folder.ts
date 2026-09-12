@@ -1,4 +1,20 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+
+export type LaunchFile = {
+  kind?: string;
+  uri?: string;
+  name?: string;
+  mime?: string;
+  text?: string;
+};
+
+export type OpenUriFile = {
+  uri: string;
+  name: string;
+  mime: string;
+  data: string;
+  text?: string;
+};
 
 type NativeFolderPlugin = {
   pick(): Promise<{ name: string }>;
@@ -14,6 +30,12 @@ type NativeFolderPlugin = {
     mime: string;
     data: string;
   }): Promise<{ uri: string; name: string }>;
+  consumeLaunchFile(): Promise<LaunchFile>;
+  readOpenUri(options: { uri: string; name?: string }): Promise<OpenUriFile>;
+  addListener(
+    event: "openFile",
+    callback: (data: LaunchFile) => void,
+  ): Promise<PluginListenerHandle>;
 };
 
 const plugin = registerPlugin<NativeFolderPlugin>("JingjianFolder");
