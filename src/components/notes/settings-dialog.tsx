@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { isNativeApp } from "@/lib/notes/native-folder";
 import { pickSyncFolder } from "@/lib/notes/sync-folder";
 import { type SyncConfig, type SyncProvider } from "@/lib/notes/sync-types";
 import { testSync } from "@/lib/notes/sync";
@@ -32,11 +34,13 @@ export function SettingsDialog({
   const [busy, setBusy] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState(false);
+  const native = isNativeApp();
 
   useEffect(() => {
     if (open) {
       setDraft(config);
       setTestMessage("");
+      setBusy(false);
     }
   }, [open, config]);
 
@@ -62,15 +66,26 @@ export function SettingsDialog({
   }
 
   async function handlePickFolder() {
+    setBusy(true);
+    setTestError(false);
+    setTestMessage("正在打开文件夹…");
     try {
       const name = await pickSyncFolder();
       patch({ folderPath: name, provider: "folder" });
       setTestError(false);
       setTestMessage(`已选择 ${name}`);
+      toast.message(`已选择 ${name}`);
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setTestMessage("");
+        return;
+      }
+      const message = error instanceof Error ? error.message : "无法选择文件夹";
       setTestError(true);
-      setTestMessage(error instanceof Error ? error.message : "无法选择文件夹");
+      setTestMessage(message);
+      toast.message(message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -191,10 +206,12 @@ export function SettingsDialog({
               />
             </Field>
             <p className="text-xs leading-relaxed text-muted">
-              电脑上选择一个文件夹；安卓写入系统文档目录下的这个名字。文件名为「标题 + 短 id.md」。
+              {native
+                ? "点「选择文件夹」会打开系统目录。不选的话，笔记写到「文档」里的这个名字。"
+                : "点「选择文件夹」打开系统目录。文件名为「标题 + 短 id.md」。"}
             </p>
-            <Button variant="subtle" onClick={() => void handlePickFolder()}>
-              选择文件夹
+            <Button variant="subtle" disabled={busy} onClick={() => void handlePickFolder()}>
+              {busy ? "正在打开…" : "选择文件夹"}
             </Button>
           </div>
         ) : null}
@@ -254,4 +271,3 @@ function Field({
     </label>
   );
 }
-

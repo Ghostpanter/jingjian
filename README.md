@@ -8,6 +8,8 @@
 
 - 左侧文件列表，按最后编辑时间分组
 - Markdown 源码、分栏、预览
+- 代码高亮（常见语言）与 Mermaid 流程图
+- 插入外链：Ctrl + K，或把网址粘到选中文字上
 - 即时搜索标题和正文
 - 新建 / 删除（删除前确认）
 - 字数与自动保存
@@ -63,7 +65,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.3.0.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.4.0.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -91,6 +93,7 @@ npm run apk
 | `Ctrl + E` | 源码 / 分栏 / 预览 |
 | `Ctrl + B` | 显示或收起文件列表 |
 | `Ctrl + ,` | 同步与保存路径 |
+| `Ctrl + K` | 插入外链 |
 | `Ctrl + Shift + Backspace` | 删除当前笔记 |
 | `J` / `K` 或方向键 | 上一条 / 下一条 |
 | `?` | 快捷键一览 |

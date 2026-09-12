@@ -1,6 +1,7 @@
 import {
   Columns2,
   Keyboard,
+  Link2,
   PanelLeft,
   Pencil,
   Trash2,
@@ -10,11 +11,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import { DeleteNoteDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
+import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { SettingsDialog } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
 import { countChars, titleFromContent } from "@/lib/notes/format";
+import {
+  looksLikeUrl,
+  normalizeHref,
+  readEditorSelection,
+  wrapAsMarkup,
+  writeEditorValue,
+} from "@/lib/notes/insert-markup";
 import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
 import { runSync } from "@/lib/notes/sync";
 import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
@@ -57,6 +66,12 @@ export function NoteApp() {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState<LinkDraft>({
+    text: "",
+    href: "",
+    image: false,
+  });
   const [now, setNow] = useState(() => Date.now());
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [syncConfig, setSyncConfig] = useState<SyncConfig>(DEFAULT_SYNC_CONFIG);
@@ -140,6 +155,7 @@ export function NoteApp() {
         setShortcutsOpen(false);
         setPendingDelete(false);
         setSettingsOpen(false);
+        setLinkOpen(false);
         setSidebarOpen(false);
         if (typing) target.blur();
         return;
@@ -199,6 +215,12 @@ export function NoteApp() {
         return;
       }
 
+      if (mod && key.toLowerCase() === "k") {
+        event.preventDefault();
+        openLinkDialog();
+        return;
+      }
+
       if (mod && key.toLowerCase() === "s") {
         event.preventDefault();
         toast.message("已自动保存");
@@ -211,7 +233,7 @@ export function NoteApp() {
         return;
       }
 
-      if (shortcutsOpen || pendingDelete) return;
+      if (shortcutsOpen || pendingDelete || linkOpen) return;
 
       const move =
         (!typing && (key === "j" || key === "ArrowDown")) ||
@@ -244,6 +266,7 @@ export function NoteApp() {
     cyclePreviewMode,
     notes,
     pendingDelete,
+    linkOpen,
     selectNote,
     setSidebarOpen,
     shortcutsOpen,
@@ -254,6 +277,43 @@ export function NoteApp() {
     () => countChars(activeNote?.content ?? ""),
     [activeNote?.content],
   );
+
+  function openLinkDialog() {
+    if (!activeNote) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    const selection = readEditorSelection();
+    const selected = selection?.selected ?? "";
+    const asUrl = looksLikeUrl(selected) ? normalizeHref(selected) : "";
+    setLinkDraft({
+      text: asUrl ? "" : selected,
+      href: asUrl,
+      image: false,
+    });
+    setLinkOpen(true);
+  }
+
+  function handleInsertLink(draft: LinkDraft) {
+    if (!activeNote) return;
+    const selection = readEditorSelection();
+    const start = selection?.start ?? activeNote.content.length;
+    const end = selection?.end ?? activeNote.content.length;
+    const source = selection?.value ?? activeNote.content;
+    const next = wrapAsMarkup(
+      source,
+      start,
+      end,
+      draft.text,
+      draft.href,
+      draft.image,
+    );
+    writeEditorValue(next.value, next.cursor, (value) =>
+      updateNote(activeNote.id, value),
+    );
+    setLinkOpen(false);
+    toast.message(draft.image ? "已插入图片" : "已插入链接");
+  }
 
   function handleCreate() {
     createNote();
@@ -335,6 +395,16 @@ export function NoteApp() {
           </Button>
 
           <div className="app-toolbar-spacer" />
+
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="插入外链"
+            disabled={!activeNote}
+            onClick={openLinkDialog}
+          >
+            <Link2 />
+          </Button>
 
           <div className="app-modes" role="radiogroup" aria-label="视图">
             {VIEW_OPTIONS.map((option) => {
@@ -444,6 +514,12 @@ export function NoteApp() {
           setSyncConfig(next);
         }}
         onSyncNow={() => void syncNow(false)}
+      />
+      <LinkDialog
+        open={linkOpen}
+        draft={linkDraft}
+        onOpenChange={setLinkOpen}
+        onInsert={handleInsertLink}
       />
     </div>
   );
