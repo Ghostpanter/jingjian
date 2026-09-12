@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "./**/*.{ts,tsx}";
+@source "../android-web/**/*.{html,tsx}";
 
 @theme {
   --color-bg: #f2ede4;
@@ -46,6 +48,13 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -54,7 +63,6 @@
   }
 
   body {
-    margin: 0;
     min-height: 100dvh;
     overflow: hidden;
     font-family: var(--font-sans);
@@ -87,6 +95,102 @@
 }
 
 @layer components {
+  .app-shell {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  .app-sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 18.5rem;
+    width: 18.5rem;
+    min-width: 18.5rem;
+    min-height: 0;
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border);
+  }
+
+  .app-sidebar-inner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .app-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    background: var(--color-bg);
+  }
+
+  .app-toolbar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.15rem;
+    height: 2.75rem;
+    padding: 0 0.4rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .app-toolbar-spacer {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .app-modes {
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    padding: 0.15rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-overlay);
+  }
+
+  .app-workspace {
+    display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .app-workspace.is-split {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-pane {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-pane + .app-pane {
+    border-left: 1px solid var(--color-border);
+  }
+
+  .app-status {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    height: 1.85rem;
+    padding: 0 0.9rem;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
+
   .btn-press {
     transition-property: scale, opacity, background-color, color, box-shadow;
     transition-duration: var(--motion-quick);
@@ -264,9 +368,47 @@
   }
 }
 
+@media (max-width: 767px) {
+  .app-sidebar {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+    border-right: 0;
+    transform: translateX(-100%);
+    transition: transform var(--motion-slow) var(--ease-smooth-out);
+  }
+
+  .app-shell.is-files-open .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-workspace.is-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .app-pane + .app-pane {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}
+
+@media (min-width: 768px) {
+  .app-shell.is-sidebar-collapsed .app-sidebar {
+    display: none;
+  }
+}
+
 @media (pointer: coarse) {
   .note-item {
     min-height: 56px;
+  }
+
+  .app-toolbar {
+    height: 3rem;
   }
 }
 
@@ -274,6 +416,7 @@
   .btn-press,
   .dialog-overlay,
   .dialog-content,
+  .app-sidebar,
   aside {
     animation: none !important;
     transition: none !important;

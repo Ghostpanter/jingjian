@@ -44,24 +44,24 @@ export function DeleteNoteDialog({
 type ShortcutsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  modLabel: string;
 };
 
 const SHORTCUTS = [
   ["N", "新建笔记"],
   ["F", "搜索笔记"],
-  ["E", "切换编辑 / 分栏 / 预览"],
-  ["B", "显示或收起侧栏"],
-  ["S", "保存（已自动写入本机）"],
+  ["E", "源码 / 分栏 / 预览"],
+  ["B", "显示或收起文件列表"],
   ["Shift + Backspace", "删除当前笔记"],
 ] as const;
 
 export function ShortcutsDialog({
   open,
   onOpenChange,
-  modLabel,
 }: ShortcutsDialogProps) {
   if (!open) return null;
+  const apple =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+  const modLabel = apple ? "⌘" : "Ctrl";
   return (
     <div
       className="dialog-overlay fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
@@ -82,7 +82,7 @@ export function ShortcutsDialog({
           键盘操作
         </h2>
         <p className="mt-1 text-sm text-muted">
-          适合外接键盘的平板与电脑。斜杠键 / 可直接进入搜索。
+          点左侧文件即打开。输入自动写入本机，没有打开 / 保存菜单。
         </p>
         <ul className="mt-5 divide-y divide-border">
           {SHORTCUTS.map(([keys, label]) => (

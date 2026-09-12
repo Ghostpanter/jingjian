@@ -34,7 +34,7 @@ export function Sidebar({
   const groups = groupNotes(notes);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface text-fg">
+    <div className="app-sidebar-inner bg-surface text-fg">
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
         <img
           src="/favicon.svg"

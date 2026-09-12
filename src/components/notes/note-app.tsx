@@ -13,11 +13,7 @@ import { EditorPane } from "@/components/notes/editor-pane";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
-import {
-  countChars,
-  formatRelativeTime,
-  titleFromContent,
-} from "@/lib/notes/format";
+import { countChars, titleFromContent } from "@/lib/notes/format";
 import {
   hydrateNotesStore,
   useActiveNote,
@@ -29,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 const VIEW_OPTIONS: { id: PreviewMode; label: string; icon: typeof Pencil }[] =
   [
-    { id: "edit", label: "编辑", icon: Pencil },
+    { id: "edit", label: "源码", icon: Pencil },
     { id: "split", label: "分栏", icon: Columns2 },
     { id: "preview", label: "预览", icon: Eye },
   ];
@@ -54,7 +50,6 @@ export function NoteApp() {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [modLabel, setModLabel] = useState("Ctrl");
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
 
   useEffect(() => {
@@ -64,11 +59,6 @@ export function NoteApp() {
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const apple = /Mac|iPhone|iPad/i.test(navigator.userAgent);
-    setModLabel(apple ? "⌘" : "Ctrl");
   }, []);
 
   useEffect(() => {
@@ -98,16 +88,16 @@ export function NoteApp() {
 
       if (!typing && key === "/" && !mod) {
         event.preventDefault();
+        setSidebarOpen(true);
+        setDesktopCollapsed(false);
         document.getElementById("note-search")?.focus();
         return;
       }
 
       if (mod && key.toLowerCase() === "n") {
         event.preventDefault();
-        const id = createNote();
+        createNote();
         window.setTimeout(() => document.getElementById("note-editor")?.focus(), 0);
-        toast.message("已新建笔记");
-        void id;
         return;
       }
 
@@ -140,7 +130,7 @@ export function NoteApp() {
 
       if (mod && key.toLowerCase() === "s") {
         event.preventDefault();
-        toast.message("已保存到本机");
+        toast.message("已自动保存");
         return;
       }
 
@@ -207,19 +197,20 @@ export function NoteApp() {
   }
 
   if (!hydrated) {
-    return (
-      <div className="flex h-dvh bg-bg">
-        <div className="hidden w-72 border-r border-border bg-surface md:block" />
-        <div className="flex-1 bg-bg" />
-      </div>
-    );
+    return <div className="app-shell safe-shell" />;
   }
 
   const showEditor = previewMode === "edit" || previewMode === "split";
   const showPreview = previewMode === "preview" || previewMode === "split";
 
   return (
-    <div className="safe-shell relative flex h-dvh overflow-hidden bg-bg text-fg">
+    <div
+      className={cn(
+        "app-shell safe-shell",
+        sidebarOpen && "is-files-open",
+        desktopCollapsed && "is-sidebar-collapsed",
+      )}
+    >
       <Toaster
         position="bottom-center"
         duration={1600}
@@ -227,15 +218,7 @@ export function NoteApp() {
         offset={24}
       />
 
-      <aside
-        className={cn(
-          "flex w-full shrink-0 flex-col border-border bg-surface md:w-72 md:border-r",
-          "max-md:fixed max-md:inset-0 max-md:z-40",
-          "max-md:transition-transform max-md:duration-(--motion-slow) max-md:ease-(--ease-smooth-out)",
-          sidebarOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
-          desktopCollapsed && "md:hidden",
-        )}
-      >
+      <aside className="app-sidebar" aria-label="笔记列表">
         <Sidebar
           notes={notes}
           activeId={activeNote?.id ?? null}
@@ -248,13 +231,13 @@ export function NoteApp() {
         />
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col bg-bg">
-        <header className="flex items-center gap-2 border-b border-border px-3 py-2 sm:px-4">
+      <section className="app-main">
+        <header className="app-toolbar">
           <Button
             variant="ghost"
             size="icon-sm"
             className="md:hidden"
-            aria-label="打开笔记列表"
+            aria-label="笔记列表"
             onClick={() => setSidebarOpen(true)}
           >
             <PanelLeft />
@@ -263,28 +246,15 @@ export function NoteApp() {
             variant="ghost"
             size="icon-sm"
             className="hidden md:inline-flex"
-            aria-label={desktopCollapsed ? "显示侧栏" : "收起侧栏"}
+            aria-label={desktopCollapsed ? "显示文件列表" : "收起文件列表"}
             onClick={() => setDesktopCollapsed((value) => !value)}
           >
             <PanelLeft />
           </Button>
 
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-medium">
-              {activeNote ? titleFromContent(activeNote.content) : "静笺"}
-            </div>
-            <div className="truncate text-xs text-muted tabular-nums">
-              {activeNote
-                ? `最后编辑 ${formatRelativeTime(activeNote.updatedAt, now)}`
-                : "本地保存，不上传"}
-            </div>
-          </div>
+          <div className="app-toolbar-spacer" />
 
-          <div
-            className="flex rounded-lg bg-overlay p-1"
-            role="radiogroup"
-            aria-label="编辑与预览"
-          >
+          <div className="app-modes" role="radiogroup" aria-label="视图">
             {VIEW_OPTIONS.map((option) => {
               const Icon = option.icon;
               const selected = previewMode === option.id;
@@ -297,7 +267,7 @@ export function NoteApp() {
                   aria-label={option.label}
                   onClick={() => setPreviewMode(option.id)}
                   className={cn(
-                    "btn-press inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm",
+                    "btn-press inline-flex size-9 items-center justify-center rounded-sm",
                     "transition-colors duration-(--motion-quick) ease-(--ease-out)",
                     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     selected
@@ -306,7 +276,6 @@ export function NoteApp() {
                   )}
                 >
                   <Icon className="size-4" />
-                  <span className="hidden sm:inline">{option.label}</span>
                 </button>
               );
             })}
@@ -334,19 +303,12 @@ export function NoteApp() {
 
         <div
           className={cn(
-            "grid min-h-0 flex-1",
-            previewMode === "split"
-              ? "grid-rows-2 lg:grid-cols-2 lg:grid-rows-1"
-              : "grid-cols-1",
+            "app-workspace",
+            previewMode === "split" && "is-split",
           )}
         >
           {showEditor ? (
-            <div
-              className={cn(
-                "min-h-0 min-w-0",
-                previewMode === "split" && "border-border max-lg:border-b lg:border-r",
-              )}
-            >
+            <div className="app-pane">
               {activeNote ? (
                 <EditorPane
                   noteId={activeNote.id}
@@ -361,7 +323,7 @@ export function NoteApp() {
           ) : null}
 
           {showPreview ? (
-            <div className="min-h-0 min-w-0 bg-bg">
+            <div className="app-pane">
               {activeNote ? (
                 <PreviewPane
                   content={activeNote.content}
@@ -374,12 +336,9 @@ export function NoteApp() {
           ) : null}
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-border px-4 py-2 text-xs text-muted">
+        <footer className="app-status">
           <span className="tabular-nums">{charCount} 字</span>
-          <span className="hidden sm:inline">保存在本机浏览器</span>
-          <span className="hidden sm:inline tabular-nums">
-            {modLabel}+N 新建 · ? 快捷键
-          </span>
+          <span>已自动保存</span>
         </footer>
       </section>
 
@@ -392,7 +351,6 @@ export function NoteApp() {
       <ShortcutsDialog
         open={shortcutsOpen}
         onOpenChange={setShortcutsOpen}
-        modLabel={modLabel}
       />
     </div>
   );
@@ -403,7 +361,7 @@ function EmptyEditor({ onCreate }: { onCreate: () => void }) {
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <p className="font-serif text-xl text-fg">一张空白页</p>
       <p className="mt-2 max-w-xs text-sm leading-normal text-muted text-pretty">
-        新建一篇笔记，第一行会成为标题。内容只留在这台设备上。
+        从左侧点一篇笔记，或新建一页。第一行会成为标题，输入即保存。
       </p>
       <Button className="mt-6" onClick={onCreate}>
         新建笔记
