@@ -55,7 +55,7 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
-export function groupNotes(notes: Note[]): { label: string; notes: Note[] }[] {
+export function groupNotes(notes: Note[]): { label: string; notes: Note[]; book?: boolean }[] {
   const now = new Date();
   const startOfToday = new Date(
     now.getFullYear(),
@@ -65,6 +65,32 @@ export function groupNotes(notes: Note[]): { label: string; notes: Note[] }[] {
   const startOfYesterday = startOfToday - 86_400_000;
   const startOfWeek = startOfToday - 6 * 86_400_000;
 
+  const books = new Map<string, { title: string; notes: Note[] }>();
+  const rest: Note[] = [];
+  for (const note of notes) {
+    if (note.bookId) {
+      const current = books.get(note.bookId) ?? {
+        title: note.bookTitle || "电子书",
+        notes: [],
+      };
+      current.notes.push(note);
+      books.set(note.bookId, current);
+    } else {
+      rest.push(note);
+    }
+  }
+
+  const groups: { label: string; notes: Note[]; book?: boolean }[] = [];
+  for (const book of books.values()) {
+    groups.push({
+      label: book.title,
+      book: true,
+      notes: [...book.notes].sort(
+        (a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0),
+      ),
+    });
+  }
+
   const buckets: Record<string, Note[]> = {
     今天: [],
     昨天: [],
@@ -72,16 +98,17 @@ export function groupNotes(notes: Note[]): { label: string; notes: Note[] }[] {
     更早: [],
   };
 
-  for (const note of notes) {
+  for (const note of rest) {
     if (note.updatedAt >= startOfToday) buckets.今天.push(note);
     else if (note.updatedAt >= startOfYesterday) buckets.昨天.push(note);
     else if (note.updatedAt >= startOfWeek) buckets.近七日.push(note);
     else buckets.更早.push(note);
   }
 
-  return Object.entries(buckets)
-    .filter(([, items]) => items.length > 0)
-    .map(([label, items]) => ({ label, notes: items }));
+  for (const [label, items] of Object.entries(buckets)) {
+    if (items.length > 0) groups.push({ label, notes: items });
+  }
+  return groups;
 }
 
 export function matchesQuery(note: Note, query: string): boolean {

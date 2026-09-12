@@ -1,5 +1,8 @@
 import {
+  BookOpen,
   Columns2,
+  FileDown,
+  ImagePlus,
   Keyboard,
   Link2,
   PanelLeft,
@@ -7,15 +10,19 @@ import {
   Trash2,
   Eye,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import { DeleteNoteDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
+import { ExportMenu } from "@/components/notes/export-menu";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
 import { PreviewPane } from "@/components/notes/preview-pane";
+import { ReaderView } from "@/components/notes/reader-view";
 import { SettingsDialog } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
+import { exportNotes, type ExportFormat } from "@/lib/notes/export";
+import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
 import { countChars, titleFromContent } from "@/lib/notes/format";
 import {
   looksLikeUrl,
@@ -24,8 +31,11 @@ import {
   wrapAsMarkup,
   writeEditorValue,
 } from "@/lib/notes/insert-markup";
+import { insertImageAtCursor, resolveInsertedImage } from "@/lib/notes/image-insert";
+import { putImage, extensionFor } from "@/lib/notes/image-store";
 import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
 import { runSync } from "@/lib/notes/sync";
+import { applyTheme, readThemeConfig } from "@/lib/notes/theme";
 import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
 import {
   hydrateNotesStore,
@@ -58,6 +68,9 @@ export function NoteApp() {
   const toggleSidebar = useNotesStore((state) => state.toggleSidebar);
   const setSidebarOpen = useNotesStore((state) => state.setSidebarOpen);
   const applySyncedNotes = useNotesStore((state) => state.applySyncedNotes);
+  const importNotes = useNotesStore((state) => state.importNotes);
+  const makeBookFromNote = useNotesStore((state) => state.makeBookFromNote);
+  const addChapter = useNotesStore((state) => state.addChapter);
   const editorEpoch = useNotesStore((state) => state.editorEpoch);
   const rawNotes = useNotesStore((state) => state.notes);
 
@@ -66,6 +79,9 @@ export function NoteApp() {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [readerOpen, setReaderOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState<LinkDraft>({
     text: "",
@@ -81,6 +97,8 @@ export function NoteApp() {
     at: null,
   });
   const syncingRef = useRef(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const bookInputRef = useRef<HTMLInputElement>(null);
 
   const syncNow = useCallback(async (silent = false) => {
     const config = readSyncConfig();
@@ -104,6 +122,10 @@ export function NoteApp() {
       syncingRef.current = false;
     }
   }, [applySyncedNotes]);
+
+  useLayoutEffect(() => {
+    applyTheme(readThemeConfig());
+  }, []);
 
   useEffect(() => {
     hydrateNotesStore();
@@ -156,6 +178,8 @@ export function NoteApp() {
         setPendingDelete(false);
         setSettingsOpen(false);
         setLinkOpen(false);
+        setExportOpen(false);
+        setReaderOpen(false);
         setSidebarOpen(false);
         if (typing) target.blur();
         return;
@@ -190,6 +214,12 @@ export function NoteApp() {
           () => document.getElementById("note-search")?.focus(),
           0,
         );
+        return;
+      }
+
+      if (mod && event.shiftKey && key.toLowerCase() === "e") {
+        event.preventDefault();
+        setExportOpen((open) => !open);
         return;
       }
 
@@ -296,23 +326,92 @@ export function NoteApp() {
 
   function handleInsertLink(draft: LinkDraft) {
     if (!activeNote) return;
+    void (async () => {
+      const selection = readEditorSelection();
+      const start = selection?.start ?? activeNote.content.length;
+      const end = selection?.end ?? activeNote.content.length;
+      const source = selection?.value ?? activeNote.content;
+      let href = draft.href;
+      if (draft.image) {
+        try {
+          href = await resolveInsertedImage({ url: draft.href });
+        } catch (error) {
+          toast.message(error instanceof Error ? error.message : "图片处理失败");
+          return;
+        }
+      }
+      const next = wrapAsMarkup(source, start, end, draft.text, href, draft.image);
+      writeEditorValue(next.value, next.cursor, (value) =>
+        updateNote(activeNote.id, value),
+      );
+      setLinkOpen(false);
+      toast.message(draft.image ? "已插入图片" : "已插入链接");
+    })();
+  }
+
+  async function handleExport(format: ExportFormat) {
+    if (!activeNote) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const path = await exportNotes({
+        format,
+        note: activeNote,
+        notes: rawNotes,
+      });
+      setExportOpen(false);
+      toast.message(`已导出 ${path.split("/").pop()}`);
+    } catch (error) {
+      toast.message(error instanceof Error ? error.message : "导出失败");
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function handleImportBook(file: File) {
+    try {
+      const parsed = await parseEpub(await file.arrayBuffer());
+      for (const image of parsed.images) {
+        const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+        const ext = extensionFor(image.mime, image.href);
+        await putImage({
+          id,
+          name: image.href.split("/").pop() || `image.${ext}`,
+          mime: image.mime,
+          blob: new Blob([new Uint8Array(image.bytes)], { type: image.mime }),
+        });
+        const from = image.href;
+        const to = `images/${id}.${ext}`;
+        parsed.chapters = parsed.chapters.map((chapter) => ({
+          ...chapter,
+          content: chapter.content.replaceAll(from, to),
+        }));
+      }
+      const imported = notesFromEpub(parsed);
+      importNotes(imported);
+      toast.message(`已导入《${parsed.title}》，${imported.length} 章`);
+    } catch (error) {
+      toast.message(error instanceof Error ? error.message : "无法打开电子书");
+    }
+  }
+
+  async function handlePickImage(file: File) {
+    if (!activeNote) return;
     const selection = readEditorSelection();
     const start = selection?.start ?? activeNote.content.length;
-    const end = selection?.end ?? activeNote.content.length;
+    const end = selection?.end ?? start;
     const source = selection?.value ?? activeNote.content;
-    const next = wrapAsMarkup(
-      source,
-      start,
-      end,
-      draft.text,
-      draft.href,
-      draft.image,
-    );
-    writeEditorValue(next.value, next.cursor, (value) =>
-      updateNote(activeNote.id, value),
-    );
-    setLinkOpen(false);
-    toast.message(draft.image ? "已插入图片" : "已插入链接");
+    try {
+      const next = await insertImageAtCursor(source, start, end, file, file.name);
+      writeEditorValue(next.value, next.cursor, (value) =>
+        updateNote(activeNote.id, value),
+      );
+      toast.message("已插入图片");
+    } catch (error) {
+      toast.message(error instanceof Error ? error.message : "图片插入失败");
+    }
   }
 
   function handleCreate() {
@@ -334,6 +433,28 @@ export function NoteApp() {
 
   const showEditor = previewMode === "edit" || previewMode === "split";
   const showPreview = previewMode === "preview" || previewMode === "split";
+  const bookChapters = activeNote?.bookId
+    ? rawNotes
+        .filter((note) => note.bookId === activeNote.bookId)
+        .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0))
+    : activeNote
+      ? [activeNote]
+      : [];
+
+  if (readerOpen && activeNote) {
+    return (
+      <ReaderView
+        notes={bookChapters}
+        activeId={activeNote.id}
+        onSelect={selectNote}
+        onClose={() => setReaderOpen(false)}
+        onChange={(id, value) => updateNote(id, value)}
+        onAddChapter={() => {
+          if (activeNote.bookId) addChapter(activeNote.bookId);
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -361,6 +482,10 @@ export function NoteApp() {
           onCreate={handleCreate}
           onCloseMobile={() => setSidebarOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onReadBook={(id) => {
+            selectNote(id);
+            setReaderOpen(true);
+          }}
           syncLabel={
             syncConfig.provider === "off"
               ? "本地笔记"
@@ -399,12 +524,71 @@ export function NoteApp() {
           <Button
             variant="ghost"
             size="icon-sm"
+            aria-label="插入图片"
+            disabled={!activeNote}
+            onClick={() => imageInputRef.current?.click()}
+          >
+            <ImagePlus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
             aria-label="插入外链"
             disabled={!activeNote}
             onClick={openLinkDialog}
           >
             <Link2 />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="hidden sm:inline-flex"
+            aria-label="阅读"
+            disabled={!activeNote}
+            onClick={() => setReaderOpen(true)}
+          >
+            <BookOpen />
+          </Button>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="导出"
+              disabled={!activeNote}
+              onClick={() => setExportOpen((open) => !open)}
+            >
+              <FileDown />
+            </Button>
+            <ExportMenu
+              open={exportOpen}
+              busy={exportBusy}
+              canRead={Boolean(activeNote)}
+              hasBook={Boolean(activeNote?.bookId)}
+              onOpenChange={setExportOpen}
+              onExport={(format) => void handleExport(format)}
+              onImport={() => {
+                setExportOpen(false);
+                bookInputRef.current?.click();
+              }}
+              onRead={() => {
+                setExportOpen(false);
+                setReaderOpen(true);
+              }}
+              onExportBook={() => void handleExport("epub")}
+              onMakeBook={() => {
+                if (!activeNote) return;
+                makeBookFromNote(activeNote.id);
+                setExportOpen(false);
+                toast.message("已做成电子书，可继续添加章节或导出 EPUB");
+              }}
+              onAddChapter={() => {
+                if (!activeNote?.bookId) return;
+                addChapter(activeNote.bookId);
+                setExportOpen(false);
+                toast.message("已新建章节");
+              }}
+            />
+          </div>
 
           <div className="app-modes" role="radiogroup" aria-label="视图">
             {VIEW_OPTIONS.map((option) => {
@@ -520,6 +704,28 @@ export function NoteApp() {
         draft={linkDraft}
         onOpenChange={setLinkOpen}
         onInsert={handleInsertLink}
+      />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void handlePickImage(file);
+        }}
+      />
+      <input
+        ref={bookInputRef}
+        type="file"
+        accept=".epub,application/epub+zip"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void handleImportBook(file);
+        }}
       />
     </div>
   );

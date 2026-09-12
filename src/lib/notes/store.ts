@@ -23,6 +23,10 @@ type NotesState = {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   applySyncedNotes: (notes: Note[]) => void;
+  importNotes: (notes: Note[]) => void;
+  makeBookFromNote: (noteId: string, title?: string) => string | null;
+  addChapter: (bookId: string) => string | null;
+  renameBook: (bookId: string, title: string) => void;
 };
 
 type PersistedSlice = {
@@ -150,6 +154,69 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       notes: incoming,
       activeId,
       editorEpoch: contentChanged ? current.editorEpoch + 1 : current.editorEpoch,
+    });
+  },
+  importNotes: (incoming) => {
+    if (incoming.length === 0) return;
+    const existing = get().notes.filter(
+      (note) => !incoming.some((item) => item.id === note.id),
+    );
+    set({
+      notes: [...incoming, ...existing],
+      activeId: incoming[0]?.id ?? get().activeId,
+      query: "",
+      sidebarOpen: false,
+      previewMode: "preview",
+    });
+  },
+  makeBookFromNote: (noteId, title) => {
+    const current = get().notes.find((note) => note.id === noteId);
+    if (!current) return null;
+    if (current.bookId) return current.bookId;
+    const bookId = crypto.randomUUID();
+    const bookTitle = title?.trim() || titleFromContent(current.content);
+    set({
+      notes: get().notes.map((note) =>
+        note.id === noteId
+          ? { ...note, bookId, bookTitle, chapterIndex: 0, updatedAt: Date.now() }
+          : note,
+      ),
+    });
+    return bookId;
+  },
+  addChapter: (bookId) => {
+    const siblings = get().notes.filter((note) => note.bookId === bookId);
+    if (siblings.length === 0) return null;
+    const bookTitle = siblings[0]?.bookTitle || "电子书";
+    const nextIndex =
+      Math.max(...siblings.map((note) => note.chapterIndex ?? 0), -1) + 1;
+    const now = Date.now();
+    const note: Note = {
+      id: crypto.randomUUID(),
+      content: `# 第 ${nextIndex + 1} 章\n\n`,
+      createdAt: now,
+      updatedAt: now,
+      bookId,
+      bookTitle,
+      chapterIndex: nextIndex,
+    };
+    set({
+      notes: [note, ...get().notes],
+      activeId: note.id,
+      query: "",
+      previewMode: get().previewMode === "preview" ? "edit" : get().previewMode,
+      sidebarOpen: false,
+      editorEpoch: get().editorEpoch + 1,
+    });
+    return note.id;
+  },
+  renameBook: (bookId, title) => {
+    const bookTitle = title.trim();
+    if (!bookTitle) return;
+    set({
+      notes: get().notes.map((note) =>
+        note.bookId === bookId ? { ...note, bookTitle, updatedAt: Date.now() } : note,
+      ),
     });
   },
 }));

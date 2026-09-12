@@ -5,4 +5,7 @@ export type Note = {
   content: string;
   createdAt: number;
   updatedAt: number;
+  bookId?: string;
+  bookTitle?: string;
+  chapterIndex?: number;
 };

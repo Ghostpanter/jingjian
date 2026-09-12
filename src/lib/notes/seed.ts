@@ -27,6 +27,10 @@ export function createSeedNotes(): Note[] {
 - 新建笔记：点左上角加号，或按 Ctrl + N
 - 即时搜索：点侧栏搜索框，或按 Ctrl + F、/
 - 预览排版：工具栏切换「源码 / 分栏 / 预览」，或按 Ctrl + E
+- 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区
+- 导出：工具栏导出，可出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
+- 电子书：导出菜单里导入 EPUB，用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
+- 主题与图床：侧栏齿轮 → 主题 / 图像。图床可直接填，也可粘贴 PicGo 配置
 - 插入外链：选中文字后按 Ctrl + K，或直接把网址粘到选中文字上
 - 显示或收起侧栏：Ctrl + B
 - 删除当前笔记：Ctrl + Shift + Backspace
@@ -119,5 +123,55 @@ flowchart LR
 若是出门，就把这篇留在这里。回来时它还在，墨迹未干。`,
       2 * 24 * 60 * 60 * 1000,
     ),
+    ...createSeedBook(),
   ];
+}
+
+function createSeedBook(): Note[] {
+  const bookId = "seed-book-corridor";
+  const bookTitle = "廊下三章";
+  const chapters = [
+    {
+      id: "seed-book-1",
+      index: 0,
+      ago: 5 * 24 * 60 * 60 * 1000,
+      content: `# 一 廊下
+
+傍晚的风从天井灌进来，把廊下的纸灯吹得轻轻晃。人坐在第二根柱子旁，膝上摊开一本旧书，字迹被灯色染成浅琥珀。
+
+不必读完。有些句子只适合在这个时辰停留片刻，然后合上。`,
+    },
+    {
+      id: "seed-book-2",
+      index: 1,
+      ago: 5 * 24 * 60 * 60 * 1000 - 60_000,
+      content: `# 二 灯下
+
+灯芯剪过一次，屋子里就安静许多。墨磨到第三圈，纸上才落下第一笔。
+
+写字的人并不急着成篇。他只是把白天走过的路，在格子里再走一遍。`,
+    },
+    {
+      id: "seed-book-3",
+      index: 2,
+      ago: 5 * 24 * 60 * 60 * 1000 - 120_000,
+      content: `# 三 合卷
+
+夜深了。他把三章按顺序叠好，用一条浅青书签夹住。明天若还记得，就从这里接着读；若忘了，便当它从未被打开过。
+
+电子书可以这样读：导入 EPUB，在阅读页翻章；点铅笔就能改这一章，改完再导出本书。`,
+    },
+  ];
+  return chapters.map((chapter) => {
+    const updatedAt = Date.now() - chapter.ago;
+    return {
+      id: chapter.id,
+      content: chapter.content.trim() + "\n",
+      createdAt: updatedAt,
+      updatedAt,
+      bookId,
+      bookTitle,
+      chapterIndex: chapter.index,
+    };
+  });
 }

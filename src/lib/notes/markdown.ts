@@ -51,9 +51,13 @@ export function sanitizeHref(href: string | null | undefined): string | null {
   const trimmed = href.trim();
   if (!trimmed || /[\u0000-\u001f]/.test(trimmed)) return null;
   const lower = trimmed.toLowerCase();
-  if (lower.startsWith("javascript:") || lower.startsWith("vbscript:") || lower.startsWith("data:")) {
+  if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) {
     return null;
   }
+  if (lower.startsWith("data:")) {
+    return /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(trimmed) ? trimmed : null;
+  }
+  if (lower.startsWith("jingjian-img://")) return trimmed;
   if (
     trimmed.startsWith("https://") ||
     trimmed.startsWith("http://") ||
@@ -61,7 +65,8 @@ export function sanitizeHref(href: string | null | undefined): string | null {
     trimmed.startsWith("#") ||
     trimmed.startsWith("/") ||
     trimmed.startsWith("./") ||
-    trimmed.startsWith("../")
+    trimmed.startsWith("../") ||
+    !trimmed.includes(":")
   ) {
     return trimmed;
   }

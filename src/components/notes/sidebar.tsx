@@ -1,4 +1,4 @@
-import { Plus, Search, Settings, X } from "lucide-react";
+import { BookOpen, Plus, Search, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,6 +20,7 @@ type SidebarProps = {
   onCreate: () => void;
   onCloseMobile: () => void;
   onOpenSettings: () => void;
+  onReadBook?: (noteId: string) => void;
   syncLabel: string;
 };
 
@@ -33,6 +34,7 @@ export function Sidebar({
   onCreate,
   onCloseMobile,
   onOpenSettings,
+  onReadBook,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
@@ -65,7 +67,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="同步与保存路径"
+          aria-label="设置"
           onClick={onOpenSettings}
         >
           <Settings />
@@ -109,11 +111,7 @@ export function Sidebar({
               {query.trim() ? "没有找到匹配的笔记" : "还没有笔记"}
             </p>
             {!query.trim() ? (
-              <Button
-                variant="subtle"
-                className="mt-4"
-                onClick={onCreate}
-              >
+              <Button variant="subtle" className="mt-4" onClick={onCreate}>
                 新建笔记
               </Button>
             ) : null}
@@ -121,11 +119,21 @@ export function Sidebar({
         ) : (
           groups.map((group) => (
             <div key={group.label} className="mb-3">
-              <div className="px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
-                {group.label}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
+                {group.book ? <BookOpen className="size-3.5" /> : null}
+                <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                {group.book && onReadBook && group.notes[0] ? (
+                  <button
+                    type="button"
+                    className="btn-press rounded-sm px-1.5 py-0.5 text-[11px] text-muted hover:text-fg"
+                    onClick={() => onReadBook(group.notes[0].id)}
+                  >
+                    阅读
+                  </button>
+                ) : null}
               </div>
               <ul role="listbox" aria-label={group.label}>
-                {group.notes.map((note) => {
+                {group.notes.map((note, index) => {
                   const selected = note.id === activeId;
                   return (
                     <li key={note.id} role="none">
@@ -143,15 +151,24 @@ export function Sidebar({
                             : "hover:bg-overlay",
                         )}
                       >
-                        <span className="w-full truncate font-medium text-fg">
-                          {titleFromContent(note.content)}
+                        <span className="flex w-full items-baseline gap-2">
+                          {group.book ? (
+                            <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
+                              {index + 1}
+                            </span>
+                          ) : null}
+                          <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                            {titleFromContent(note.content)}
+                          </span>
                         </span>
                         <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
                           {snippetFromContent(note.content)}
                         </span>
-                        <span className="mt-1 text-xs text-subtle tabular-nums">
-                          {formatRelativeTime(note.updatedAt, now)}
-                        </span>
+                        {!group.book ? (
+                          <span className="mt-1 text-xs text-subtle tabular-nums">
+                            {formatRelativeTime(note.updatedAt, now)}
+                          </span>
+                        ) : null}
                       </button>
                     </li>
                   );

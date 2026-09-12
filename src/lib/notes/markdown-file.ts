@@ -1,4 +1,4 @@
-import type { Note } from "./types";
+import type { Note } from "./types.ts";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
@@ -25,7 +25,10 @@ export function filenameForNote(note: Note): string {
 }
 
 export function serializeNote(note: Note): string {
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}\n---\n${note.content}`;
+  const book = note.bookId
+    ? `\nbookId: ${note.bookId}\nbookTitle: ${JSON.stringify(note.bookTitle ?? "")}\nchapterIndex: ${note.chapterIndex ?? 0}`
+    : "";
+  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${book}\n---\n${note.content}`;
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
@@ -45,11 +48,17 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     if (index <= 0) continue;
     meta[line.slice(0, index).trim()] = line.slice(index + 1).trim();
   }
+  const bookId = meta.bookId || undefined;
+  const bookTitle = meta.bookTitle
+    ? meta.bookTitle.replace(/^"|"$/g, "")
+    : undefined;
+  const chapterIndex = meta.chapterIndex ? Number(meta.chapterIndex) : undefined;
   return {
     id: meta.id || fallbackId,
     createdAt: Number(meta.createdAt) || Date.now(),
     updatedAt: Number(meta.updatedAt) || Date.now(),
     content: raw.slice(match[0].length).replace(/^\uFEFF/, ""),
+    ...(bookId ? { bookId, bookTitle, chapterIndex } : {}),
   };
 }
 

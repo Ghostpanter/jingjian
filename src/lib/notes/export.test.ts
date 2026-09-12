@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { markdownToDocx, markdownToHtmlDocument, markdownToOdt, markdownToRtf } from "./export-formats.ts";
+import { jpegPagesToPdf } from "./export-pdf.ts";
+import { buildEpub, parseEpub } from "./epub.ts";
+import { sanitizeHref } from "./markdown.ts";
+
+test("html export includes title and optional styles", () => {
+  const styled = new TextDecoder().decode(
+    markdownToHtmlDocument("# 窗边\n\n一段话。", {
+      title: "窗边",
+      styled: true,
+      cssVars: "--color-bg: #fff;",
+    }),
+  );
+  assert.match(styled, /<title>窗边<\/title>/);
+  assert.match(styled, /md-body/);
+  const plain = new TextDecoder().decode(
+    markdownToHtmlDocument("# 窗边", { title: "窗边", styled: false }),
+  );
+  assert.doesNotMatch(plain, /md-body/);
+});
+
+test("rtf keeps chinese via unicode escapes", () => {
+  const rtf = new TextDecoder().decode(markdownToRtf("# 静笺\n\n正文"));
+  assert.match(rtf, /\\rtf1/);
+  assert.match(rtf, /\\u/);
+});
+
+test("pdf writer emits a header and xref", () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const pdf = jpegPagesToPdf([{ jpeg, width: 10, height: 10 }]);
+  const text = new TextDecoder("latin1").decode(pdf);
+  assert.equal(text.slice(0, 8), "%PDF-1.4");
+  assert.match(text, /startxref/);
+  assert.match(text, /%%EOF/);
+});
+
+test("epub roundtrip restores chapters", async () => {
+  const bytes = await buildEpub({
+    title: "试读",
+    chapters: [
+      { title: "一", content: "# 一\n\n晨光。" },
+      { title: "二", content: "# 二\n\n暮色。" },
+    ],
+  });
+  const parsed = await parseEpub(bytes);
+  assert.equal(parsed.title, "试读");
+  assert.equal(parsed.chapters.length, 2);
+  assert.match(parsed.chapters[0].content, /晨光/);
+});
+
+test("docx and odt are zip packages", async () => {
+  const docx = await markdownToDocx("# 静笺\n\n正文");
+  const odt = await markdownToOdt("# 静笺\n\n正文");
+  assert.equal(String.fromCharCode(docx[0], docx[1]), "PK");
+  assert.equal(String.fromCharCode(odt[0], odt[1]), "PK");
+});
+
+test("allows relative images and jpeg data urls", () => {
+  assert.equal(sanitizeHref("images/a.jpg"), "images/a.jpg");
+  assert.equal(sanitizeHref("./images/a.jpg"), "./images/a.jpg");
+  assert.ok(sanitizeHref("data:image/jpeg;base64,AAAA"));
+  assert.equal(sanitizeHref("data:text/html;base64,AAAA"), null);
+  assert.equal(sanitizeHref("javascript:alert(1)"), null);
+});

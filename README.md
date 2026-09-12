@@ -6,19 +6,51 @@
 
 ## 功能
 
-- 左侧文件列表，按最后编辑时间分组
+- 左侧文件列表，按最后编辑时间分组；电子书按书名分章
 - Markdown 源码、分栏、预览
-- 代码高亮（常见语言）与 Mermaid 流程图
+- 代码高亮与 Mermaid 流程图
 - 插入外链：Ctrl + K，或把网址粘到选中文字上
+- 粘贴 / 拖入图片，可上传到图床
 - 即时搜索标题和正文
 - 新建 / 删除（删除前确认）
 - 字数与自动保存
+- 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
+- 电子书：导入 EPUB、阅读翻章、按章编辑后再导出
+- 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色
 - 同步：静笺服务器、WebDAV、本机目录
-- 键盘操作（`Ctrl+N` 新建，`Ctrl+,` 同步设置，`?` 查看全部）
+- 键盘操作（`Ctrl+N` 新建，`Ctrl+,` 设置，`Ctrl+Shift+E` 导出，`?` 查看全部）
+
+## 导出与电子书
+
+工具栏下载按钮打开导出，对应 Typora「通用」里框出的格式。
+
+平板上文件写到「文档 / Jingjian / exports」。电脑上由浏览器下载。
+
+导入 EPUB 后章节出现在侧栏。阅读页可翻章，铅笔回到编辑，改完再「导出本书」。
+
+## 主题
+
+齿轮 → 主题。内置宣纸、墨夜、GitHub、GitHub 夜间。自定义浅色 / 深色可改纸色、字色、强调色。
+
+## 图像 / 图床
+
+齿轮 → 图像。插入时可选：无特殊操作、复制到本机、上传图片。
+
+上传服务在应用内配置，不必另开 PicGo：
+
+- GitHub（Token + `owner/repo`，链接可用 jsDelivr）
+- Gitee
+- SM.MS
+- 兰空图床
+- Imgur
+- PicGo 接口（电脑本机 `http://127.0.0.1:36677/upload`）
+- 自定义 HTTP 图床（文件字段与 JSON 路径可改）
+
+也可把 PicGo 的 `data.json` 粘进「从 PicGo 配置导入」，平板无需安装 PicGo。
 
 ## 同步
 
-侧栏齿轮打开「同步与保存路径」。三种方式：
+侧栏齿轮打开设置里的「同步」。三种方式：
 
 | 方式 | 适用 | 保存路径 |
 | --- | --- | --- |
@@ -65,7 +97,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.4.0.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.5.0.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -92,8 +124,9 @@ npm run apk
 | `Ctrl + F` 或 `/` | 搜索 |
 | `Ctrl + E` | 源码 / 分栏 / 预览 |
 | `Ctrl + B` | 显示或收起文件列表 |
-| `Ctrl + ,` | 同步与保存路径 |
+| `Ctrl + ,` | 设置（同步 / 主题 / 图像） |
 | `Ctrl + K` | 插入外链 |
+| `Ctrl + Shift + E` | 导出 |
 | `Ctrl + Shift + Backspace` | 删除当前笔记 |
 | `J` / `K` 或方向键 | 上一条 / 下一条 |
 | `?` | 快捷键一览 |
