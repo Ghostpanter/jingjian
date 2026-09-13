@@ -30,10 +30,22 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+app.setName("静笺");
+
 if (process.platform === "win32") {
   app.setAppUserModelId("com.ghostpanter.jingjian");
   // Some Windows GPU drivers composite an empty window over the page.
   app.commandLine.appendSwitch("disable-gpu-compositing");
+}
+
+if (process.platform === "linux") {
+  // Portable zip cannot chmod chrome-sandbox to 4755; Chromium aborts without this.
+  app.commandLine.appendSwitch("no-sandbox");
+  app.commandLine.appendSwitch("disable-setuid-sandbox");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+  // NVIDIA / Wayland often show the same paper-colored empty window as Windows.
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("ozone-platform-hint", "x11");
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -216,6 +228,54 @@ async function loadWindowBounds() {
     width: Math.min(1920, Math.max(720, width)),
     height: Math.min(1200, Math.max(520, height)),
   };
+}
+
+function setupMenu() {
+  if (process.platform !== "darwin") {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  const template = [
+    {
+      label: "静笺",
+      submenu: [
+        { role: "about", label: "关于静笺" },
+        { type: "separator" },
+        { role: "hide", label: "隐藏静笺" },
+        { role: "hideOthers", label: "隐藏其他" },
+        { role: "unhide", label: "显示全部" },
+        { type: "separator" },
+        { role: "quit", label: "退出静笺" },
+      ],
+    },
+    {
+      label: "编辑",
+      submenu: [
+        { role: "undo", label: "撤销" },
+        { role: "redo", label: "重做" },
+        { type: "separator" },
+        { role: "cut", label: "剪切" },
+        { role: "copy", label: "复制" },
+        { role: "paste", label: "粘贴" },
+        { role: "selectAll", label: "全选" },
+      ],
+    },
+    {
+      label: "窗口",
+      submenu: [
+        { role: "minimize", label: "最小化" },
+        { role: "zoom", label: "缩放" },
+        { type: "separator" },
+        { role: "front", label: "前置全部窗口" },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  app.setAboutPanelOptions({
+    applicationName: "静笺",
+    applicationVersion: app.getVersion(),
+    copyright: "Ghostpanter",
+  });
 }
 
 function loadAppPage(win) {
@@ -437,7 +497,7 @@ if (gotLock) {
   app.whenReady().then(async () => {
     protocol.handle(SCHEME, handleAppProtocol);
     registerIpc();
-    if (process.platform === "win32") Menu.setApplicationMenu(null);
+    setupMenu();
     const bounds = await loadWindowBounds();
     mainWindow = createWindow(bounds);
     app.on("activate", () => {

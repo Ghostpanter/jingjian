@@ -5,6 +5,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -17,7 +18,7 @@ const root = path.resolve(".");
 const staging = path.join(root, ".desktop-stage");
 const outDir = path.join(os.tmpdir(), "jingjian-desktop");
 const artifacts = path.join(root, "artifacts");
-const version = "1.6.7";
+const version = "1.6.8";
 const electronVersion = require("electron/package.json").version;
 
 function run(command, args) {
@@ -92,17 +93,21 @@ if (existsSync(path.join(root, "public/icon-512.png"))) {
   cpSync(path.join(root, "public/icon-512.png"), path.join(staging, "icon.png"));
 }
 const icoPath = path.join(staging, "icon.ico");
+const icnsPath = path.join(staging, "icon.icns");
 const pngIcon = path.join(staging, "icon.png");
 if (existsSync(pngIcon)) {
-  const icoScript = `
+  const iconScript = `
 import struct, sys
 from pathlib import Path
 png = Path(sys.argv[1]).read_bytes()
 header = struct.pack("<HHH", 0, 1, 1)
 entry = struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(png), 22)
 Path(sys.argv[2]).write_bytes(header + entry + png)
+# ic09 = 512x512 PNG inside ICNS
+body = b"ic09" + struct.pack(">I", 8 + len(png)) + png
+Path(sys.argv[3]).write_bytes(b"icns" + struct.pack(">I", 8 + len(body)) + body)
 `;
-  spawnSync("python3", ["-c", icoScript, pngIcon, icoPath], { stdio: "inherit" });
+  spawnSync("python3", ["-c", iconScript, pngIcon, icoPath, icnsPath], { stdio: "inherit" });
 }
 writeFileSync(
   path.join(staging, "package.json"),
@@ -126,6 +131,28 @@ mkdirSync(outDir, { recursive: true });
 mkdirSync(artifacts, { recursive: true });
 const pngIconPath = existsSync(pngIcon) ? pngIcon : undefined;
 const winIcon = existsSync(icoPath) ? icoPath : pngIconPath;
+const macIcon = existsSync(icnsPath) ? icnsPath : pngIconPath;
+
+const macExtendInfo = {
+  CFBundleDisplayName: "静笺",
+  CFBundleName: "静笺",
+  CFBundleDocumentTypes: [
+    {
+      CFBundleTypeName: "Markdown",
+      CFBundleTypeRole: "Editor",
+      LSHandlerRank: "Alternate",
+      CFBundleTypeExtensions: ["md", "markdown", "txt"],
+      CFBundleTypeMIMETypes: ["text/markdown", "text/x-markdown", "text/plain"],
+    },
+    {
+      CFBundleTypeName: "EPUB",
+      CFBundleTypeRole: "Viewer",
+      LSHandlerRank: "Alternate",
+      CFBundleTypeExtensions: ["epub"],
+      CFBundleTypeMIMETypes: ["application/epub+zip"],
+    },
+  ],
+};
 
 const platforms = ["linux", "win32", "darwin"];
 for (const platform of platforms) {
@@ -143,8 +170,11 @@ for (const platform of platforms) {
       appVersion: version,
       appCopyright: "Ghostpanter",
       appBundleId: "com.ghostpanter.jingjian",
+      appCategoryType: "public.app-category.productivity",
       electronVersion,
-      icon: platform === "win32" ? winIcon : pngIconPath,
+      icon: platform === "win32" ? winIcon : platform === "darwin" ? macIcon : pngIconPath,
+      extendInfo: platform === "darwin" ? macExtendInfo : undefined,
+      darwinDarkModeSupport: true,
       win32metadata: {
         CompanyName: "Ghostpanter",
         FileDescription: "静笺",
@@ -158,6 +188,47 @@ for (const platform of platforms) {
   } catch (error) {
     console.warn(`pack ${platform} failed:`, error instanceof Error ? error.message : error);
   }
+}
+
+const linuxDir = path.join(outDir, "Jingjian-linux-x64");
+if (existsSync(linuxDir)) {
+  writeFileSync(
+    path.join(linuxDir, "jingjian.desktop"),
+    `[Desktop Entry]
+Type=Application
+Name=静笺
+GenericName=Markdown Notes
+Comment=本地 Markdown 笔记
+Exec=Jingjian %F
+Icon=jingjian
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;text/x-markdown;text/plain;application/epub+zip;
+StartupWMClass=Jingjian
+`,
+  );
+  const bundledIcon = path.join(linuxDir, "resources", "app", "icon.png");
+  if (existsSync(bundledIcon)) {
+    cpSync(bundledIcon, path.join(linuxDir, "jingjian.png"));
+  }
+}
+
+const darwinPlist = path.join(
+  outDir,
+  "Jingjian-darwin-x64/Jingjian.app/Contents/Info.plist",
+);
+if (existsSync(darwinPlist)) {
+  // Packager overwrites display name from ASCII `name`; keep Finder title in Chinese.
+  const patched = readFileSync(darwinPlist, "utf8")
+    .replace(
+      /<key>CFBundleDisplayName<\/key>\s*<string>Jingjian<\/string>/,
+      "<key>CFBundleDisplayName</key>\n    <string>静笺</string>",
+    )
+    .replace(
+      /<key>CFBundleName<\/key>\s*<string>Jingjian<\/string>/,
+      "<key>CFBundleName</key>\n    <string>静笺</string>",
+    );
+  writeFileSync(darwinPlist, patched);
 }
 
 const zips = [
