@@ -335,14 +335,24 @@ export function applyTheme(config: ThemeConfig): Palette {
   return palette;
 }
 
+export function statusBarStyleFor(dark: boolean): "DARK" | "LIGHT" {
+  // Capacitor: DARK = light glyphs on a dark ground; LIGHT = dark glyphs on a light ground.
+  return dark ? "DARK" : "LIGHT";
+}
+
 async function syncNativeChrome(palette: Palette, dark: boolean) {
   try {
     const { Capacitor } = await import("@capacitor/core");
     if (!Capacitor.isNativePlatform()) return;
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    await StatusBar.setStyle({ style: dark ? Style.Light : Style.Dark });
-    await StatusBar.setBackgroundColor({ color: palette.bg });
+    await StatusBar.setOverlaysWebView({ overlay: true });
+    await StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light });
+    try {
+      await StatusBar.setBackgroundColor({ color: "#00000000" });
+    } catch {
+      await StatusBar.setBackgroundColor({ color: palette.bg });
+    }
   } catch {
-    // Web, or plugin missing.
+    // Web, desktop, or plugin missing.
   }
 }

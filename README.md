@@ -23,6 +23,7 @@
 - 键盘操作（`Ctrl+B` 加粗，`Ctrl+I` 斜体，`Ctrl+1`～`6` 标题，`?` 查看全部）
 - 手机竖屏：文件列表从左侧滑出，点遮罩关闭；横屏即使宽度不够也按平板显示侧栏
 - 打开数兆的 TXT / Markdown 不会卡死：预览只渲染开头，超大正文写入独立缓存
+- 系统状态栏透明叠在界面上：侧栏和编辑区各自的颜色顶到状态栏后面，时间、电量不再浮在一条错色的空边上
 
 ## 导出与电子书
 
@@ -108,7 +109,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.9.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.10.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -118,9 +119,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.9-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
-- `jingjian-v1.6.9-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.6.9-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.6.10-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
+- `jingjian-v1.6.10-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.6.10-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

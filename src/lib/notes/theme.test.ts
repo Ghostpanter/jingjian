@@ -6,6 +6,7 @@ import {
   luminance,
   paletteFor,
   parseHex,
+  statusBarStyleFor,
   THEME_OPTIONS,
 } from "./theme.ts";
 
@@ -57,4 +58,9 @@ test("github-dark uses high-contrast syntax colors", () => {
   });
   assert.equal(palette.syntaxKeyword.toLowerCase(), "#ff7b72");
   assert.equal(palette.syntaxFunction.toLowerCase(), "#d2a8ff");
+});
+
+test("status bar glyphs follow the paper: dark on light, light on dark", () => {
+  assert.equal(statusBarStyleFor(false), "LIGHT");
+  assert.equal(statusBarStyleFor(true), "DARK");
 });
