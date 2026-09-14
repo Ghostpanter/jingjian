@@ -1,6 +1,13 @@
 import { useMemo } from "react";
 import { create } from "zustand";
-import { titleFromContent } from "./format";
+import {
+  isBlankContent,
+  isLargeNote,
+  matchesQuery,
+  NOTE_HEAD_SCAN,
+  titleFromContent,
+} from "./format";
+import { deleteOverflow, getOverflow, putOverflow } from "./overflow";
 import { createSeedNotes } from "./seed";
 import { notesFingerprint, reconcileNotes } from "./sync-merge";
 import type { Note, PreviewMode } from "./types";
@@ -37,6 +44,7 @@ type PersistedSlice = {
 
 const STORAGE_KEY = "jingjian.notes.v1";
 const PREVIEW_ORDER: PreviewMode[] = ["edit", "split", "preview"];
+const PERSIST_DEBOUNCE_MS = 280;
 
 function isNote(value: unknown): value is Note {
   if (!value || typeof value !== "object") return false;
@@ -75,9 +83,36 @@ function readPersisted(): PersistedSlice | null {
   }
 }
 
-function writePersisted(state: NotesState) {
+async function restoreOverflowNotes(notes: Note[]): Promise<Note[]> {
+  if (!notes.some((note) => note.overflow)) return notes;
+  return Promise.all(
+    notes.map(async (note) => {
+      if (!note.overflow) return note;
+      const body = await getOverflow(note.id);
+      if (!body) return note;
+      return { ...note, content: body, overflow: true };
+    }),
+  );
+}
+
+async function writePersisted(state: NotesState) {
+  const notes: Note[] = [];
+  for (const note of state.notes) {
+    if (isLargeNote(note.content)) {
+      await putOverflow(note.id, note.content);
+      notes.push({
+        ...note,
+        content: note.content.slice(0, NOTE_HEAD_SCAN),
+        overflow: true,
+      });
+      continue;
+    }
+    if (note.overflow) await deleteOverflow(note.id);
+    const { overflow: _overflow, ...rest } = note;
+    notes.push(rest);
+  }
   const payload: PersistedSlice = {
-    notes: state.notes,
+    notes,
     activeId: state.activeId,
     previewMode: state.previewMode,
   };
@@ -100,7 +135,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const format = options?.format === "txt" ? "txt" : undefined;
     const existingEmpty = get().notes.find(
       (note) =>
-        !note.content.trim() &&
+        isBlankContent(note.content) &&
         !note.bookId &&
         (note.format ?? "md") === (format ?? "md"),
     );
@@ -128,12 +163,20 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   deleteNote: (id) => {
     const remaining = get().notes.filter((note) => note.id !== id);
     const nextId = get().activeId === id ? (remaining[0]?.id ?? null) : get().activeId;
+    void deleteOverflow(id);
     set({ notes: remaining, activeId: nextId });
   },
   updateNote: (id, content) => {
     set({
       notes: get().notes.map((note) =>
-        note.id === id ? { ...note, content, updatedAt: Date.now() } : note,
+        note.id === id
+          ? {
+              ...note,
+              content,
+              updatedAt: Date.now(),
+              overflow: isLargeNote(content) ? true : undefined,
+            }
+          : note,
       ),
     });
   },
@@ -168,12 +211,13 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const existing = get().notes.filter(
       (note) => !incoming.some((item) => item.id === note.id),
     );
+    const large = incoming.some((note) => isLargeNote(note.content));
     set({
       notes: [...incoming, ...existing],
       activeId: incoming[0]?.id ?? get().activeId,
       query: "",
       sidebarOpen: false,
-      previewMode: "preview",
+      previewMode: large ? "edit" : "preview",
     });
   },
   makeBookFromNote: (noteId, title) => {
@@ -229,28 +273,46 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
 }));
 
 let persistBound = false;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistChain: Promise<void> = Promise.resolve();
 
 function bindPersistence() {
   if (persistBound) return;
   persistBound = true;
-  useNotesStore.subscribe((state) => {
-    if (!state.hydrated) return;
-    writePersisted(state);
+  useNotesStore.subscribe(() => {
+    if (!useNotesStore.getState().hydrated) return;
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      persistChain = persistChain
+        .then(() => {
+          const state = useNotesStore.getState();
+          if (!state.hydrated) return;
+          return writePersisted(state);
+        })
+        .catch(() => undefined);
+    }, PERSIST_DEBOUNCE_MS);
   });
 }
 
 export function hydrateNotesStore(): void {
   bindPersistence();
   const persisted = readPersisted();
-  if (persisted) {
+  if (!persisted) {
+    const seeded = createSeedNotes();
+    useNotesStore.setState({
+      notes: seeded,
+      activeId: seeded[0]?.id ?? null,
+      hydrated: true,
+    });
+    return;
+  }
+  if (!persisted.notes.some((note) => note.overflow)) {
     useNotesStore.setState({ ...persisted, hydrated: true });
     return;
   }
-  const seeded = createSeedNotes();
-  useNotesStore.setState({
-    notes: seeded,
-    activeId: seeded[0]?.id ?? null,
-    hydrated: true,
+  void restoreOverflowNotes(persisted.notes).then((notes) => {
+    useNotesStore.setState({ ...persisted, notes, hydrated: true });
   });
 }
 
@@ -267,15 +329,8 @@ export function useSortedNotes(): Note[] {
   const notes = useNotesStore((state) => state.notes);
   const query = useNotesStore((state) => state.query);
   return useMemo(() => {
-    const q = query.trim().toLowerCase();
     return [...notes]
-      .filter((note) => {
-        if (!q) return true;
-        return (
-          titleFromContent(note.content).toLowerCase().includes(q) ||
-          note.content.toLowerCase().includes(q)
-        );
-      })
+      .filter((note) => matchesQuery(note, query))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [notes, query]);
 }

@@ -11,4 +11,6 @@ export type Note = {
   bookId?: string;
   bookTitle?: string;
   chapterIndex?: number;
+  /** Body lives in IndexedDB; localStorage only keeps a title head. */
+  overflow?: boolean;
 };

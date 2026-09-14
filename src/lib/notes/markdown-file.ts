@@ -1,18 +1,9 @@
+import { firstLineTitle } from "./format.ts";
 import type { Note } from "./types.ts";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
-export function firstLineTitle(content: string): string {
-  const line =
-    content.split("\n").find((entry) => entry.trim().length > 0)?.trim() ?? "";
-  const stripped = line
-    .replace(/^#{1,6}\s+/, "")
-    .replace(/^\s*[-*+]\s+(\[[ xX]\]\s+)?/, "")
-    .replace(/^>\s+/, "")
-    .replace(/[*_`~]/g, "")
-    .trim();
-  return stripped || "未命名笔记";
-}
+export { firstLineTitle };
 
 export function isNoteFilename(name: string): boolean {
   return /\.(md|markdown|txt)$/i.test(name);
@@ -41,12 +32,16 @@ export function serializeNote(note: Note): string {
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
-  const match = raw.match(FRONTMATTER);
+  const text = raw.replace(/^\uFEFF/, "");
+  const now = Date.now();
+  const source = text.startsWith("---")
+    ? (text.length > 8192 ? text.slice(0, 8192) : text)
+    : "";
+  const match = source ? source.match(FRONTMATTER) : null;
   if (!match) {
-    const now = Date.now();
     return {
       id: fallbackId,
-      content: raw.replace(/^\uFEFF/, ""),
+      content: text,
       createdAt: now,
       updatedAt: now,
     };
@@ -67,7 +62,7 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     id: meta.id || fallbackId,
     createdAt: Number(meta.createdAt) || Date.now(),
     updatedAt: Number(meta.updatedAt) || Date.now(),
-    content: raw.slice(match[0].length).replace(/^\uFEFF/, ""),
+    content: text.slice(match[0].length),
     ...(format ? { format } : {}),
     ...(bookId ? { bookId, bookTitle, chapterIndex } : {}),
   };

@@ -7,6 +7,7 @@ import {
   wrapAsMarkup,
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor } from "@/lib/notes/image-insert";
+import { isLargeNote } from "@/lib/notes/format";
 import { classifyIncoming } from "@/lib/notes/open-incoming";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,8 @@ export function EditorPane({
   onChange,
   onImportFiles,
 }: EditorPaneProps) {
+  const large = isLargeNote(content);
+
   async function insertFiles(
     el: HTMLTextAreaElement,
     files: File[],
@@ -99,7 +102,12 @@ export function EditorPane({
   }
 
   return (
-    <div className="h-full min-h-0 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {large ? (
+        <p className="note-clip-banner" role="status">
+          文件较大，已用源码打开。预览只显示开头，避免卡住。
+        </p>
+      ) : null}
       <textarea
         key={`${noteId}-${epoch}`}
         id="note-editor"
@@ -134,7 +142,7 @@ export function EditorPane({
         enterKeyHint="enter"
         aria-label="笔记正文"
         className={cn(
-          "h-full w-full resize-none bg-transparent px-5 py-6 font-serif text-editor text-fg",
+          "min-h-0 w-full flex-1 resize-none bg-transparent px-5 py-6 font-serif text-editor text-fg",
           "placeholder:text-subtle",
           "outline-none sm:px-8 sm:py-10",
           centered && "mx-auto block max-w-prose",

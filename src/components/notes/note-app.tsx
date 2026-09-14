@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
-import { countChars, titleFromContent } from "@/lib/notes/format";
+import { formatCharCount, isLargeNote, titleFromContent } from "@/lib/notes/format";
 import {
   indentLines,
   insertTable,
@@ -594,7 +594,7 @@ export function NoteApp() {
   ]);
 
   const charCount = useMemo(
-    () => countChars(activeNote?.content ?? ""),
+    () => formatCharCount(activeNote?.content ?? ""),
     [activeNote?.content],
   );
 
@@ -710,7 +710,14 @@ export function NoteApp() {
         return;
       }
       importNotes(imported);
-      toast.message(imported.length === 1 ? "已导入 1 篇笔记" : `已导入 ${imported.length} 篇笔记`);
+      const large = imported.some((note) => isLargeNote(note.content));
+      toast.message(
+        large
+          ? "文件较大，已用源码打开，避免卡住"
+          : imported.length === 1
+            ? "已导入 1 篇笔记"
+            : `已导入 ${imported.length} 篇笔记`,
+      );
     } catch (error) {
       toast.message(error instanceof Error ? error.message : "导入失败");
     }
@@ -808,6 +815,14 @@ export function NoteApp() {
         offset={24}
       />
 
+      <button
+        type="button"
+        className="app-sidebar-backdrop"
+        aria-label="关闭笔记列表"
+        tabIndex={-1}
+        onClick={() => setSidebarOpen(false)}
+      />
+
       <aside className="app-sidebar" aria-label="笔记列表">
         <Sidebar
           notes={notes}
@@ -860,7 +875,7 @@ export function NoteApp() {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="md:hidden"
+            className="phone-only"
             aria-label="笔记列表"
             onClick={() => setSidebarOpen(true)}
           >
@@ -869,7 +884,7 @@ export function NoteApp() {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="hidden md:inline-flex"
+            className="pad-only"
             aria-label={desktopCollapsed ? "显示文件列表" : "收起文件列表"}
             onClick={() => setDesktopCollapsed((value) => !value)}
           >
@@ -1012,7 +1027,7 @@ export function NoteApp() {
         </div>
 
         <footer className="app-status">
-          <span className="tabular-nums">{charCount} 字</span>
+          <span className="tabular-nums">{charCount}</span>
           <span>{syncConfig.provider === "off" ? "已自动保存" : syncStatus.message}</span>
         </footer>
       </section>

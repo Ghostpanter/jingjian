@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { isBlankContent, previewWindow } from "@/lib/notes/format";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
@@ -19,11 +20,12 @@ export function PreviewPane({
   centered = true,
   reader = false,
 }: PreviewPaneProps) {
+  const windowed = useMemo(() => previewWindow(content), [content]);
   const html = useMemo(
-    () => (format === "txt" ? "" : renderMarkdown(content)),
-    [content, format],
+    () => (format === "txt" ? "" : renderMarkdown(windowed.text)),
+    [windowed.text, format],
   );
-  const empty = !content.trim();
+  const empty = isBlankContent(content);
   const articleRef = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
@@ -42,10 +44,15 @@ export function PreviewPane({
           reader && "reader-page",
         )}
       >
+        {windowed.truncated ? (
+          <p className="note-clip-banner" role="status">
+            文件较大，预览只显示开头。源码模式可查看与编辑全文开头，后文仍保留。
+          </p>
+        ) : null}
         {empty ? (
           <p className="font-serif text-lg text-subtle">预览会显示在这里</p>
         ) : format === "txt" ? (
-          <article className="md-body plain-note font-serif">{content}</article>
+          <article className="md-body plain-note font-serif">{windowed.text}</article>
         ) : (
           <article
             ref={articleRef}

@@ -81,7 +81,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon-sm"
-          className="md:hidden"
+          className="phone-only"
           aria-label="关闭笔记列表"
           onClick={onCloseMobile}
         >
