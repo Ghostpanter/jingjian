@@ -31,6 +31,13 @@ test("drops javascript urls", () => {
   assert.doesNotMatch(html, /javascript:/);
 });
 
+test("headings get stable ids for outline and scroll", () => {
+  const html = renderMarkdown("# 欢迎\n\n## 常用操作\n\n# 欢迎\n");
+  assert.match(html, /id="欢迎"/);
+  assert.match(html, /id="常用操作"/);
+  assert.match(html, /id="欢迎-2"/);
+});
+
 test("keeps underline and other safe inline html", () => {
   assert.equal(sanitizeInlineHtml("<u>"), "<u>");
   assert.equal(sanitizeInlineHtml("</U>"), "</u>");

@@ -18,6 +18,7 @@ type EditorPaneProps = {
   centered?: boolean;
   onChange: (value: string) => void;
   onImportFiles?: (files: File[]) => void;
+  onScroll?: () => void;
 };
 
 export function EditorPane({
@@ -27,6 +28,7 @@ export function EditorPane({
   centered = true,
   onChange,
   onImportFiles,
+  onScroll,
 }: EditorPaneProps) {
   const large = isLargeNote(content);
 
@@ -134,6 +136,7 @@ export function EditorPane({
           if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
         }}
         onDrop={handleDrop}
+        onScroll={onScroll}
         placeholder="从第一行开始写，它会成为标题…"
         spellCheck
         lang="zh-CN"

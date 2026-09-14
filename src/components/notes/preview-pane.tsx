@@ -12,6 +12,7 @@ type PreviewPaneProps = {
   format?: NoteFormat;
   centered?: boolean;
   reader?: boolean;
+  onScroll?: () => void;
 };
 
 export function PreviewPane({
@@ -19,6 +20,7 @@ export function PreviewPane({
   format = "md",
   centered = true,
   reader = false,
+  onScroll,
 }: PreviewPaneProps) {
   const windowed = useMemo(() => previewWindow(content), [content]);
   const html = useMemo(
@@ -36,7 +38,11 @@ export function PreviewPane({
   });
 
   return (
-    <div className={cn("h-full min-h-0 overflow-y-auto", reader && "reader-scroll")}>
+    <div
+      id="note-preview"
+      className={cn("h-full min-h-0 overflow-y-auto", reader && "reader-scroll")}
+      onScroll={onScroll}
+    >
       <div
         className={cn(
           "px-5 py-6 sm:px-8 sm:py-10",

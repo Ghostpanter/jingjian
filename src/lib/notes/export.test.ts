@@ -127,6 +127,18 @@ test("txt notes keep format through serialize and filename", () => {
   assert.match(filenameForNote(note), /\.txt$/);
 });
 
+test("folder path survives serialize", () => {
+  const note = {
+    id: "11111111-2222-4333-a444-555555555555",
+    content: "# 手册\n",
+    createdAt: 1,
+    updatedAt: 2,
+    folder: "手册/写作",
+  };
+  const parsed = parseNoteFile(serializeNote(note), "fallback");
+  assert.equal(parsed.folder, "手册/写作");
+});
+
 test("pdf page cut prefers a block end near the page bottom", () => {
   assert.equal(
     choosePageCut({

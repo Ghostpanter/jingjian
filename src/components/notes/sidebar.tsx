@@ -1,31 +1,66 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Plus, Search, Settings, X } from "lucide-react";
 import { CreateMenu } from "@/components/notes/create-menu";
+import { FileTree } from "@/components/notes/file-tree";
+import { OutlineList } from "@/components/notes/outline-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ancestorFolders, buildFileTree } from "@/lib/notes/folder-tree";
 import {
   formatRelativeTime,
   groupNotes,
   snippetFromContent,
   titleFromContent,
 } from "@/lib/notes/format";
+import type { OutlineHeading } from "@/lib/notes/outline";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
+const OPEN_KEY = "jingjian.folders.open.v1";
+
+function readOpenFolders(): Set<string> {
+  try {
+    const raw = localStorage.getItem(OPEN_KEY);
+    if (raw == null) return new Set(["手册"]);
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? new Set(parsed.filter((item) => typeof item === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeOpenFolders(open: Set<string>) {
+  try {
+    localStorage.setItem(OPEN_KEY, JSON.stringify([...open]));
+  } catch {
+    // private mode
+  }
+}
+
 type SidebarProps = {
   notes: Note[];
+  folders: string[];
   activeId: string | null;
+  activeFolder: string;
   query: string;
   now: number;
+  headings: OutlineHeading[];
+  activeHeadingId?: string;
   onQueryChange: (value: string) => void;
   onSelect: (id: string) => void;
+  onSelectFolder: (path: string) => void;
   onCreate: () => void;
   onCreateText: () => void;
+  onCreateFolder: () => void;
+  onCreateInFolder: (path: string) => void;
   onImportMarkdown: () => void;
   onImportTxt: () => void;
+  onImportFolder: () => void;
   onImportEpub: () => void;
   onMakeBook: () => void;
   onAddChapter: () => void;
+  onMoveNote: (id: string, folder: string | null) => void;
+  onJumpHeading: (heading: OutlineHeading) => void;
   onCloseMobile: () => void;
   onOpenSettings: () => void;
   onReadBook?: (noteId: string) => void;
@@ -34,32 +69,87 @@ type SidebarProps = {
 
 export function Sidebar({
   notes,
+  folders,
   activeId,
+  activeFolder,
   query,
   now,
+  headings,
+  activeHeadingId,
   onQueryChange,
   onSelect,
+  onSelectFolder,
   onCreate,
   onCreateText,
+  onCreateFolder,
+  onCreateInFolder,
   onImportMarkdown,
   onImportTxt,
+  onImportFolder,
   onImportEpub,
   onMakeBook,
   onAddChapter,
+  onMoveNote,
+  onJumpHeading,
   onCloseMobile,
   onOpenSettings,
   onReadBook,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
+  const books = groups.filter((group) => group.book);
+  const treeNotes = notes.filter((note) => !note.bookId);
+  const tree = useMemo(
+    () => buildFileTree(treeNotes, folders),
+    [treeNotes, folders],
+  );
   const [createOpen, setCreateOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(readOpenFolders);
   const createBtnRef = useRef<HTMLDivElement>(null);
   const active = notes.find((note) => note.id === activeId);
   const hasBook = Boolean(active?.bookId);
   const canMakeBook = Boolean(active) && !active?.bookId;
+  const searching = Boolean(query.trim());
+  const showEmpty =
+    notes.length === 0 && (searching || folders.length === 0);
+
+  useEffect(() => {
+    if (!activeFolder) return;
+    setExpanded((current) => {
+      const paths = ancestorFolders(activeFolder);
+      if (paths.every((path) => current.has(path))) return current;
+      const next = new Set(current);
+      for (const path of paths) next.add(path);
+      writeOpenFolders(next);
+      return next;
+    });
+  }, [activeFolder]);
 
   function closeCreate() {
     setCreateOpen(false);
+  }
+
+  function toggleFolder(path: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      writeOpenFolders(next);
+      return next;
+    });
+  }
+
+  function selectAndExpand(id: string) {
+    const note = notes.find((item) => item.id === id);
+    if (note?.folder) {
+      setExpanded((current) => {
+        const next = new Set(current);
+        for (const path of ancestorFolders(note.folder ?? "")) next.add(path);
+        writeOpenFolders(next);
+        return next;
+      });
+    }
+    onSelect(id);
   }
 
   return (
@@ -119,6 +209,10 @@ export function Sidebar({
               closeCreate();
               onCreateText();
             }}
+            onCreateFolder={() => {
+              closeCreate();
+              onCreateFolder();
+            }}
             onImportMarkdown={() => {
               closeCreate();
               onImportMarkdown();
@@ -126,6 +220,10 @@ export function Sidebar({
             onImportTxt={() => {
               closeCreate();
               onImportTxt();
+            }}
+            onImportFolder={() => {
+              closeCreate();
+              onImportFolder();
             }}
             onImportEpub={() => {
               closeCreate();
@@ -163,10 +261,21 @@ export function Sidebar({
       </div>
 
       <nav
-        className="min-h-0 flex-1 overflow-y-auto px-2 pb-4"
+        className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
         aria-label="笔记列表"
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("text/jingjian-note")) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const id = event.dataTransfer.getData("text/jingjian-note");
+          if (!id) return;
+          const target = event.target as HTMLElement;
+          if (target.closest("[data-folder-drop]")) return;
+          event.preventDefault();
+          onMoveNote(id, null);
+        }}
       >
-        {notes.length === 0 ? (
+        {showEmpty ? (
           <div className="px-3 py-10 text-center">
             <p className="text-sm text-muted">
               {query.trim() ? "没有找到匹配的笔记" : "还没有笔记"}
@@ -178,23 +287,61 @@ export function Sidebar({
             ) : null}
           </div>
         ) : (
-          groups.map((group) => (
-            <div key={group.label} className="mb-3">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
-                {group.book ? <BookOpen className="size-3.5" /> : null}
-                <span className="min-w-0 flex-1 truncate">{group.label}</span>
-                {group.book && onReadBook && group.notes[0] ? (
-                  <button
-                    type="button"
-                    className="btn-press rounded-sm px-1.5 py-0.5 text-[11px] text-muted hover:text-fg"
-                    onClick={() => onReadBook(group.notes[0].id)}
-                  >
-                    阅读
-                  </button>
-                ) : null}
+          <>
+            {books.map((group) => (
+              <div key={group.label} className="mb-3">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
+                  <BookOpen className="size-3.5" />
+                  <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                  {onReadBook && group.notes[0] ? (
+                    <button
+                      type="button"
+                      className="btn-press rounded-sm px-1.5 py-0.5 text-[11px] text-muted hover:text-fg"
+                      onClick={() => onReadBook(group.notes[0].id)}
+                    >
+                      阅读
+                    </button>
+                  ) : null}
+                </div>
+                <ul role="listbox" aria-label={group.label}>
+                  {group.notes.map((note, index) => {
+                    const selected = note.id === activeId;
+                    return (
+                      <li key={note.id} role="none">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => selectAndExpand(note.id)}
+                          className={cn(
+                            "note-item btn-press flex w-full flex-col items-start rounded-lg px-3 py-3 text-left",
+                            "transition-colors duration-(--motion-quick) ease-(--ease-out)",
+                            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                            selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+                          )}
+                        >
+                          <span className="flex w-full items-baseline gap-2">
+                            <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
+                              {index + 1}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                              {titleFromContent(note.content)}
+                            </span>
+                          </span>
+                          <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
+                            {snippetFromContent(note.content)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
-              <ul role="listbox" aria-label={group.label}>
-                {group.notes.map((note, index) => {
+            ))}
+
+            {searching ? (
+              <ul role="listbox" aria-label="搜索结果">
+                {treeNotes.map((note) => {
                   const selected = note.id === activeId;
                   return (
                     <li key={note.id} role="none">
@@ -202,48 +349,42 @@ export function Sidebar({
                         type="button"
                         role="option"
                         aria-selected={selected}
-                        onClick={() => onSelect(note.id)}
+                        onClick={() => selectAndExpand(note.id)}
                         className={cn(
                           "note-item btn-press flex w-full flex-col items-start rounded-lg px-3 py-3 text-left",
-                          "transition-colors duration-(--motion-quick) ease-(--ease-out)",
-                          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                          selected
-                            ? "bg-paper shadow-border"
-                            : "hover:bg-overlay",
+                          selected ? "bg-paper shadow-border" : "hover:bg-overlay",
                         )}
                       >
-                        <span className="flex w-full items-baseline gap-2">
-                          {group.book ? (
-                            <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
-                              {index + 1}
-                            </span>
-                          ) : null}
-                          <span className="min-w-0 flex-1 truncate font-medium text-fg">
-                            {titleFromContent(note.content)}
-                          </span>
-                          {note.format === "txt" ? (
-                            <span className="shrink-0 text-[10px] tracking-wide text-subtle">
-                              TXT
-                            </span>
-                          ) : null}
+                        <span className="truncate font-medium text-fg">
+                          {titleFromContent(note.content)}
                         </span>
-                        <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
-                          {snippetFromContent(note.content)}
+                        <span className="mt-0.5 w-full truncate text-xs text-muted">
+                          {note.folder || formatRelativeTime(note.updatedAt, now)}
                         </span>
-                        {!group.book ? (
-                          <span className="mt-1 text-xs text-subtle tabular-nums">
-                            {formatRelativeTime(note.updatedAt, now)}
-                          </span>
-                        ) : null}
                       </button>
                     </li>
                   );
                 })}
               </ul>
-            </div>
-          ))
+            ) : (
+              <div>
+                <FileTree
+                  nodes={tree}
+                  activeId={activeId}
+                  activeFolder={activeFolder}
+                  expanded={expanded}
+                  onSelect={selectAndExpand}
+                  onToggle={toggleFolder}
+                  onSelectFolder={onSelectFolder}
+                  onCreateInFolder={onCreateInFolder}
+                  onMoveNote={onMoveNote}
+                />
+              </div>
+            )}
+          </>
         )}
       </nav>
+      <OutlineList headings={headings} activeId={activeHeadingId} onJump={onJumpHeading} />
     </div>
   );
 }

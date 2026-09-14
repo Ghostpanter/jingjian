@@ -1,14 +1,21 @@
 import { Marked } from "marked";
 import { escapeHtml } from "./escape-html.ts";
 import { displayLang, highlightCode } from "./highlight.ts";
+import { headingIdFor } from "./outline.ts";
 
 const marked = new Marked({
   gfm: true,
   breaks: true,
 });
 
+const headingSeen = new Map<string, number>();
+
 marked.use({
   renderer: {
+    heading({ text, depth }) {
+      const id = headingIdFor(String(text).replace(/<[^>]+>/g, ""), headingSeen);
+      return `<h${depth} id="${escapeHtml(id)}">${text}</h${depth}>\n`;
+    },
     html({ text }) {
       return sanitizeInlineHtml(text);
     },
@@ -85,6 +92,7 @@ export function sanitizeHref(href: string | null | undefined): string | null {
 }
 
 export function renderMarkdown(source: string): string {
+  headingSeen.clear();
   const html = marked.parse(source || "", { async: false }) as string;
   return html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")

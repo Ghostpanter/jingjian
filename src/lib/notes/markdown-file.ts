@@ -28,7 +28,8 @@ export function serializeNote(note: Note): string {
     ? `\nbookId: ${note.bookId}\nbookTitle: ${JSON.stringify(note.bookTitle ?? "")}\nchapterIndex: ${note.chapterIndex ?? 0}`
     : "";
   const format = note.format === "txt" ? "\nformat: txt" : "";
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}\n---\n${note.content}`;
+  const folder = note.folder ? `\nfolder: ${JSON.stringify(note.folder)}` : "";
+  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${folder}\n---\n${note.content}`;
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
@@ -58,6 +59,7 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     : undefined;
   const chapterIndex = meta.chapterIndex ? Number(meta.chapterIndex) : undefined;
   const format = meta.format === "txt" ? ("txt" as const) : undefined;
+  const folderRaw = meta.folder ? meta.folder.replace(/^"|"$/g, "") : "";
   return {
     id: meta.id || fallbackId,
     createdAt: Number(meta.createdAt) || Date.now(),
@@ -65,6 +67,7 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     content: text.slice(match[0].length),
     ...(format ? { format } : {}),
     ...(bookId ? { bookId, bookTitle, chapterIndex } : {}),
+    ...(folderRaw ? { folder: folderRaw } : {}),
   };
 }
 

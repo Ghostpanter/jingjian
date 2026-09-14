@@ -201,6 +201,7 @@ export function matchesQuery(note: Note, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   if (titleFromContent(note.content).toLowerCase().includes(q)) return true;
+  if (note.folder?.toLowerCase().includes(q)) return true;
   const max = isLargeNote(note.content) ? SEARCH_SCAN : Infinity;
   return includesIgnoreCase(note.content, q, max);
 }

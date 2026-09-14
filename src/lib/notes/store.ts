@@ -10,6 +10,7 @@ import {
 import { deleteOverflow, getOverflow, putOverflow } from "./overflow";
 import { createSeedNotes } from "./seed";
 import { notesFingerprint, reconcileNotes } from "./sync-merge";
+import { collectFolders, normalizeFolder } from "./folder-tree";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -20,7 +21,8 @@ type NotesState = {
   sidebarOpen: boolean;
   hydrated: boolean;
   editorEpoch: number;
-  createNote: (options?: { format?: Note["format"] }) => string;
+  folders: string[];
+  createNote: (options?: { format?: Note["format"]; folder?: string }) => string;
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
   selectNote: (id: string) => void;
@@ -34,12 +36,15 @@ type NotesState = {
   makeBookFromNote: (noteId: string, title?: string) => string | null;
   addChapter: (bookId: string) => string | null;
   renameBook: (bookId: string, title: string) => void;
+  createFolder: (path: string) => string | null;
+  moveNote: (id: string, folder: string | null) => void;
 };
 
 type PersistedSlice = {
   notes: Note[];
   activeId: string | null;
   previewMode: PreviewMode;
+  folders: string[];
 };
 
 const STORAGE_KEY = "jingjian.notes.v1";
@@ -77,6 +82,14 @@ function readPersisted(): PersistedSlice | null {
       notes,
       activeId,
       previewMode: isPreviewMode(data.previewMode) ? data.previewMode : "edit",
+      folders: collectFolders(
+        notes,
+        Array.isArray((data as { folders?: unknown }).folders)
+          ? ((data as { folders: unknown[] }).folders.filter(
+              (item): item is string => typeof item === "string",
+            ))
+          : [],
+      ),
     };
   } catch {
     return null;
@@ -115,6 +128,7 @@ async function writePersisted(state: NotesState) {
     notes,
     activeId: state.activeId,
     previewMode: state.previewMode,
+    folders: collectFolders(state.notes, state.folders),
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -131,13 +145,16 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   sidebarOpen: true,
   hydrated: false,
   editorEpoch: 0,
+  folders: [],
   createNote: (options?) => {
     const format = options?.format === "txt" ? "txt" : undefined;
+    const folder = normalizeFolder(options?.folder ?? "");
     const existingEmpty = get().notes.find(
       (note) =>
         isBlankContent(note.content) &&
         !note.bookId &&
-        (note.format ?? "md") === (format ?? "md"),
+        (note.format ?? "md") === (format ?? "md") &&
+        (note.folder ?? "") === folder,
     );
     if (existingEmpty) {
       set({ activeId: existingEmpty.id, query: "", sidebarOpen: false });
@@ -150,6 +167,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       createdAt: now,
       updatedAt: now,
       ...(format ? { format } : {}),
+      ...(folder ? { folder } : {}),
     };
     set({
       notes: [note, ...get().notes],
@@ -157,6 +175,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       query: "",
       previewMode: get().previewMode === "preview" ? "edit" : get().previewMode,
       sidebarOpen: false,
+      folders: folder ? collectFolders([note, ...get().notes], get().folders) : get().folders,
     });
     return note.id;
   },
@@ -204,6 +223,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       editorEpoch: reconciled.activeContentChanged
         ? current.editorEpoch + 1
         : current.editorEpoch,
+      folders: collectFolders(reconciled.notes, current.folders),
     });
   },
   importNotes: (incoming) => {
@@ -212,12 +232,14 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       (note) => !incoming.some((item) => item.id === note.id),
     );
     const large = incoming.some((note) => isLargeNote(note.content));
+    const notes = [...incoming, ...existing];
     set({
-      notes: [...incoming, ...existing],
+      notes,
       activeId: incoming[0]?.id ?? get().activeId,
       query: "",
       sidebarOpen: false,
       previewMode: large ? "edit" : "preview",
+      folders: collectFolders(notes, get().folders),
     });
   },
   makeBookFromNote: (noteId, title) => {
@@ -270,6 +292,28 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       ),
     });
   },
+  createFolder: (path) => {
+    const folder = normalizeFolder(path);
+    if (!folder) return null;
+    set({ folders: collectFolders(get().notes, [...get().folders, folder]) });
+    return folder;
+  },
+  moveNote: (id, folder) => {
+    const next = folder ? normalizeFolder(folder) : "";
+    const notes = get().notes.map((note) =>
+      note.id === id
+        ? {
+            ...note,
+            folder: next || undefined,
+            updatedAt: Date.now(),
+          }
+        : note,
+    );
+    set({
+      notes,
+      folders: collectFolders(notes, next ? [...get().folders, next] : get().folders),
+    });
+  },
 }));
 
 let persistBound = false;
@@ -303,6 +347,7 @@ export function hydrateNotesStore(): void {
     useNotesStore.setState({
       notes: seeded,
       activeId: seeded[0]?.id ?? null,
+      folders: collectFolders(seeded, ["手册"]),
       hydrated: true,
     });
     return;

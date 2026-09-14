@@ -10,8 +10,10 @@ type CreateMenuProps = {
   onOpenChange: (open: boolean) => void;
   onCreateMarkdown: () => void;
   onCreateText: () => void;
+  onCreateFolder: () => void;
   onImportMarkdown: () => void;
   onImportTxt: () => void;
+  onImportFolder: () => void;
   onImportEpub: () => void;
   onMakeBook: () => void;
   onAddChapter: () => void;
@@ -30,8 +32,10 @@ export function CreateMenu({
   onOpenChange,
   onCreateMarkdown,
   onCreateText,
+  onCreateFolder,
   onImportMarkdown,
   onImportTxt,
+  onImportFolder,
   onImportEpub,
   onMakeBook,
   onAddChapter,
@@ -83,6 +87,9 @@ export function CreateMenu({
       <button type="button" role="menuitem" className={itemClass} onClick={onCreateText}>
         纯文本 TXT
       </button>
+      <button type="button" role="menuitem" className={itemClass} onClick={onCreateFolder}>
+        文件夹
+      </button>
       <div className="my-2 h-px bg-border" />
       <div className="px-1 py-1 text-xs text-subtle">导入</div>
       <button type="button" role="menuitem" className={itemClass} onClick={onImportMarkdown}>
@@ -90,6 +97,9 @@ export function CreateMenu({
       </button>
       <button type="button" role="menuitem" className={itemClass} onClick={onImportTxt}>
         TXT
+      </button>
+      <button type="button" role="menuitem" className={itemClass} onClick={onImportFolder}>
+        文件夹
       </button>
       <button type="button" role="menuitem" className={itemClass} onClick={onImportEpub}>
         EPUB 电子书

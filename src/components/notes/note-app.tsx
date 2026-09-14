@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
-import { DeleteNoteDialog, ShortcutsDialog } from "@/components/notes/dialogs";
+import { DeleteNoteDialog, FolderDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { ExportMenu } from "@/components/notes/export-menu";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
@@ -25,6 +25,9 @@ import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
 import { formatCharCount, isLargeNote, titleFromContent } from "@/lib/notes/format";
+import { isImportableNoteName, relativeDir } from "@/lib/notes/folder-tree";
+import { extractHeadings, type OutlineHeading } from "@/lib/notes/outline";
+import { contentOffset, mapScroll, ratioAnchors, scrollMax } from "@/lib/notes/scroll-sync";
 import {
   indentLines,
   insertTable,
@@ -257,6 +260,9 @@ export function NoteApp() {
   const importNotes = useNotesStore((state) => state.importNotes);
   const makeBookFromNote = useNotesStore((state) => state.makeBookFromNote);
   const addChapter = useNotesStore((state) => state.addChapter);
+  const folders = useNotesStore((state) => state.folders);
+  const createFolder = useNotesStore((state) => state.createFolder);
+  const moveNote = useNotesStore((state) => state.moveNote);
   const editorEpoch = useNotesStore((state) => state.editorEpoch);
   const rawNotes = useNotesStore((state) => state.notes);
 
@@ -287,6 +293,12 @@ export function NoteApp() {
   const bookInputRef = useRef<HTMLInputElement>(null);
   const markdownInputRef = useRef<HTMLInputElement>(null);
   const txtInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const syncLock = useRef<"editor" | "preview" | null>(null);
+  const syncTimer = useRef(0);
+  const [activeFolder, setActiveFolder] = useState("");
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [activeHeadingId, setActiveHeadingId] = useState("");
 
   const syncNow = useCallback(async (silent = false) => {
     const config = readSyncConfig();
@@ -319,6 +331,10 @@ export function NoteApp() {
   useLayoutEffect(() => {
     applyTheme(readThemeConfig());
   }, []);
+
+  useEffect(() => {
+    setActiveHeadingId("");
+  }, [activeNote?.id]);
 
   useEffect(() => {
     hydrateNotesStore();
@@ -688,22 +704,30 @@ export function NoteApp() {
     }
   }
 
-  async function handleImportTextFiles(files: File[], format: "md" | "txt") {
+  async function handleImportTextFiles(files: File[], format?: "md" | "txt") {
     const imported: Note[] = [];
     try {
       for (const file of files) {
+        const relative =
+          (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+        const folder = relativeDir(relative);
+        const kind =
+          format ??
+          (classifyIncoming(file.name, file.type) === "txt" ? "txt" : "md");
         const raw = await file.text();
-        if (format === "txt") {
+        if (kind === "txt") {
           imported.push({
             id: crypto.randomUUID(),
             content: raw.replace(/^\uFEFF/, ""),
             createdAt: Date.now(),
             updatedAt: Date.now(),
             format: "txt",
+            ...(folder ? { folder } : {}),
           });
           continue;
         }
-        imported.push(parseNoteFile(raw.replace(/^\uFEFF/, ""), crypto.randomUUID()));
+        const parsed = parseNoteFile(raw.replace(/^\uFEFF/, ""), crypto.randomUUID());
+        imported.push(folder && !parsed.folder ? { ...parsed, folder } : parsed);
       }
       if (imported.length === 0) {
         toast.message("没有可导入的文件");
@@ -723,7 +747,27 @@ export function NoteApp() {
     }
   }
 
+  async function handleImportFolderFiles(files: File[]) {
+    const notes = files.filter((file) =>
+      isImportableNoteName(
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+      ),
+    );
+    if (!notes.length) {
+      toast.message("文件夹里没有 Markdown 或 TXT");
+      return;
+    }
+    await handleImportTextFiles(notes);
+  }
+
   async function handleDroppedFiles(files: File[]) {
+    const nested = files.filter((file) =>
+      ((file as File & { webkitRelativePath?: string }).webkitRelativePath || "").includes("/"),
+    );
+    if (nested.length) {
+      await handleImportFolderFiles(files);
+      return;
+    }
     const books = files.filter((file) => classifyIncoming(file.name, file.type) === "epub");
     const markdown = files.filter((file) => classifyIncoming(file.name, file.type) === "markdown");
     const txt = files.filter((file) => classifyIncoming(file.name, file.type) === "txt");
@@ -749,9 +793,108 @@ export function NoteApp() {
     }
   }
 
-  function handleCreate(format: "md" | "txt" = "md") {
-    createNote(format === "txt" ? { format: "txt" } : undefined);
+  function handleCreate(format: "md" | "txt" = "md", folder = activeFolder) {
+    createNote({
+      ...(format === "txt" ? { format: "txt" as const } : {}),
+      ...(folder ? { folder } : {}),
+    });
     window.setTimeout(() => document.getElementById("note-editor")?.focus(), 0);
+  }
+
+  function headingAnchors() {
+    const editor = document.getElementById("note-editor") as HTMLTextAreaElement | null;
+    const preview = document.getElementById("note-preview");
+    const article = preview?.querySelector("article");
+    if (!editor || !preview || !activeNote) return { from: [] as number[], to: [] as number[] };
+    const headings = extractHeadings(activeNote.content);
+    const els = [...(article?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [])] as HTMLElement[];
+    const rootRect = preview.getBoundingClientRect();
+    return ratioAnchors(
+      headings.map((item) => item.offset),
+      activeNote.content.length,
+      els.map((el) =>
+        contentOffset(el.getBoundingClientRect().top, rootRect.top, preview.scrollTop),
+      ),
+      Math.max(1, preview.scrollHeight),
+    );
+  }
+
+  function updateActiveHeading() {
+    const preview = document.getElementById("note-preview");
+    const article = preview?.querySelector("article");
+    const els = [...(article?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [])] as HTMLElement[];
+    if (!preview || els.length === 0) {
+      setActiveHeadingId("");
+      return;
+    }
+    const probe = preview.getBoundingClientRect().top + 20;
+    let current = els[0].id;
+    for (const el of els) {
+      if (el.getBoundingClientRect().top <= probe) current = el.id;
+    }
+    setActiveHeadingId((prev) => (prev === current ? prev : current));
+  }
+
+  function syncScroll(from: "editor" | "preview") {
+    if (previewMode !== "split") {
+      if (from === "preview") updateActiveHeading();
+      return;
+    }
+    if (syncLock.current && syncLock.current !== from) return;
+    const editor = document.getElementById("note-editor") as HTMLTextAreaElement | null;
+    const preview = document.getElementById("note-preview");
+    if (!editor || !preview) return;
+    const anchors = headingAnchors();
+    syncLock.current = from;
+    if (from === "editor") {
+      preview.scrollTop = mapScroll(
+        editor.scrollTop,
+        scrollMax(editor.scrollHeight, editor.clientHeight),
+        scrollMax(preview.scrollHeight, preview.clientHeight),
+        anchors.from,
+        anchors.to,
+      );
+    } else {
+      editor.scrollTop = mapScroll(
+        preview.scrollTop,
+        scrollMax(preview.scrollHeight, preview.clientHeight),
+        scrollMax(editor.scrollHeight, editor.clientHeight),
+        anchors.to,
+        anchors.from,
+      );
+    }
+    updateActiveHeading();
+    window.clearTimeout(syncTimer.current);
+    syncTimer.current = window.setTimeout(() => {
+      syncLock.current = null;
+    }, 90);
+  }
+
+  function jumpHeading(heading: OutlineHeading) {
+    const editor = document.getElementById("note-editor") as HTMLTextAreaElement | null;
+    const preview = document.getElementById("note-preview");
+    const target = preview?.querySelector(
+      `#${CSS.escape(heading.id)}`,
+    ) as HTMLElement | null;
+    syncLock.current = "preview";
+    if (preview && target) {
+      const top = contentOffset(
+        target.getBoundingClientRect().top,
+        preview.getBoundingClientRect().top,
+        preview.scrollTop,
+      );
+      preview.scrollTop = Math.max(0, top - 8);
+    }
+    if (editor) {
+      const max = scrollMax(editor.scrollHeight, editor.clientHeight);
+      editor.scrollTop = (heading.offset / Math.max(1, editor.value.length)) * max;
+      editor.focus();
+      editor.setSelectionRange(heading.offset, heading.offset);
+    }
+    setActiveHeadingId(heading.id);
+    window.setTimeout(() => {
+      syncLock.current = null;
+    }, 90);
   }
 
   function handleDelete() {
@@ -775,6 +918,8 @@ export function NoteApp() {
     : activeNote
       ? [activeNote]
       : [];
+  const headings =
+    activeNote && activeNote.format !== "txt" ? extractHeadings(activeNote.content) : [];
 
   if (readerOpen && activeNote) {
     return (
@@ -826,15 +971,30 @@ export function NoteApp() {
       <aside className="app-sidebar" aria-label="笔记列表">
         <Sidebar
           notes={notes}
+          folders={folders}
           activeId={activeNote?.id ?? null}
+          activeFolder={activeFolder}
           query={query}
           now={now}
+          headings={headings}
+          activeHeadingId={activeHeadingId}
           onQueryChange={setQuery}
-          onSelect={selectNote}
+          onSelect={(id) => {
+            const note = rawNotes.find((item) => item.id === id);
+            setActiveFolder(note?.folder ?? "");
+            selectNote(id);
+          }}
+          onSelectFolder={setActiveFolder}
           onCreate={() => handleCreate("md")}
           onCreateText={() => handleCreate("txt")}
+          onCreateFolder={() => setFolderOpen(true)}
+          onCreateInFolder={(path) => {
+            setActiveFolder(path);
+            handleCreate("md", path);
+          }}
           onImportMarkdown={() => markdownInputRef.current?.click()}
           onImportTxt={() => txtInputRef.current?.click()}
+          onImportFolder={() => folderInputRef.current?.click()}
           onImportEpub={() => bookInputRef.current?.click()}
           onMakeBook={() => {
             if (!activeNote) {
@@ -854,6 +1014,12 @@ export function NoteApp() {
           }}
           onCloseMobile={() => setSidebarOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onMoveNote={(id, folder) => {
+            moveNote(id, folder);
+            setActiveFolder(folder ?? "");
+            toast.message(folder ? `已移入 ${folder}` : "已移到根目录");
+          }}
+          onJumpHeading={jumpHeading}
           onReadBook={(id) => {
             selectNote(id);
             setReaderOpen(true);
@@ -1004,6 +1170,7 @@ export function NoteApp() {
                   centered={previewMode !== "split"}
                   onChange={(value) => updateNote(activeNote.id, value)}
                   onImportFiles={(files) => void handleDroppedFiles(files)}
+                  onScroll={() => syncScroll("editor")}
                 />
               ) : (
                 <EmptyEditor onCreate={handleCreate} />
@@ -1018,6 +1185,7 @@ export function NoteApp() {
                   content={activeNote.content}
                   format={activeNote.format}
                   centered={previewMode !== "split"}
+                  onScroll={() => syncScroll("preview")}
                 />
               ) : (
                 <EmptyEditor onCreate={handleCreate} />
@@ -1057,6 +1225,18 @@ export function NoteApp() {
         draft={linkDraft}
         onOpenChange={setLinkOpen}
         onInsert={handleInsertLink}
+      />
+      <FolderDialog
+        open={folderOpen}
+        onOpenChange={setFolderOpen}
+        onConfirm={(name) => {
+          const parent = activeFolder ? `${activeFolder}/` : "";
+          const created = createFolder(`${parent}${name}`);
+          if (created) {
+            setActiveFolder(created);
+            toast.message(`已创建 ${created}`);
+          }
+        }}
       />
       <input
         ref={imageInputRef}
@@ -1102,6 +1282,18 @@ export function NoteApp() {
           const files = [...(event.target.files ?? [])];
           event.target.value = "";
           if (files.length) void handleImportTextFiles(files, "txt");
+        }}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])];
+          event.target.value = "";
+          if (files.length) void handleImportFolderFiles(files);
         }}
       />
     </div>

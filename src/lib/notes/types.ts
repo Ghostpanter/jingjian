@@ -13,4 +13,6 @@ export type Note = {
   chapterIndex?: number;
   /** Body lives in IndexedDB; localStorage only keeps a title head. */
   overflow?: boolean;
+  /** Nested sidebar path, e.g. `手册/写作`. */
+  folder?: string;
 };

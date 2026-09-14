@@ -6,8 +6,9 @@
 
 ## 功能
 
-- 左侧文件列表，按最后编辑时间分组；电子书按书名分章
-- Markdown 源码、分栏、预览
+- 左侧文件列表按文件夹树排列，电子书仍按书名分章；可拖动笔记进文件夹
+- Markdown 源码、分栏、预览；分栏时两边按标题对齐同步滚动
+- 当前笔记的标题大纲，点一下跳到源码和预览对应位置
 - 代码高亮与 Mermaid 流程图
 - 插入外链：Ctrl + K，或把网址粘到选中文字上
 - 粘贴 / 拖入图片，可上传到图床
@@ -16,7 +17,7 @@
 - 字数与自动保存
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
 - 电子书：左侧 + 导入 EPUB、阅读翻章、按章编辑后再导出
-- 左侧 +：新建 Markdown / 纯文本，导入 Markdown、TXT、EPUB
+- 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或 EPUB
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
 - 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
@@ -31,7 +32,7 @@
 
 每次导出会先打开系统对话框，选好位置后再生成文件。平板用系统「另存为」，电脑用保存对话框或浏览器下载。PDF / 图片 / HTML 会按预览排版导出，Mermaid 流程图会画成图，而不是源码。PDF 里流程图整张落在一页内，过长会等比缩小，不会从中间切开。PDF 按段落和代码块分页；行内代码保持一整块，长命令会在代码块内换行，不会从单词中间裁开。
 
-导入 EPUB、Markdown、TXT 后出现在侧栏。阅读页可翻章，铅笔即可改这一章，改完再「导出本书」。
+导入 EPUB、Markdown、TXT 或整个文件夹后出现在侧栏。文件夹会按原来的相对路径挂到目录树里。阅读页可翻章，铅笔即可改这一章，改完再「导出本书」。
 
 ## 主题
 
@@ -119,9 +120,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.11-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.6.11-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.6.11-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.6.12-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.6.12-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.6.12-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

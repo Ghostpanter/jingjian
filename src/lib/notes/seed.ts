@@ -1,12 +1,13 @@
 import type { Note } from "./types";
 
-function note(id: string, content: string, updatedAgoMs: number): Note {
+function note(id: string, content: string, updatedAgoMs: number, folder?: string): Note {
   const updatedAt = Date.now() - updatedAgoMs;
   return {
     id,
     content: content.trim() + "\n",
     createdAt: updatedAt,
     updatedAt,
+    ...(folder ? { folder } : {}),
   };
 }
 
@@ -20,16 +21,17 @@ export function createSeedNotes(): Note[] {
 
 需要的话，可在侧栏齿轮里打开同步：自建服务器、WebDAV、本机文件夹，或对象存储（阿里云 / 腾讯云 / 华为云 / 七牛 / 火山 / Amazon S3 / MinIO）。
 
-在平板上，侧栏与编辑区并排；打开分栏后，左边写 Markdown，右边立刻看到排版。
+在平板上，侧栏与编辑区并排；打开分栏后，左边写 Markdown，右边立刻看到排版。分栏时两边会一起滚动。
 
 ## 常用操作
 
 - 新建笔记：点左上角加号，可选 Markdown 或纯文本，或按 Ctrl + N
+- 文件夹：加号里「新建文件夹」，或导入一整层目录。左侧按文件夹树排列，点大纲可跳到标题
 - 即时搜索：点侧栏搜索框，或按 Ctrl + F、/
 - 预览排版：工具栏切换「源码 / 分栏 / 预览」，或按 Ctrl + E
 - 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区，或 Ctrl + Shift + I
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
-- 导入：左上角加号里导入 Markdown、TXT 或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
+- 导入：左上角加号里导入 Markdown、TXT、文件夹或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
 - 主题与图床：侧栏齿轮 → 主题 / 图像。宣纸是默认，代码高亮已单独加深。图床可直接填，也可粘贴 PicGo 配置
 - 安卓 / 电脑：在文件管理器里用「打开方式」选静笺，可直接打开 Markdown、TXT、EPUB；也可把文件拖进编辑区
 - 插入外链：选中文字后按 Ctrl + K，或直接把网址粘到选中文字上
@@ -115,6 +117,7 @@ flowchart LR
 
 ![logo](https://raw.githubusercontent.com/Ghostpanter/jingjian/main/public/logo.png)`,
       3 * 60 * 60 * 1000,
+      "手册",
     ),
     note(
       "seed-essay",

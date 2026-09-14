@@ -256,6 +256,7 @@
   .md-body h4,
   .md-body h5,
   .md-body h6 {
+    scroll-margin-top: 0.6rem;
     font-weight: 600;
     letter-spacing: 0;
     text-wrap: balance;

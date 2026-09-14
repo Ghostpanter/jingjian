@@ -1,5 +1,7 @@
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type DeleteNoteDialogProps = {
   open: boolean;
@@ -154,6 +156,72 @@ export function ShortcutsDialog({
         <div className="mt-5 flex justify-end">
           <Button variant="subtle" onClick={() => onOpenChange(false)}>
             关闭
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type FolderDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (name: string) => void;
+};
+
+export function FolderDialog({ open, onOpenChange, onConfirm }: FolderDialogProps) {
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+  }, [open]);
+
+  if (!open) return null;
+
+  function submit() {
+    const next = name.trim();
+    if (!next) return;
+    onConfirm(next);
+    onOpenChange(false);
+  }
+
+  return (
+    <div
+      className="dialog-overlay fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
+      onClick={() => onOpenChange(false)}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="folder-title"
+        className="dialog-content w-full max-w-sm rounded-xl bg-bg p-6 text-fg shadow-raised"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="folder-title" className="font-serif text-lg font-medium">
+          新建文件夹
+        </h2>
+        <p className="mt-1 text-sm text-muted">可用斜线表示嵌套，例如 手册/写作。</p>
+        <Input
+          autoFocus
+          className="mt-4"
+          value={name}
+          placeholder="文件夹名称"
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button onClick={submit} disabled={!name.trim()}>
+            创建
           </Button>
         </div>
       </div>

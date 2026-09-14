@@ -52,3 +52,13 @@ test("large notes never split or copy the full body", () => {
   );
   assert.ok(Date.now() - started < 500, "large-note helpers must stay cheap");
 });
+
+test("search matches folder path", () => {
+  assert.equal(
+    matchesQuery(
+      { id: "1", content: "正文", createdAt: 1, updatedAt: 1, folder: "手册/写作" },
+      "手册",
+    ),
+    true,
+  );
+});
