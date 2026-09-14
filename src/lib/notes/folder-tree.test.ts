@@ -4,9 +4,13 @@ import {
   ancestorFolders,
   buildFileTree,
   collectFolders,
+  foldersFromImportPaths,
   isImportableNoteName,
+  isUnderFolder,
+  notesInFolder,
   normalizeFolder,
   relativeDir,
+  remainingAfterDeleteFolder,
 } from "./folder-tree.ts";
 import type { Note } from "./types.ts";
 
@@ -62,4 +66,37 @@ test("importable names skip hidden and non-notes", () => {
   assert.equal(isImportableNoteName("手册/a.md"), true);
   assert.equal(isImportableNoteName(".DS_Store"), false);
   assert.equal(isImportableNoteName("photo.png"), false);
+});
+
+test("isUnderFolder uses path boundaries", () => {
+  assert.equal(isUnderFolder("手册", "手册"), true);
+  assert.equal(isUnderFolder("手册", "手册/写作"), true);
+  assert.equal(isUnderFolder("手册", "手册本"), false);
+  assert.equal(isUnderFolder("手册", ""), false);
+});
+
+test("remainingAfterDeleteFolder drops nested notes and empty folders", () => {
+  const result = remainingAfterDeleteFolder(
+    [note("a", "手册"), note("b", "手册/写作"), note("c", "草稿")],
+    ["手册", "手册/写作", "草稿", "空箱"],
+    "手册",
+  );
+  assert.deepEqual(
+    result.notes.map((item) => item.id),
+    ["c"],
+  );
+  assert.deepEqual(new Set(result.folders), new Set(["草稿", "空箱"]));
+  assert.deepEqual(result.removedIds.sort(), ["a", "b"]);
+});
+
+test("foldersFromImportPaths keeps parent folders", () => {
+  assert.deepEqual(
+    new Set(foldersFromImportPaths(["旅行/舟山/日程.md", "旅行/清单.txt"])),
+    new Set(["旅行", "旅行/舟山"]),
+  );
+});
+
+test("notesInFolder includes nested files", () => {
+  const notes = [note("a", "手册"), note("b", "手册/写作"), note("c")];
+  assert.equal(notesInFolder(notes, "手册").length, 2);
 });

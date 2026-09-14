@@ -10,7 +10,7 @@ import {
 import { deleteOverflow, getOverflow, putOverflow } from "./overflow";
 import { createSeedNotes } from "./seed";
 import { notesFingerprint, reconcileNotes } from "./sync-merge";
-import { collectFolders, normalizeFolder } from "./folder-tree";
+import { collectFolders, normalizeFolder, remainingAfterDeleteFolder } from "./folder-tree";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -38,6 +38,7 @@ type NotesState = {
   renameBook: (bookId: string, title: string) => void;
   createFolder: (path: string) => string | null;
   moveNote: (id: string, folder: string | null) => void;
+  deleteFolder: (path: string) => string[];
 };
 
 type PersistedSlice = {
@@ -313,6 +314,21 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       notes,
       folders: collectFolders(notes, next ? [...get().folders, next] : get().folders),
     });
+  },
+  deleteFolder: (path) => {
+    const result = remainingAfterDeleteFolder(get().notes, get().folders, path);
+    for (const id of result.removedIds) void deleteOverflow(id);
+    const currentId = get().activeId;
+    const activeId =
+      currentId && result.removedIds.includes(currentId)
+        ? (result.notes[0]?.id ?? null)
+        : currentId;
+    set({
+      notes: result.notes,
+      folders: result.folders,
+      activeId,
+    });
+    return result.removedIds;
   },
 }));
 

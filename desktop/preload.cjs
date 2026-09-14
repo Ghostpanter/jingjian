@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("jingjianDesktop", {
   writeFile: (options) => ipcRenderer.invoke("export-write", options),
   saveFile: (options) => ipcRenderer.invoke("export-save", options),
   pickFolder: () => ipcRenderer.invoke("folder-pick"),
+  pickImportFolder: () => ipcRenderer.invoke("folder-import-pick"),
   folderStatus: () => ipcRenderer.invoke("folder-status"),
   folderList: () => ipcRenderer.invoke("folder-list"),
   folderWrite: (options) => ipcRenderer.invoke("folder-write", options),

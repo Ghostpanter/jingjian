@@ -205,6 +205,84 @@ public class JingjianFolderPlugin extends Plugin {
         startActivityForResult(call, intent, "onPicked");
     }
 
+    @PluginMethod
+    public void pickImportFolder(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        );
+        startActivityForResult(call, intent, "onImportPicked");
+    }
+
+    @ActivityCallback
+    private void onImportPicked(PluginCall call, ActivityResult result) {
+        if (call == null) {
+            return;
+        }
+        if (result.getResultCode() != Activity.RESULT_OK
+            || result.getData() == null
+            || result.getData().getData() == null) {
+            call.reject("cancelled");
+            return;
+        }
+        Uri uri = result.getData().getData();
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (SecurityException ignored) {
+            // One-shot read is enough for import.
+        }
+        DocumentFile dir = DocumentFile.fromTreeUri(getContext(), uri);
+        String name = dir != null && dir.getName() != null ? dir.getName() : "导入";
+        JSArray files = new JSArray();
+        if (dir != null) {
+            collectImportFiles(dir, name, files, 0);
+        }
+        JSObject out = new JSObject();
+        out.put("name", name);
+        out.put("files", files);
+        call.resolve(out);
+    }
+
+    private void collectImportFiles(DocumentFile dir, String relative, JSArray files, int depth) {
+        if (dir == null || depth > 12 || files.length() >= 400) {
+            return;
+        }
+        DocumentFile[] children = dir.listFiles();
+        if (children == null) {
+            return;
+        }
+        for (DocumentFile child : children) {
+            if (child == null || files.length() >= 400) continue;
+            String name = child.getName();
+            if (name == null || name.startsWith(".")) continue;
+            String next = relative + "/" + name;
+            if (child.isDirectory()) {
+                collectImportFiles(child, next, files, depth + 1);
+                continue;
+            }
+            if (!isImportableName(name)) continue;
+            try {
+                String content = readText(child.getUri());
+                JSObject item = new JSObject();
+                item.put("name", name);
+                item.put("relativePath", next);
+                item.put("content", content);
+                files.put(item);
+            } catch (Exception ignored) {
+                // Skip unreadable files and keep collecting.
+            }
+        }
+    }
+
+    private boolean isImportableName(String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".txt");
+    }
+
     @ActivityCallback
     private void onPicked(PluginCall call, ActivityResult result) {
         if (call == null) {

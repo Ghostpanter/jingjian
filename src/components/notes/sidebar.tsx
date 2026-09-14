@@ -17,6 +17,27 @@ import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
 const OPEN_KEY = "jingjian.folders.open.v1";
+const OUTLINE_KEY = "jingjian.outline.height.v1";
+const OUTLINE_MIN = 88;
+const OUTLINE_MAX = 360;
+
+function readOutlineHeight(): number {
+  try {
+    const raw = Number(localStorage.getItem(OUTLINE_KEY));
+    if (Number.isFinite(raw) && raw >= OUTLINE_MIN && raw <= OUTLINE_MAX) return raw;
+  } catch {
+    // private mode
+  }
+  return 160;
+}
+
+function writeOutlineHeight(value: number) {
+  try {
+    localStorage.setItem(OUTLINE_KEY, String(value));
+  } catch {
+    // private mode
+  }
+}
 
 function readOpenFolders(): Set<string> {
   try {
@@ -60,6 +81,8 @@ type SidebarProps = {
   onMakeBook: () => void;
   onAddChapter: () => void;
   onMoveNote: (id: string, folder: string | null) => void;
+  onNoteMenu: (note: Note) => void;
+  onFolderMenu: (path: string) => void;
   onJumpHeading: (heading: OutlineHeading) => void;
   onCloseMobile: () => void;
   onOpenSettings: () => void;
@@ -90,6 +113,8 @@ export function Sidebar({
   onMakeBook,
   onAddChapter,
   onMoveNote,
+  onNoteMenu,
+  onFolderMenu,
   onJumpHeading,
   onCloseMobile,
   onOpenSettings,
@@ -105,7 +130,9 @@ export function Sidebar({
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(readOpenFolders);
+  const [outlineHeight, setOutlineHeight] = useState(readOutlineHeight);
   const createBtnRef = useRef<HTMLDivElement>(null);
+  const splitRef = useRef<{ startY: number; startH: number } | null>(null);
   const active = notes.find((note) => note.id === activeId);
   const hasBook = Boolean(active?.bookId);
   const canMakeBook = Boolean(active) && !active?.bookId;
@@ -261,6 +288,7 @@ export function Sidebar({
       </div>
 
       <nav
+        data-tree-root=""
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
         aria-label="笔记列表"
         onDragOver={(event) => {
@@ -378,13 +406,47 @@ export function Sidebar({
                   onSelectFolder={onSelectFolder}
                   onCreateInFolder={onCreateInFolder}
                   onMoveNote={onMoveNote}
+                  onNoteMenu={onNoteMenu}
+                  onFolderMenu={onFolderMenu}
                 />
               </div>
             )}
           </>
         )}
       </nav>
-      <OutlineList headings={headings} activeId={activeHeadingId} onJump={onJumpHeading} />
+      {headings.length > 0 ? (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="调整大纲高度"
+          className="outline-split"
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            splitRef.current = { startY: event.clientY, startH: outlineHeight };
+          }}
+          onPointerMove={(event) => {
+            if (!splitRef.current) return;
+            const next = Math.min(
+              OUTLINE_MAX,
+              Math.max(OUTLINE_MIN, splitRef.current.startH + (splitRef.current.startY - event.clientY)),
+            );
+            setOutlineHeight(next);
+          }}
+          onPointerUp={() => {
+            splitRef.current = null;
+            writeOutlineHeight(outlineHeight);
+          }}
+          onPointerCancel={() => {
+            splitRef.current = null;
+          }}
+        />
+      ) : null}
+      <OutlineList
+        headings={headings}
+        activeId={activeHeadingId}
+        height={outlineHeight}
+        onJump={onJumpHeading}
+      />
     </div>
   );
 }

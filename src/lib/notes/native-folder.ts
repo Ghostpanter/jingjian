@@ -16,8 +16,15 @@ export type OpenUriFile = {
   text?: string;
 };
 
+export type ImportFolderNativeFile = {
+  name: string;
+  relativePath: string;
+  content: string;
+};
+
 type NativeFolderPlugin = {
   pick(): Promise<{ name: string }>;
+  pickImportFolder(): Promise<{ name: string; files: ImportFolderNativeFile[] }>;
   status(): Promise<{ ok: boolean; name: string }>;
   list(): Promise<{ files: Array<{ name: string; content: string }> }>;
   write(options: { name: string; content: string; shortId: string }): Promise<void>;

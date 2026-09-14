@@ -72,6 +72,49 @@ export function isImportableNoteName(name: string): boolean {
   return /\.(md|markdown|txt)$/i.test(file);
 }
 
+export function isUnderFolder(root: string, path: string): boolean {
+  const folder = normalizeFolder(root);
+  const target = normalizeFolder(path);
+  if (!folder || !target) return false;
+  return target === folder || target.startsWith(`${folder}/`);
+}
+
+export function notesInFolder(notes: Note[], folder: string): Note[] {
+  return notes.filter((note) => isUnderFolder(folder, note.folder ?? ""));
+}
+
+export function remainingAfterDeleteFolder(
+  notes: Note[],
+  folders: string[],
+  folder: string,
+): { notes: Note[]; folders: string[]; removedIds: string[] } {
+  const root = normalizeFolder(folder);
+  if (!root) return { notes, folders: collectFolders(notes, folders), removedIds: [] };
+  const removedIds: string[] = [];
+  const nextNotes = notes.filter((note) => {
+    if (isUnderFolder(root, note.folder ?? "")) {
+      removedIds.push(note.id);
+      return false;
+    }
+    return true;
+  });
+  const kept = folders.filter((item) => !isUnderFolder(root, item));
+  return {
+    notes: nextNotes,
+    folders: collectFolders(nextNotes, kept),
+    removedIds,
+  };
+}
+
+export function foldersFromImportPaths(relativePaths: string[]): string[] {
+  const extra: string[] = [];
+  for (const relative of relativePaths) {
+    const folder = relativeDir(relative);
+    if (folder) extra.push(folder);
+  }
+  return collectFolders([], extra);
+}
+
 export function buildFileTree(notes: Note[], extraFolders: string[] = []): TreeNode[] {
   const folders = collectFolders(notes, extraFolders);
   const folderNodes = new Map<string, FolderNode>();

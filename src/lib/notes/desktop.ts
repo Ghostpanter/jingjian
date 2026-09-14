@@ -27,6 +27,10 @@ export type DesktopApi = {
     mime: string;
   }): Promise<string>;
   pickFolder(): Promise<{ name: string; path: string }>;
+  pickImportFolder(): Promise<{
+    name: string;
+    files: Array<{ name: string; relativePath: string; content: string }>;
+  }>;
   folderStatus(): Promise<DesktopFolderStatus>;
   folderList(): Promise<{ files: Array<{ name: string; content: string }> }>;
   folderWrite(options: { name: string; content: string; shortId: string }): Promise<void>;

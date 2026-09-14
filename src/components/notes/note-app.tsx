@@ -10,9 +10,9 @@ import {
   Trash2,
   Eye,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { toast, Toaster } from "sonner";
-import { DeleteNoteDialog, FolderDialog, ShortcutsDialog } from "@/components/notes/dialogs";
+import { ActionSheet, DeleteFolderDialog, DeleteNoteDialog, FolderDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { ExportMenu } from "@/components/notes/export-menu";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
@@ -25,7 +25,9 @@ import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
 import { formatCharCount, isLargeNote, titleFromContent } from "@/lib/notes/format";
-import { isImportableNoteName, relativeDir } from "@/lib/notes/folder-tree";
+import { foldersFromImportPaths, isImportableNoteName, isUnderFolder, notesInFolder, relativeDir } from "@/lib/notes/folder-tree";
+import { exportFolderArchive } from "@/lib/notes/export-folder";
+import { pickImportFolder, isImportCancelled, type ImportFolderFile } from "@/lib/notes/import-folder";
 import { extractHeadings, type OutlineHeading } from "@/lib/notes/outline";
 import { contentOffset, mapScroll, ratioAnchors, scrollMax } from "@/lib/notes/scroll-sync";
 import {
@@ -263,6 +265,7 @@ export function NoteApp() {
   const folders = useNotesStore((state) => state.folders);
   const createFolder = useNotesStore((state) => state.createFolder);
   const moveNote = useNotesStore((state) => state.moveNote);
+  const deleteFolder = useNotesStore((state) => state.deleteFolder);
   const editorEpoch = useNotesStore((state) => state.editorEpoch);
   const rawNotes = useNotesStore((state) => state.notes);
 
@@ -299,6 +302,16 @@ export function NoteApp() {
   const [activeFolder, setActiveFolder] = useState("");
   const [folderOpen, setFolderOpen] = useState(false);
   const [activeHeadingId, setActiveHeadingId] = useState("");
+  const [itemMenu, setItemMenu] = useState<
+    { kind: "note"; note: Note } | { kind: "folder"; path: string } | null
+  >(null);
+  const [pendingFolderDelete, setPendingFolderDelete] = useState("");
+  const [pendingNoteDelete, setPendingNoteDelete] = useState<Note | null>(null);
+  const [sidebarDragging, setSidebarDragging] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarPan = useRef<{ pointerId: number; startX: number; width: number; x: number } | null>(
+    null,
+  );
 
   const syncNow = useCallback(async (silent = false) => {
     const config = readSyncConfig();
@@ -760,6 +773,63 @@ export function NoteApp() {
     await handleImportTextFiles(notes);
   }
 
+  async function importFolderEntries(entries: ImportFolderFile[]) {
+    const imported: Note[] = [];
+    for (const file of entries) {
+      const relative = file.relativePath || file.name;
+      if (!isImportableNoteName(relative)) continue;
+      const folder = relativeDir(relative);
+      const kind = classifyIncoming(file.name, "") === "txt" ? "txt" : "md";
+      const raw = file.content.replace(/^\uFEFF/, "");
+      if (kind === "txt") {
+        imported.push({
+          id: crypto.randomUUID(),
+          content: raw,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          format: "txt",
+          ...(folder ? { folder } : {}),
+        });
+        continue;
+      }
+      const parsed = parseNoteFile(raw, crypto.randomUUID());
+      imported.push(folder && !parsed.folder ? { ...parsed, folder } : parsed);
+    }
+    if (imported.length === 0) {
+      toast.message("文件夹里没有 Markdown 或 TXT");
+      return;
+    }
+    for (const folder of foldersFromImportPaths(entries.map((item) => item.relativePath))) {
+      createFolder(folder);
+    }
+    importNotes(imported);
+    toast.message(imported.length === 1 ? "已导入 1 篇笔记" : `已导入 ${imported.length} 篇笔记`);
+  }
+
+  async function handleImportFolder() {
+    try {
+      const result = await pickImportFolder();
+      if (result.kind === "input") {
+        folderInputRef.current?.click();
+        return;
+      }
+      if (result.kind === "empty") {
+        const created = createFolder(result.folder);
+        if (created) {
+          setActiveFolder(created);
+          toast.message(`已加入空文件夹 ${created}`);
+        } else {
+          toast.message("文件夹里没有 Markdown 或 TXT");
+        }
+        return;
+      }
+      await importFolderEntries(result.files);
+    } catch (error) {
+      if (isImportCancelled(error) || isCancelled(error)) return;
+      toast.message(error instanceof Error ? error.message : "导入失败");
+    }
+  }
+
   async function handleDroppedFiles(files: File[]) {
     const nested = files.filter((file) =>
       ((file as File & { webkitRelativePath?: string }).webkitRelativePath || "").includes("/"),
@@ -897,12 +967,62 @@ export function NoteApp() {
     }, 90);
   }
 
-  function handleDelete() {
-    if (!activeNote) return;
-    recordTombstone(activeNote.id);
-    deleteNote(activeNote.id);
-    setPendingDelete(false);
-    toast.message("笔记已删除");
+  function closeSidebar() {
+    setSidebarOpen(false);
+    setDesktopCollapsed(true);
+  }
+
+  function onSidebarPanMove(event: ReactPointerEvent) {
+    const state = sidebarPan.current;
+    const aside = sidebarRef.current;
+    if (!state || state.pointerId !== event.pointerId || !aside) return;
+    const x = Math.min(0, Math.max(-state.width, event.clientX - state.startX));
+    state.x = x;
+    aside.style.setProperty("--sidebar-drag", `${x}px`);
+  }
+
+  function onSidebarPanEnd(event: ReactPointerEvent) {
+    const state = sidebarPan.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    sidebarPan.current = null;
+    setSidebarDragging(false);
+    const aside = sidebarRef.current;
+    aside?.style.removeProperty("--sidebar-drag");
+    if (state.x < -state.width * 0.32) closeSidebar();
+  }
+
+  function onSidebarHandleDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const aside = sidebarRef.current;
+    if (!aside) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sidebarPan.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      width: aside.getBoundingClientRect().width,
+      x: 0,
+    };
+    setSidebarDragging(true);
+  }
+
+  async function handleExportFolder(path: string) {
+    try {
+      const saved = await exportFolderArchive(rawNotes, path, () => toast.message("正在生成…"));
+      toast.message(`已保存到 ${saved.split("/").pop() || saved}`);
+    } catch (error) {
+      if (isCancelled(error)) return;
+      toast.message(error instanceof Error ? error.message : "导出失败");
+    }
+  }
+
+  function handleConfirmFolderDelete() {
+    const path = pendingFolderDelete;
+    if (!path) return;
+    const removed = deleteFolder(path);
+    for (const id of removed) recordTombstone(id);
+    if (isUnderFolder(path, activeFolder) || activeFolder === path) setActiveFolder("");
+    setPendingFolderDelete("");
+    toast.message(removed.length ? `已删除文件夹及 ${removed.length} 篇笔记` : "已删除文件夹");
   }
 
   if (!hydrated) {
@@ -942,6 +1062,7 @@ export function NoteApp() {
         "app-shell safe-shell",
         sidebarOpen && "is-files-open",
         desktopCollapsed && "is-sidebar-collapsed",
+        sidebarDragging && "is-sidebar-dragging",
       )}
       onDragOver={(event) => {
         if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
@@ -968,7 +1089,15 @@ export function NoteApp() {
         onClick={() => setSidebarOpen(false)}
       />
 
-      <aside className="app-sidebar" aria-label="笔记列表">
+      <aside ref={sidebarRef} className="app-sidebar" aria-label="笔记列表">
+        <div
+          className="sidebar-edge-handle"
+          aria-label="向左拖动可关闭文件列表"
+          onPointerDown={onSidebarHandleDown}
+          onPointerMove={onSidebarPanMove}
+          onPointerUp={onSidebarPanEnd}
+          onPointerCancel={onSidebarPanEnd}
+        />
         <Sidebar
           notes={notes}
           folders={folders}
@@ -994,7 +1123,7 @@ export function NoteApp() {
           }}
           onImportMarkdown={() => markdownInputRef.current?.click()}
           onImportTxt={() => txtInputRef.current?.click()}
-          onImportFolder={() => folderInputRef.current?.click()}
+          onImportFolder={() => void handleImportFolder()}
           onImportEpub={() => bookInputRef.current?.click()}
           onMakeBook={() => {
             if (!activeNote) {
@@ -1019,6 +1148,8 @@ export function NoteApp() {
             setActiveFolder(folder ?? "");
             toast.message(folder ? `已移入 ${folder}` : "已移到根目录");
           }}
+          onNoteMenu={(note) => setItemMenu({ kind: "note", note })}
+          onFolderMenu={(path) => setItemMenu({ kind: "folder", path })}
           onJumpHeading={jumpHeading}
           onReadBook={(id) => {
             selectNote(id);
@@ -1201,10 +1332,73 @@ export function NoteApp() {
       </section>
 
       <DeleteNoteDialog
-        open={pendingDelete && Boolean(activeNote)}
-        title={activeNote ? titleFromContent(activeNote.content) : ""}
-        onOpenChange={setPendingDelete}
-        onConfirm={handleDelete}
+        open={(pendingDelete && Boolean(activeNote)) || Boolean(pendingNoteDelete)}
+        title={
+          pendingNoteDelete
+            ? titleFromContent(pendingNoteDelete.content)
+            : activeNote
+              ? titleFromContent(activeNote.content)
+              : ""
+        }
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(false);
+            setPendingNoteDelete(null);
+          }
+        }}
+        onConfirm={() => {
+          const target = pendingNoteDelete ?? activeNote;
+          if (!target) return;
+          recordTombstone(target.id);
+          deleteNote(target.id);
+          setPendingDelete(false);
+          setPendingNoteDelete(null);
+          toast.message("笔记已删除");
+        }}
+      />
+      <DeleteFolderDialog
+        open={Boolean(pendingFolderDelete)}
+        folder={pendingFolderDelete}
+        noteCount={pendingFolderDelete ? notesInFolder(rawNotes, pendingFolderDelete).length : 0}
+        onOpenChange={(open) => {
+          if (!open) setPendingFolderDelete("");
+        }}
+        onConfirm={handleConfirmFolderDelete}
+      />
+      <ActionSheet
+        open={Boolean(itemMenu)}
+        title={
+          itemMenu?.kind === "folder"
+            ? itemMenu.path.split("/").pop() || itemMenu.path
+            : itemMenu?.kind === "note"
+              ? titleFromContent(itemMenu.note.content)
+              : ""
+        }
+        actions={
+          itemMenu?.kind === "folder"
+            ? [
+                { id: "export", label: "导出文件夹" },
+                { id: "delete", label: "删除文件夹", destructive: true },
+              ]
+            : [{ id: "delete", label: "删除笔记", destructive: true }]
+        }
+        onOpenChange={(open) => {
+          if (!open) setItemMenu(null);
+        }}
+        onSelect={(id) => {
+          if (!itemMenu) return;
+          if (itemMenu.kind === "folder" && id === "export") {
+            void handleExportFolder(itemMenu.path);
+            return;
+          }
+          if (itemMenu.kind === "folder" && id === "delete") {
+            setPendingFolderDelete(itemMenu.path);
+            return;
+          }
+          if (itemMenu.kind === "note" && id === "delete") {
+            setPendingNoteDelete(itemMenu.note);
+          }
+        }}
       />
       <ShortcutsDialog
         open={shortcutsOpen}

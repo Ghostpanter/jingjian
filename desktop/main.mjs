@@ -369,6 +369,40 @@ function registerIpc() {
     return { name: filePaths[0], path: filePaths[0] };
   });
 
+  ipcMain.handle("folder-import-pick", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "导入文件夹",
+      properties: ["openDirectory"],
+    });
+    if (canceled || !filePaths[0]) throw new Error("cancelled");
+    const root = filePaths[0];
+    const rootName = path.basename(root) || "导入";
+    const files = [];
+    async function walk(dir, relative) {
+      if (files.length >= 400) return;
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (files.length >= 400) return;
+        if (!entry.name || entry.name.startsWith(".")) continue;
+        const nextRel = relative ? `${relative}/${entry.name}` : entry.name;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(full, nextRel);
+          continue;
+        }
+        if (!/\.(md|markdown|txt)$/i.test(entry.name)) continue;
+        const content = await readFile(full, "utf8");
+        files.push({
+          name: entry.name,
+          relativePath: `${rootName}/${nextRel}`,
+          content,
+        });
+      }
+    }
+    await walk(root, "");
+    return { name: rootName, files };
+  });
+
   ipcMain.handle("folder-status", async () => {
     const folder = await loadFolderPath();
     if (!folder) return { ok: false, name: "", path: "" };

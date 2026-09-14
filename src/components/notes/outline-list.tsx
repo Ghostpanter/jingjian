@@ -4,15 +4,20 @@ import { cn } from "@/lib/utils";
 type OutlineListProps = {
   headings: OutlineHeading[];
   activeId?: string;
+  height?: number;
   onJump: (heading: OutlineHeading) => void;
 };
 
-export function OutlineList({ headings, activeId, onJump }: OutlineListProps) {
+export function OutlineList({ headings, activeId, height = 160, onJump }: OutlineListProps) {
   if (headings.length === 0) return null;
   return (
-    <div className="outline-panel shrink-0 border-t border-border">
+    <div className="outline-panel shrink-0">
       <div className="px-3 py-2 text-xs font-medium tracking-wide text-subtle">大纲</div>
-      <nav className="max-h-40 overflow-y-auto px-1 pb-2" aria-label="大纲">
+      <nav
+        className="overflow-y-auto px-1 pb-2"
+        aria-label="大纲"
+        style={{ height }}
+      >
         <ul>
           {headings.map((heading) => (
             <li key={`${heading.id}-${heading.offset}`}>
