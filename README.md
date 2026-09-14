@@ -119,11 +119,13 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.10-win-x64.zip`：解压后运行 `Jingjian.exe`（未签名，Windows 可能提示 SmartScreen，选仍要运行）
-- `jingjian-v1.6.10-mac-x64.zip`：解压后打开 `Jingjian.app`（未签名，需在「隐私与安全性」允许）。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.6.10-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.6.11-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.6.11-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.6.11-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
+
+Windows / macOS 压缩包里有「打开静笺」启动器，会清掉系统给下载文件打的隔离标记，一般不必再点 SmartScreen 或去「隐私与安全性」手动允许。系统级签名（完全不再提示）需要 Windows 代码签名证书和 Apple 开发者账号公证；打包时设置 `WIN_CSC_FILE` / `APPLE_CSC_FILE` 即可。
 
 桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
 

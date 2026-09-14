@@ -12,18 +12,87 @@ import {
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { writeDesktopLaunchers } from "./desktop-launchers.mjs";
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(".");
 const staging = path.join(root, ".desktop-stage");
 const outDir = path.join(os.tmpdir(), "jingjian-desktop");
 const artifacts = path.join(root, "artifacts");
-const version = "1.6.10";
+const version = "1.6.11";
 const electronVersion = require("electron/package.json").version;
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+function commandExists(command) {
+  const result = spawnSync("bash", ["-lc", `command -v ${command}`], { encoding: "utf8" });
+  return result.status === 0 && Boolean(result.stdout?.trim());
+}
+
+function signWindowsIfConfigured(winDir) {
+  const cert = process.env.WIN_CSC_FILE?.trim();
+  const password = process.env.WIN_CSC_PASSWORD ?? "";
+  if (!cert) return;
+  if (!existsSync(cert)) {
+    console.warn(`WIN_CSC_FILE not found: ${cert}`);
+    return;
+  }
+  if (!commandExists("osslsigncode")) {
+    console.warn("osslsigncode missing; skip Windows Authenticode");
+    return;
+  }
+  const exe = path.join(winDir, "Jingjian.exe");
+  const signed = `${exe}.signed`;
+  const args = [
+    "sign",
+    "-pkcs12",
+    cert,
+    "-n",
+    "静笺",
+    "-i",
+    "https://github.com/Ghostpanter/jingjian",
+    "-t",
+    "http://timestamp.digicert.com",
+    "-in",
+    exe,
+    "-out",
+    signed,
+  ];
+  if (password) args.splice(4, 0, "-pass", password);
+  const result = spawnSync("osslsigncode", args, { cwd: root, stdio: "inherit" });
+  if (result.status !== 0 || !existsSync(signed)) {
+    console.warn("Windows Authenticode signing failed");
+    return;
+  }
+  rmSync(exe, { force: true });
+  cpSync(signed, exe);
+  rmSync(signed, { force: true });
+  console.log("signed Jingjian.exe");
+}
+
+function signMacIfConfigured(appPath) {
+  const cert = process.env.APPLE_CSC_FILE?.trim();
+  const password = process.env.APPLE_CSC_PASSWORD ?? "";
+  if (!cert) return;
+  if (!existsSync(cert)) {
+    console.warn(`APPLE_CSC_FILE not found: ${cert}`);
+    return;
+  }
+  if (!commandExists("rcodesign")) {
+    console.warn("rcodesign missing; skip macOS Developer ID signing");
+    return;
+  }
+  const args = ["sign", "--p12-file", cert, "--code-signature-flags", "runtime", appPath];
+  if (password) args.splice(3, 0, "--p12-password", password);
+  const result = spawnSync("rcodesign", args, { cwd: root, stdio: "inherit" });
+  if (result.status !== 0) {
+    console.warn("macOS signing failed");
+    return;
+  }
+  console.log("signed Jingjian.app");
 }
 
 function zipFolder(sourceDir, zipPath) {
@@ -41,6 +110,8 @@ def is_exec(path: Path) -> bool:
     name = path.name
     parts = set(path.parts)
     if name in {"Jingjian", "Jingjian.exe", "chrome-sandbox", "chrome_crashpad_handler"}:
+        return True
+    if name.endswith(".command"):
         return True
     if path.suffix in {".so", ".dylib", ".sh"}:
         return True
@@ -229,6 +300,18 @@ if (existsSync(darwinPlist)) {
       "<key>CFBundleName</key>\n    <string>静笺</string>",
     );
   writeFileSync(darwinPlist, patched);
+}
+
+const winDir = path.join(outDir, "Jingjian-win32-x64");
+if (existsSync(winDir)) {
+  writeDesktopLaunchers(winDir, "win32");
+  signWindowsIfConfigured(winDir);
+}
+
+const darwinDir = path.join(outDir, "Jingjian-darwin-x64");
+if (existsSync(darwinDir)) {
+  writeDesktopLaunchers(darwinDir, "darwin");
+  signMacIfConfigured(path.join(darwinDir, "Jingjian.app"));
 }
 
 const zips = [
