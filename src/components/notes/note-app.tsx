@@ -4,6 +4,7 @@ import {
   FileDown,
   FileOutput,
   ImagePlus,
+  Keyboard,
   Link2,
   PanelLeft,
   Pencil,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { toast, Toaster } from "sonner";
-import { ActionSheet, DeleteFolderDialog, DeleteNoteDialog, FolderDialog } from "@/components/notes/dialogs";
+import { ActionSheet, DeleteFolderDialog, DeleteNoteDialog, FolderDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { ExportMenu } from "@/components/notes/export-menu";
 import { FindBar } from "@/components/notes/find-bar";
@@ -322,6 +323,7 @@ export function NoteApp() {
   const [pendingNoteDelete, setPendingNoteDelete] = useState<Note | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [replaceMode, setReplaceMode] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarPan = useRef<{ pointerId: number; startX: number; width: number; x: number } | null>(
@@ -566,6 +568,7 @@ export function NoteApp() {
           setFindOpen(false);
           return;
         }
+        setShortcutsOpen(false);
         setPendingDelete(false);
         setSettingsOpen(false);
         setLinkOpen(false);
@@ -573,6 +576,12 @@ export function NoteApp() {
         setReaderOpen(false);
         setSidebarOpen(false);
         if (typing) target.blur();
+        return;
+      }
+
+      if (!typing && (key === "?" || (key === "/" && event.shiftKey))) {
+        event.preventDefault();
+        setShortcutsOpen((open) => !open);
         return;
       }
 
@@ -668,7 +677,7 @@ export function NoteApp() {
       }
 
       const overlayOpen =
-        pendingDelete || linkOpen || settingsOpen || exportOpen || findOpen;
+        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen || findOpen;
       const inEditor = target?.id === "note-editor";
       const inOtherField = typing && !inEditor;
       if (
@@ -729,6 +738,7 @@ export function NoteApp() {
     settingsOpen,
     exportOpen,
     findOpen,
+    shortcutsOpen,
     selectNote,
     setSidebarOpen,
     toggleSidebar,
@@ -1407,6 +1417,15 @@ export function NoteApp() {
           <Button
             variant="ghost"
             size="icon-sm"
+            aria-label="键盘快捷键"
+            onClick={() => setShortcutsOpen(true)}
+            className="hidden sm:inline-flex"
+          >
+            <Keyboard />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
             aria-label="删除笔记"
             disabled={!activeNote}
             onClick={() => setPendingDelete(true)}
@@ -1566,6 +1585,7 @@ export function NoteApp() {
         }}
         onSyncNow={() => void syncNow(false)}
       />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <LinkDialog
         open={linkOpen}
         draft={linkDraft}

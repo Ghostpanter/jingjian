@@ -27,7 +27,7 @@ export function createSeedNotes(): Note[] {
 
 - 新建笔记：点左上角加号，可选 Markdown 或纯文本，或按 Ctrl + N
 - 文件夹：加号里「新建文件夹」，会在文档/jingjian 里建同名目录。长按笔记可拖进或拖出文件夹；松手不移动则删除
-- 文内查找 / 替换：Ctrl + F 查找，Ctrl + H 替换，支持正则（与 Typora 相同）
+- 文内查找 / 替换：Ctrl + F 查找，Ctrl + H 替换，支持正则
 - 源码 / 分栏 / 预览：工具栏切换，或按 Ctrl + /、Ctrl + E
 - 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区，或 Ctrl + Shift + I
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB

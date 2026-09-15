@@ -23,6 +23,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -339,10 +340,16 @@ public class JingjianFolderPlugin extends Plugin {
                 call.reject("无法创建文件夹");
                 return;
             }
-            writeText(Uri.fromFile(file), content != null ? content : "");
-            JSObject out = new JSObject();
-            out.put("path", file.getAbsolutePath());
-            call.resolve(out);
+            FileOutputStream out = new FileOutputStream(file);
+            try {
+                out.write((content != null ? content : "").getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            } finally {
+                out.close();
+            }
+            JSObject outObj = new JSObject();
+            outObj.put("path", file.getAbsolutePath());
+            call.resolve(outObj);
         } catch (Exception error) {
             call.reject(error.getMessage() != null ? error.getMessage() : "无法保存");
         }

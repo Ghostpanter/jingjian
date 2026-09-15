@@ -9,7 +9,7 @@
 - 左侧文件列表按文件夹树排列，电子书仍按书名分章；长按笔记可拖进或拖出文件夹，松手不移动则删除或移到根目录；长按文件夹可删除或导出
 - 新建文件夹会在系统文档 `jingjian` 目录落盘
 - 手动保存 / 另存为；切到其他应用时，正文有改动才自动保存
-- 当前文档查找与替换，支持正则、区分大小写、全词匹配（与 Typora 相近）
+- 当前文档查找与替换，支持正则、区分大小写、全词匹配
 - 侧栏右缘向左拖可关掉文件列表；目录和大纲之间可拖动高度
 - Markdown 源码、分栏、预览；`Ctrl + /` 或 `Ctrl + E` 循环切换；分栏时两边按标题对齐同步滚动
 - 当前笔记的标题大纲，点一下跳到源码和预览对应位置
@@ -112,7 +112,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.14.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.15.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -149,8 +149,6 @@ npm run desktop:pack
 ```
 
 ## 快捷键
-
-排版与 Typora 相同，可在写作时不离开键盘。
 
 | 按键 | 作用 |
 | --- | --- |

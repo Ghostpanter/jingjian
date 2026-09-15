@@ -579,9 +579,6 @@ function ImagePanel({
 
   return (
     <>
-      <p className="mt-3 text-sm text-muted">
-        与 Typora 图像设置相同。图床直接在应用里配置，平板不必另开 PicGo。
-      </p>
       <Field label="插入图片时">
         <select
           className="h-11 w-full rounded-md bg-overlay px-3 text-sm text-fg"
