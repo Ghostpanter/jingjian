@@ -32,6 +32,16 @@ import {
   type ImageInsertAction,
   type ImageUploader,
 } from "@/lib/notes/image-config";
+import {
+  DEFAULT_BLOG_CONFIG,
+  isBlogConfigured,
+  postsDirFor,
+  readBlogConfig,
+  writeBlogConfig,
+  type BlogConfig,
+  type BlogEngine,
+} from "@/lib/notes/blog-config";
+import { testBlogConfig } from "@/lib/notes/blog-publish";
 import { testImageUploader } from "@/lib/notes/image-upload";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +57,7 @@ const TABS = [
   { id: "sync", label: "同步" },
   { id: "theme", label: "主题" },
   { id: "image", label: "图像" },
+  { id: "blog", label: "博客" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -71,6 +82,7 @@ const UPLOADERS: { id: ImageUploader; label: string }[] = [
 type SettingsDialogProps = {
   open: boolean;
   config: SyncConfig;
+  initialTab?: TabId;
   onOpenChange: (open: boolean) => void;
   onSave: (config: SyncConfig) => void;
   onSyncNow: () => void;
@@ -79,6 +91,7 @@ type SettingsDialogProps = {
 export function SettingsDialog({
   open,
   config,
+  initialTab = "sync",
   onOpenChange,
   onSave,
   onSyncNow,
@@ -88,6 +101,7 @@ export function SettingsDialog({
   const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME);
   const [savedTheme, setSavedTheme] = useState<ThemeConfig>(DEFAULT_THEME);
   const [image, setImage] = useState<ImageConfig>(DEFAULT_IMAGE_CONFIG);
+  const [blog, setBlog] = useState<BlogConfig>(DEFAULT_BLOG_CONFIG);
   const [busy, setBusy] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState(false);
@@ -101,11 +115,12 @@ export function SettingsDialog({
       setTheme(currentTheme);
       setSavedTheme(currentTheme);
       setImage(readImageConfig());
+      setBlog(readBlogConfig());
       setTestMessage("");
       setBusy(false);
-      setTab("sync");
+      setTab(initialTab);
     }
-  }, [open, config]);
+  }, [open, config, initialTab]);
 
   if (!open) return null;
 
@@ -115,6 +130,17 @@ export function SettingsDialog({
 
   function patchImage(partial: Partial<ImageConfig>) {
     setImage((current) => ({ ...current, ...partial }));
+  }
+
+  function patchBlog(partial: Partial<BlogConfig>) {
+    setBlog((current) => {
+      const engine = partial.engine ?? current.engine;
+      const postsDir =
+        partial.engine && partial.engine !== current.engine
+          ? postsDirFor(partial.engine, current.postsDir)
+          : (partial.postsDir ?? current.postsDir);
+      return { ...current, ...partial, engine, postsDir };
+    });
   }
 
   function patchTheme(next: ThemeConfig) {
@@ -127,7 +153,11 @@ export function SettingsDialog({
     setTestMessage("");
     try {
       const message =
-        tab === "image" ? await testImageUploader(image) : await testSync(draft);
+        tab === "image"
+          ? await testImageUploader(image)
+          : tab === "blog"
+            ? await testBlogConfig(blog)
+            : await testSync(draft);
       setTestError(false);
       setTestMessage(message);
     } catch (error) {
@@ -170,6 +200,7 @@ export function SettingsDialog({
   function handleSave() {
     writeThemeConfig(theme);
     writeImageConfig(image);
+    writeBlogConfig(blog);
     applyTheme(theme);
     onSave(draft);
     onOpenChange(false);
@@ -202,7 +233,7 @@ export function SettingsDialog({
                 setTestMessage("");
               }}
               className={cn(
-                "btn-press flex-1 rounded-sm py-2 text-sm",
+                "btn-press flex-1 rounded-sm py-2 text-xs sm:text-sm",
                 tab === item.id ? "bg-paper text-fg shadow-border" : "text-muted",
               )}
             >
@@ -227,6 +258,9 @@ export function SettingsDialog({
         {tab === "image" ? (
           <ImagePanel image={image} onChange={patchImage} />
         ) : null}
+        {tab === "blog" ? (
+          <BlogPanel blog={blog} onChange={patchBlog} />
+        ) : null}
 
         {testMessage ? (
           <p className={cn("mt-3 text-sm", testError ? "text-danger" : "text-muted")}>
@@ -239,7 +273,8 @@ export function SettingsDialog({
             取消
           </Button>
           {(tab === "sync" && draft.provider !== "off") ||
-          (tab === "image" && image.uploader !== "none") ? (
+          (tab === "image" && image.uploader !== "none") ||
+          (tab === "blog" && isBlogConfigured(blog)) ? (
             <Button variant="subtle" disabled={busy} onClick={() => void handleTest()}>
               测试连接
             </Button>
@@ -866,6 +901,79 @@ function ImagePanel({
           导入
         </Button>
       </div>
+    </>
+  );
+}
+
+function BlogPanel({
+  blog,
+  onChange,
+}: {
+  blog: BlogConfig;
+  onChange: (partial: Partial<BlogConfig>) => void;
+}) {
+  return (
+    <>
+      <div className="provider-grid mt-4">
+        {(
+          [
+            { id: "hugo", label: "Hugo", hint: "content/posts" },
+            { id: "hexo", label: "Hexo", hint: "source/_posts" },
+          ] as const
+        ).map((item) => {
+          const selected = blog.engine === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onChange({ engine: item.id as BlogEngine })}
+              className={cn(
+                "btn-press rounded-md px-3 py-2.5 text-left",
+                selected ? "bg-paper text-fg shadow-border" : "bg-overlay text-muted",
+              )}
+            >
+              <span className="block text-sm text-fg">{item.label}</span>
+              <span className="block text-xs text-subtle">{item.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+      <Field label="GitHub Token">
+        <Input
+          type="password"
+          value={blog.token}
+          onChange={(event) => onChange({ token: event.target.value })}
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="contents:write"
+        />
+      </Field>
+      <Field label="仓库 owner/repo">
+        <Input
+          value={blog.repo}
+          onChange={(event) => onChange({ repo: event.target.value })}
+          placeholder="owner/blog"
+          autoCapitalize="off"
+        />
+      </Field>
+      <Field label="分支">
+        <Input
+          value={blog.branch}
+          onChange={(event) => onChange({ branch: event.target.value })}
+          placeholder="main"
+          autoCapitalize="off"
+        />
+      </Field>
+      <Field label="文章目录">
+        <Input
+          value={blog.postsDir}
+          onChange={(event) => onChange({ postsDir: event.target.value })}
+          placeholder={blog.engine === "hexo" ? "source/_posts" : "content/posts"}
+          autoCapitalize="off"
+        />
+      </Field>
     </>
   );
 }

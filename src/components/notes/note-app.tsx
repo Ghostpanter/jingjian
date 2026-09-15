@@ -10,6 +10,7 @@ import {
   Pencil,
   Save,
   Search,
+  Send,
   Trash2,
   Eye,
 } from "lucide-react";
@@ -83,6 +84,8 @@ import {
   saveNoteAs,
   saveNoteToLibrary,
 } from "@/lib/notes/library-fs";
+import { isBlogConfigured, readBlogConfig } from "@/lib/notes/blog-config";
+import { publishNoteToBlog } from "@/lib/notes/blog-publish";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -288,6 +291,7 @@ export function NoteApp() {
   const activeNote = useActiveNote();
   const [pendingDelete, setPendingDelete] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"sync" | "theme" | "image" | "blog">("sync");
   const [exportOpen, setExportOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -324,6 +328,7 @@ export function NoteApp() {
   const [findOpen, setFindOpen] = useState(false);
   const [replaceMode, setReplaceMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [blogBusy, setBlogBusy] = useState(false);
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarPan = useRef<{ pointerId: number; startX: number; width: number; x: number } | null>(
@@ -532,6 +537,31 @@ export function NoteApp() {
     }
   }
 
+  async function handlePublishBlog() {
+    const state = useNotesStore.getState();
+    const note = state.notes.find((item) => item.id === state.activeId) ?? null;
+    if (!note) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    if (!isBlogConfigured(readBlogConfig())) {
+      toast.message("先在设置里填写博客仓库");
+      setSettingsTab("blog");
+      setSettingsOpen(true);
+      return;
+    }
+    if (blogBusy) return;
+    setBlogBusy(true);
+    try {
+      const result = await publishNoteToBlog(note);
+      toast.message(result.updated ? `已更新 ${result.path}` : `已发布 ${result.path}`);
+    } catch (error) {
+      toast.message(error instanceof Error ? error.message : "发布失败");
+    } finally {
+      setBlogBusy(false);
+    }
+  }
+
   function handleMoveNote(id: string, folder: string | null) {
     moveNote(id, folder);
     setActiveFolder(folder ?? "");
@@ -642,6 +672,7 @@ export function NoteApp() {
 
       if (mod && (key === "," || key === "，")) {
         event.preventDefault();
+        setSettingsTab("sync");
         setSettingsOpen((open) => !open);
         return;
       }
@@ -1268,7 +1299,10 @@ export function NoteApp() {
             toast.message("已新建章节");
           }}
           onCloseMobile={() => setSidebarOpen(false)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => {
+            setSettingsTab("sync");
+            setSettingsOpen(true);
+          }}
           onMoveNote={handleMoveNote}
           onNoteMenu={(note) => setItemMenu({ kind: "note", note })}
           onFolderMenu={(path) => setItemMenu({ kind: "folder", path })}
@@ -1329,6 +1363,15 @@ export function NoteApp() {
             onClick={() => void handleSaveAs()}
           >
             <FileOutput />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="发布到博客"
+            disabled={!activeNote || blogBusy}
+            onClick={() => void handlePublishBlog()}
+          >
+            <Send />
           </Button>
           <Button
             variant="ghost"
@@ -1578,7 +1621,11 @@ export function NoteApp() {
       <SettingsDialog
         open={settingsOpen}
         config={syncConfig}
-        onOpenChange={setSettingsOpen}
+        initialTab={settingsTab}
+        onOpenChange={(open) => {
+          setSettingsOpen(open);
+          if (!open) setSettingsTab("sync");
+        }}
         onSave={(next) => {
           writeSyncConfig(next);
           setSyncConfig(next);
