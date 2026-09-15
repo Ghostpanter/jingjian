@@ -9,7 +9,7 @@ import {
   shell,
 } from "electron";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,6 +189,23 @@ async function saveFolderPath(folder) {
 function isInside(root, target) {
   const rel = path.relative(root, target);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+async function libraryRootPath() {
+  const root = path.join(app.getPath("documents"), "jingjian");
+  await mkdir(root, { recursive: true });
+  return root;
+}
+
+function libraryJoin(root, relative) {
+  const parts = String(relative || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== "." && part !== "..");
+  const target = path.resolve(root, ...parts);
+  if (!isInside(root, target)) throw new Error("路径不合法");
+  return target;
 }
 
 function resolveWww(requestUrl) {
@@ -449,6 +466,40 @@ function registerIpc() {
       if (!entry.replaceAll("-", "").includes(shortId)) continue;
       await unlink(path.join(folder, entry)).catch(() => {});
     }
+  });
+
+  ipcMain.handle("library-ensure", async () => {
+    const root = await libraryRootPath();
+    return { path: root };
+  });
+
+  ipcMain.handle("library-mkdir", async (_event, payload) => {
+    const root = await libraryRootPath();
+    const dir = libraryJoin(root, payload?.relative);
+    await mkdir(dir, { recursive: true });
+    return { path: dir };
+  });
+
+  ipcMain.handle("library-rmdir", async (_event, payload) => {
+    const root = await libraryRootPath();
+    const dir = libraryJoin(root, payload?.relative);
+    if (dir === root) return;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  ipcMain.handle("library-write", async (_event, payload) => {
+    const root = await libraryRootPath();
+    const filePath = libraryJoin(root, payload?.relative);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, String(payload?.content || ""), "utf8");
+    return { path: filePath };
+  });
+
+  ipcMain.handle("library-remove", async (_event, payload) => {
+    const root = await libraryRootPath();
+    const filePath = libraryJoin(root, payload?.relative);
+    if (filePath === root) return;
+    await rm(filePath, { recursive: true, force: true });
   });
 
   ipcMain.handle("launch-consume", async () => {

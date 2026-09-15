@@ -5,7 +5,7 @@ import type { TreeNode } from "@/lib/notes/folder-tree";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
-const LONG_PRESS_MS = 430;
+const LONG_PRESS_MS = 380;
 const MOVE_PX = 10;
 
 type DragState = {
@@ -55,6 +55,30 @@ export function FileTree({
 
   return (
     <>
+      {depth === 0 && dragState ? (
+        <div
+          data-folder-drop=""
+          className={cn(
+            "mb-1 rounded-lg px-3 py-2 text-xs",
+            dragState.over === "" ? "folder-drop-active bg-overlay text-fg" : "bg-overlay/70 text-muted",
+          )}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = "move";
+            if (dragState.over !== "") onDragChange?.({ ...dragState, over: "" });
+          }}
+          onDrop={(event) => {
+            const id = event.dataTransfer.getData("text/jingjian-note");
+            if (!id) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onMoveNote(id, null);
+          }}
+        >
+          移到根目录
+        </div>
+      ) : null}
       <ul role="group" className={depth === 0 ? "px-0" : ""}>
         {nodes.map((node) =>
           node.kind === "folder" ? (
@@ -105,9 +129,13 @@ export function FileTree({
 function dropFolderAt(x: number, y: number): string | null {
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
   const folder = el?.closest("[data-folder-drop]") as HTMLElement | null;
-  if (folder?.dataset.folderDrop != null) return folder.dataset.folderDrop;
+  if (folder && folder.dataset.folderDrop != null) return folder.dataset.folderDrop;
   if (el?.closest("[data-tree-root]")) return "";
   return null;
+}
+
+function suppressBrowserMenu(event: Event) {
+  event.preventDefault();
 }
 
 function FolderRow({
@@ -163,6 +191,7 @@ function FolderRow({
         style={{ paddingLeft: 8 + depth * 14 }}
         onContextMenu={(event) => {
           event.preventDefault();
+          if (drag) return;
           onFolderMenu(node.path);
         }}
         onPointerDown={(event) => {
@@ -193,6 +222,9 @@ function FolderRow({
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = "move";
+          if (drag && drag.over !== node.path) {
+            onDragChange?.({ ...drag, over: node.path });
+          }
         }}
         onDrop={(event) => {
           const id = event.dataTransfer.getData("text/jingjian-note");
@@ -278,15 +310,75 @@ function NoteRow({
     timer: number;
     x: number;
     y: number;
+    lastX: number;
+    lastY: number;
     armed: boolean;
     dragging: boolean;
     pointerId: number;
+    target: HTMLElement;
   } | null>(null);
   const skipClick = useRef(false);
+
+  function stopMenuGuard() {
+    window.removeEventListener("contextmenu", suppressBrowserMenu, true);
+  }
 
   function clearPress() {
     if (press.current?.timer) window.clearTimeout(press.current.timer);
     press.current = null;
+  }
+
+  function lift(x: number, y: number) {
+    const state = press.current;
+    if (!state) return;
+    state.armed = true;
+    state.dragging = true;
+    skipClick.current = true;
+    window.addEventListener("contextmenu", suppressBrowserMenu, true);
+    try {
+      state.target.setPointerCapture(state.pointerId);
+    } catch {
+      // capture may fail after release
+    }
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      // vibration is optional
+    }
+    onDragChange?.({
+      id: note.id,
+      title: titleFromContent(note.content),
+      x,
+      y,
+      over: dropFolderAt(x, y),
+    });
+  }
+
+  function finishPointer(event: { clientX: number; clientY: number }) {
+    const state = press.current;
+    const wasDragging = state?.dragging;
+    const origin = state ? { x: state.x, y: state.y } : null;
+    try {
+      state?.target.releasePointerCapture(state.pointerId);
+    } catch {
+      // already released
+    }
+    clearPress();
+    stopMenuGuard();
+    onDragChange?.(null);
+    if (wasDragging && origin) {
+      skipClick.current = true;
+      const dist = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
+      if (dist < MOVE_PX) {
+        onNoteMenu(note);
+        return;
+      }
+      const over = dropFolderAt(event.clientX, event.clientY);
+      if (over == null) return;
+      const next = over || null;
+      if ((note.folder ?? "") === (next ?? "")) return;
+      onMoveNote(note.id, next);
+    }
   }
 
   return (
@@ -297,71 +389,77 @@ function NoteRow({
         aria-selected={selected}
         draggable
         onDragStart={(event) => {
+          if (press.current?.dragging) {
+            event.preventDefault();
+            return;
+          }
           event.dataTransfer.setData("text/jingjian-note", note.id);
           event.dataTransfer.effectAllowed = "move";
+          onDragChange?.({
+            id: note.id,
+            title: titleFromContent(note.content),
+            x: event.clientX,
+            y: event.clientY,
+            over: null,
+          });
         }}
+        onDragEnd={() => onDragChange?.(null)}
         onContextMenu={(event) => {
           event.preventDefault();
+          if (press.current?.dragging || press.current?.armed) return;
           onNoteMenu(note);
         }}
         onPointerDown={(event) => {
-          if (event.pointerType === "mouse") return;
+          if (event.pointerType === "mouse") {
+            event.currentTarget.draggable = true;
+            return;
+          }
+          event.currentTarget.draggable = false;
           press.current = {
             timer: window.setTimeout(() => {
-              if (press.current) press.current.armed = true;
+              if (!press.current) return;
+              lift(press.current.lastX, press.current.lastY);
             }, LONG_PRESS_MS),
             x: event.clientX,
             y: event.clientY,
+            lastX: event.clientX,
+            lastY: event.clientY,
             armed: false,
             dragging: false,
             pointerId: event.pointerId,
+            target: event.currentTarget,
           };
         }}
         onPointerMove={(event) => {
           const state = press.current;
           if (!state) return;
-          const dx = event.clientX - state.x;
-          const dy = event.clientY - state.y;
-          const dist = Math.hypot(dx, dy);
-          if (!state.armed && !state.dragging && dist > MOVE_PX) {
+          state.lastX = event.clientX;
+          state.lastY = event.clientY;
+          const dist = Math.hypot(event.clientX - state.x, event.clientY - state.y);
+          if (!state.dragging && dist > MOVE_PX) {
             clearPress();
             return;
           }
-          if (state.armed && dist > MOVE_PX) {
-            if (!state.dragging) {
-              state.dragging = true;
-              (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-            }
+          if (state.dragging) {
             skipClick.current = true;
-            const over = dropFolderAt(event.clientX, event.clientY);
             onDragChange?.({
               id: note.id,
               title: titleFromContent(note.content),
               x: event.clientX,
               y: event.clientY,
-              over,
+              over: dropFolderAt(event.clientX, event.clientY),
             });
           }
         }}
-        onPointerUp={(event) => {
-          const state = press.current;
-          const armed = state?.armed;
-          const wasDragging = state?.dragging;
-          clearPress();
-          onDragChange?.(null);
-          if (wasDragging) {
-            skipClick.current = true;
-            const over = dropFolderAt(event.clientX, event.clientY);
-            if (over != null) onMoveNote(note.id, over || null);
-            return;
-          }
-          if (armed) {
-            skipClick.current = true;
-            onNoteMenu(note);
-          }
-        }}
+        onPointerUp={finishPointer}
         onPointerCancel={() => {
+          try {
+            press.current?.target.releasePointerCapture(press.current.pointerId);
+          } catch {
+            // already released
+          }
           clearPress();
+          stopMenuGuard();
           onDragChange?.(null);
         }}
         onClick={() => {
@@ -377,7 +475,7 @@ function NoteRow({
           "transition-colors duration-(--motion-quick) ease-(--ease-out)",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
           selected ? "bg-paper shadow-border" : "hover:bg-overlay",
-          dragging && "opacity-50",
+          dragging && "opacity-50 touch-none",
         )}
       >
         <span className="flex w-full items-baseline gap-2">

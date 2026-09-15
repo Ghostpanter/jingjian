@@ -17,7 +17,7 @@ export function createSeedNotes(): Note[] {
       "seed-welcome",
       `# 欢迎使用静笺
 
-静笺是一款专注写作的本地 Markdown 笔记。没有账号。输入即保存，没有打开 / 保存菜单。
+静笺是一款专注写作的本地 Markdown 笔记。没有账号。笔记先写在应用里；切到后台时，若正文有改动，会自动保存到系统「文档/jingjian」。也可点工具栏保存、另存为。
 
 需要的话，可在侧栏齿轮里打开同步：自建服务器、WebDAV、本机文件夹，或对象存储（阿里云 / 腾讯云 / 华为云 / 七牛 / 火山 / Amazon S3 / MinIO）。
 
@@ -26,9 +26,9 @@ export function createSeedNotes(): Note[] {
 ## 常用操作
 
 - 新建笔记：点左上角加号，可选 Markdown 或纯文本，或按 Ctrl + N
-- 文件夹：加号里「新建文件夹」，或导入一整层目录。左侧按文件夹树排列，点大纲可跳到标题
-- 即时搜索：点侧栏搜索框，或按 Ctrl + F、/
-- 预览排版：工具栏切换「源码 / 分栏 / 预览」，或按 Ctrl + E
+- 文件夹：加号里「新建文件夹」，会在文档/jingjian 里建同名目录。长按笔记可拖进或拖出文件夹；松手不移动则删除
+- 文内查找 / 替换：Ctrl + F 查找，Ctrl + H 替换，支持正则（与 Typora 相同）
+- 源码 / 分栏 / 预览：工具栏切换，或按 Ctrl + /、Ctrl + E
 - 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区，或 Ctrl + Shift + I
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
 - 导入：左上角加号里导入 Markdown、TXT、文件夹或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
@@ -38,7 +38,6 @@ export function createSeedNotes(): Note[] {
 - 加粗 / 斜体 / 标题：Ctrl + B、Ctrl + I、Ctrl + 1～6，Tab 缩进列表
 - 显示或收起侧栏：Ctrl + Shift + L
 - 删除当前笔记：Ctrl + Shift + Backspace
-- 快捷键一览：按 ?
 
 第一行会自动成为标题。开始写吧。`,
       2 * 60 * 1000,

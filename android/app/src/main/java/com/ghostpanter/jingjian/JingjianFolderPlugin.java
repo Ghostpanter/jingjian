@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 
@@ -21,6 +22,7 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -281,6 +283,123 @@ public class JingjianFolderPlugin extends Plugin {
     private boolean isImportableName(String name) {
         String lower = name.toLowerCase(Locale.ROOT);
         return lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".txt");
+    }
+
+    @PluginMethod
+    public void ensureLibrary(PluginCall call) {
+        try {
+            File root = libraryRoot();
+            JSObject out = new JSObject();
+            out.put("path", root.getAbsolutePath());
+            call.resolve(out);
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "无法创建文档/jingjian");
+        }
+    }
+
+    @PluginMethod
+    public void mkdirLibrary(PluginCall call) {
+        String relative = call.getString("relative", "");
+        try {
+            File dir = libraryChild(relative, false);
+            if (!dir.exists() && !dir.mkdirs()) {
+                call.reject("无法创建文件夹");
+                return;
+            }
+            JSObject out = new JSObject();
+            out.put("path", dir.getAbsolutePath());
+            call.resolve(out);
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "无法创建文件夹");
+        }
+    }
+
+    @PluginMethod
+    public void rmdirLibrary(PluginCall call) {
+        String relative = call.getString("relative", "");
+        try {
+            File dir = libraryChild(relative, false);
+            if (dir.exists()) {
+                deleteRecursive(dir);
+            }
+            call.resolve();
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "无法删除文件夹");
+        }
+    }
+
+    @PluginMethod
+    public void writeLibrary(PluginCall call) {
+        String relative = call.getString("relative", "");
+        String content = call.getString("content", "");
+        try {
+            File file = libraryChild(relative, true);
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                call.reject("无法创建文件夹");
+                return;
+            }
+            writeText(Uri.fromFile(file), content != null ? content : "");
+            JSObject out = new JSObject();
+            out.put("path", file.getAbsolutePath());
+            call.resolve(out);
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "无法保存");
+        }
+    }
+
+    @PluginMethod
+    public void removeLibrary(PluginCall call) {
+        String relative = call.getString("relative", "");
+        try {
+            File file = libraryChild(relative, true);
+            if (!file.equals(libraryRoot()) && file.exists()) {
+                deleteRecursive(file);
+            }
+            call.resolve();
+        } catch (Exception error) {
+            call.reject(error.getMessage() != null ? error.getMessage() : "无法删除");
+        }
+    }
+
+    private File libraryRoot() throws IOException {
+        File docs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+        File root = new File(docs, "jingjian");
+        if (root.exists() || root.mkdirs()) {
+            return root;
+        }
+        File fallback = getContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+        File alt = new File(fallback != null ? fallback : getContext().getFilesDir(), "jingjian");
+        if (!alt.exists() && !alt.mkdirs()) {
+            throw new IOException("无法创建文档/jingjian");
+        }
+        return alt;
+    }
+
+    private File libraryChild(String relative, boolean file) throws IOException {
+        File current = libraryRoot();
+        String[] parts = relative == null ? new String[0] : relative.replace("\\", "/").split("/");
+        for (String part : parts) {
+            if (part == null) continue;
+            String name = part.trim();
+            if (name.isEmpty() || ".".equals(name) || "..".equals(name)) continue;
+            current = new File(current, name);
+        }
+        if (!file && current.equals(libraryRoot())) {
+            return current;
+        }
+        return current;
+    }
+
+    private void deleteRecursive(File file) {
+        if (file == null || !file.exists()) return;
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteRecursive(child);
+            }
+        }
+        file.delete();
     }
 
     @ActivityCallback

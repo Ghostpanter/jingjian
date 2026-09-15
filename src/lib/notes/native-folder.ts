@@ -25,6 +25,11 @@ export type ImportFolderNativeFile = {
 type NativeFolderPlugin = {
   pick(): Promise<{ name: string }>;
   pickImportFolder(): Promise<{ name: string; files: ImportFolderNativeFile[] }>;
+  ensureLibrary(): Promise<{ path: string }>;
+  mkdirLibrary(options: { relative: string }): Promise<{ path: string }>;
+  rmdirLibrary(options: { relative: string }): Promise<void>;
+  writeLibrary(options: { relative: string; content: string }): Promise<{ path: string }>;
+  removeLibrary(options: { relative: string }): Promise<void>;
   status(): Promise<{ ok: boolean; name: string }>;
   list(): Promise<{ files: Array<{ name: string; content: string }> }>;
   write(options: { name: string; content: string; shortId: string }): Promise<void>;

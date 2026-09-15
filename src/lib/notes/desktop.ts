@@ -35,6 +35,11 @@ export type DesktopApi = {
   folderList(): Promise<{ files: Array<{ name: string; content: string }> }>;
   folderWrite(options: { name: string; content: string; shortId: string }): Promise<void>;
   folderRemove(options: { shortId: string }): Promise<void>;
+  libraryEnsure(): Promise<{ path: string }>;
+  libraryMkdir(options: { relative: string }): Promise<{ path: string }>;
+  libraryRmdir(options: { relative: string }): Promise<void>;
+  libraryWrite(options: { relative: string; content: string }): Promise<{ path: string }>;
+  libraryRemove?(options: { relative: string }): Promise<void>;
   consumeLaunchFile(): Promise<LaunchFile>;
   readOpenFile(options: { path: string; name?: string }): Promise<OpenUriFile>;
   onOpenFile(callback: (file: LaunchFile) => void): () => void;

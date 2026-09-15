@@ -2,19 +2,22 @@ import {
   BookOpen,
   Columns2,
   FileDown,
+  FileOutput,
   ImagePlus,
-  Keyboard,
   Link2,
   PanelLeft,
   Pencil,
+  Save,
+  Search,
   Trash2,
   Eye,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { toast, Toaster } from "sonner";
-import { ActionSheet, DeleteFolderDialog, DeleteNoteDialog, FolderDialog, ShortcutsDialog } from "@/components/notes/dialogs";
+import { ActionSheet, DeleteFolderDialog, DeleteNoteDialog, FolderDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { ExportMenu } from "@/components/notes/export-menu";
+import { FindBar } from "@/components/notes/find-bar";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { ReaderView } from "@/components/notes/reader-view";
@@ -55,6 +58,7 @@ import { applyTheme, readThemeConfig } from "@/lib/notes/theme";
 import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
 import {
   hydrateNotesStore,
+  flushNotesPersist,
   useActiveNote,
   useNotesStore,
   useSortedNotes,
@@ -68,6 +72,16 @@ import {
 } from "@/lib/notes/open-incoming";
 import { isNativeApp, nativeFolder, type LaunchFile } from "@/lib/notes/native-folder";
 import { desktopApi, isDesktopApp } from "@/lib/notes/desktop";
+import {
+  autosaveNoteIfChanged,
+  ensureFolderOnDisk,
+  ensureLibraryRoot,
+  isLibraryCancelled,
+  persistMovedNote,
+  removeFolderOnDisk,
+  saveNoteAs,
+  saveNoteToLibrary,
+} from "@/lib/notes/library-fs";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -272,7 +286,6 @@ export function NoteApp() {
   const notes = useSortedNotes();
   const activeNote = useActiveNote();
   const [pendingDelete, setPendingDelete] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
@@ -307,6 +320,8 @@ export function NoteApp() {
   >(null);
   const [pendingFolderDelete, setPendingFolderDelete] = useState("");
   const [pendingNoteDelete, setPendingNoteDelete] = useState<Note | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [replaceMode, setReplaceMode] = useState(false);
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarPan = useRef<{ pointerId: number; startX: number; width: number; x: number } | null>(
@@ -353,6 +368,42 @@ export function NoteApp() {
     hydrateNotesStore();
     setSyncConfig(readSyncConfig());
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    void (async () => {
+      await ensureLibraryRoot().catch(() => undefined);
+      for (const folder of useNotesStore.getState().folders) {
+        await ensureFolderOnDisk(folder).catch(() => undefined);
+      }
+    })();
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    let chain = Promise.resolve();
+    function onHide() {
+      const state = useNotesStore.getState();
+      const note = state.notes.find((item) => item.id === state.activeId) ?? null;
+      chain = chain
+        .then(async () => {
+          await flushNotesPersist();
+          await autosaveNoteIfChanged(note);
+        })
+        .catch(() => undefined);
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") onHide();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("pause", onHide);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("pause", onHide);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -447,6 +498,58 @@ export function NoteApp() {
     return () => window.clearInterval(interval);
   }, []);
 
+  async function handleSave() {
+    const state = useNotesStore.getState();
+    const note = state.notes.find((item) => item.id === state.activeId) ?? null;
+    if (!note) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    try {
+      const saved = await saveNoteToLibrary(note);
+      toast.message(`已保存到 ${saved}`);
+    } catch (error) {
+      if (isLibraryCancelled(error) || isCancelled(error)) return;
+      toast.message(error instanceof Error ? error.message : "保存失败");
+    }
+  }
+
+  async function handleSaveAs() {
+    const state = useNotesStore.getState();
+    const note = state.notes.find((item) => item.id === state.activeId) ?? null;
+    if (!note) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    try {
+      const saved = await saveNoteAs(note);
+      toast.message(`已另存为 ${saved.split(/[/\\]/).pop() || saved}`);
+    } catch (error) {
+      if (isLibraryCancelled(error) || isCancelled(error)) return;
+      toast.message(error instanceof Error ? error.message : "保存失败");
+    }
+  }
+
+  function handleMoveNote(id: string, folder: string | null) {
+    moveNote(id, folder);
+    setActiveFolder(folder ?? "");
+    toast.message(folder ? `已移入 ${folder}` : "已移到根目录");
+    const note = useNotesStore.getState().notes.find((item) => item.id === id) ?? null;
+    if (note) void persistMovedNote(note).catch(() => undefined);
+  }
+
+  function openFind(replace = false) {
+    const state = useNotesStore.getState();
+    if (!state.activeId) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    setFindOpen(true);
+    setReplaceMode(replace);
+    if (state.previewMode === "preview") setPreviewMode("edit");
+    window.setTimeout(() => document.getElementById("note-find")?.focus(), 0);
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -459,7 +562,10 @@ export function NoteApp() {
       const key = event.key;
 
       if (key === "Escape") {
-        setShortcutsOpen(false);
+        if (findOpen) {
+          setFindOpen(false);
+          return;
+        }
         setPendingDelete(false);
         setSettingsOpen(false);
         setLinkOpen(false);
@@ -467,12 +573,6 @@ export function NoteApp() {
         setReaderOpen(false);
         setSidebarOpen(false);
         if (typing) target.blur();
-        return;
-      }
-
-      if (!typing && (key === "?" || (key === "/" && event.shiftKey))) {
-        event.preventDefault();
-        setShortcutsOpen((open) => !open);
         return;
       }
 
@@ -493,18 +593,25 @@ export function NoteApp() {
 
       if (mod && key.toLowerCase() === "f") {
         event.preventDefault();
-        setSidebarOpen(true);
-        setDesktopCollapsed(false);
-        window.setTimeout(
-          () => document.getElementById("note-search")?.focus(),
-          0,
-        );
+        openFind(false);
+        return;
+      }
+
+      if (mod && key.toLowerCase() === "h") {
+        event.preventDefault();
+        openFind(true);
         return;
       }
 
       if (mod && event.shiftKey && key.toLowerCase() === "e") {
         event.preventDefault();
         setExportOpen((open) => !open);
+        return;
+      }
+
+      if (mod && !event.shiftKey && (key === "/" || event.code === "Slash")) {
+        event.preventDefault();
+        cyclePreviewMode();
         return;
       }
 
@@ -542,9 +649,15 @@ export function NoteApp() {
         return;
       }
 
+      if (mod && event.shiftKey && key.toLowerCase() === "s") {
+        event.preventDefault();
+        void handleSaveAs();
+        return;
+      }
+
       if (mod && key.toLowerCase() === "s") {
         event.preventDefault();
-        toast.message("已自动保存");
+        void handleSave();
         return;
       }
 
@@ -555,7 +668,7 @@ export function NoteApp() {
       }
 
       const overlayOpen =
-        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen;
+        pendingDelete || linkOpen || settingsOpen || exportOpen || findOpen;
       const inEditor = target?.id === "note-editor";
       const inOtherField = typing && !inEditor;
       if (
@@ -615,9 +728,9 @@ export function NoteApp() {
     linkOpen,
     settingsOpen,
     exportOpen,
+    findOpen,
     selectNote,
     setSidebarOpen,
-    shortcutsOpen,
     toggleSidebar,
     updateNote,
   ]);
@@ -801,6 +914,7 @@ export function NoteApp() {
     }
     for (const folder of foldersFromImportPaths(entries.map((item) => item.relativePath))) {
       createFolder(folder);
+      await ensureFolderOnDisk(folder).catch(() => undefined);
     }
     importNotes(imported);
     toast.message(imported.length === 1 ? "已导入 1 篇笔记" : `已导入 ${imported.length} 篇笔记`);
@@ -817,6 +931,7 @@ export function NoteApp() {
         const created = createFolder(result.folder);
         if (created) {
           setActiveFolder(created);
+          await ensureFolderOnDisk(created).catch(() => undefined);
           toast.message(`已加入空文件夹 ${created}`);
         } else {
           toast.message("文件夹里没有 Markdown 或 TXT");
@@ -1022,6 +1137,7 @@ export function NoteApp() {
     for (const id of removed) recordTombstone(id);
     if (isUnderFolder(path, activeFolder) || activeFolder === path) setActiveFolder("");
     setPendingFolderDelete("");
+    void removeFolderOnDisk(path).catch(() => undefined);
     toast.message(removed.length ? `已删除文件夹及 ${removed.length} 篇笔记` : "已删除文件夹");
   }
 
@@ -1143,11 +1259,7 @@ export function NoteApp() {
           }}
           onCloseMobile={() => setSidebarOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
-          onMoveNote={(id, folder) => {
-            moveNote(id, folder);
-            setActiveFolder(folder ?? "");
-            toast.message(folder ? `已移入 ${folder}` : "已移到根目录");
-          }}
+          onMoveNote={handleMoveNote}
           onNoteMenu={(note) => setItemMenu({ kind: "note", note })}
           onFolderMenu={(path) => setItemMenu({ kind: "folder", path })}
           onJumpHeading={jumpHeading}
@@ -1190,6 +1302,33 @@ export function NoteApp() {
 
           <div className="app-toolbar-spacer" />
 
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="保存到文档/jingjian"
+            disabled={!activeNote}
+            onClick={() => void handleSave()}
+          >
+            <Save />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="另存为"
+            disabled={!activeNote}
+            onClick={() => void handleSaveAs()}
+          >
+            <FileOutput />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="查找替换"
+            disabled={!activeNote}
+            onClick={() => openFind(true)}
+          >
+            <Search />
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -1268,15 +1407,6 @@ export function NoteApp() {
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="键盘快捷键"
-            onClick={() => setShortcutsOpen(true)}
-            className="hidden sm:inline-flex"
-          >
-            <Keyboard />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
             aria-label="删除笔记"
             disabled={!activeNote}
             onClick={() => setPendingDelete(true)}
@@ -1284,6 +1414,21 @@ export function NoteApp() {
             <Trash2 />
           </Button>
         </header>
+
+        {activeNote ? (
+          <FindBar
+            open={findOpen}
+            replaceMode={replaceMode}
+            content={activeNote.content}
+            onClose={() => setFindOpen(false)}
+            onReplaceMode={setReplaceMode}
+            onReplace={(next, selection) => {
+              writeEditorValue(next, selection, (value) =>
+                updateNote(activeNote.id, value),
+              );
+            }}
+          />
+        ) : null}
 
         <div
           className={cn(
@@ -1380,7 +1525,14 @@ export function NoteApp() {
                 { id: "export", label: "导出文件夹" },
                 { id: "delete", label: "删除文件夹", destructive: true },
               ]
-            : [{ id: "delete", label: "删除笔记", destructive: true }]
+            : itemMenu?.kind === "note"
+              ? [
+                  ...(itemMenu.note.folder
+                    ? [{ id: "unfile", label: "移到根目录" }]
+                    : []),
+                  { id: "delete", label: "删除笔记", destructive: true },
+                ]
+              : []
         }
         onOpenChange={(open) => {
           if (!open) setItemMenu(null);
@@ -1395,14 +1547,14 @@ export function NoteApp() {
             setPendingFolderDelete(itemMenu.path);
             return;
           }
+          if (itemMenu.kind === "note" && id === "unfile") {
+            handleMoveNote(itemMenu.note.id, null);
+            return;
+          }
           if (itemMenu.kind === "note" && id === "delete") {
             setPendingNoteDelete(itemMenu.note);
           }
         }}
-      />
-      <ShortcutsDialog
-        open={shortcutsOpen}
-        onOpenChange={setShortcutsOpen}
       />
       <SettingsDialog
         open={settingsOpen}
@@ -1428,7 +1580,9 @@ export function NoteApp() {
           const created = createFolder(`${parent}${name}`);
           if (created) {
             setActiveFolder(created);
-            toast.message(`已创建 ${created}`);
+            void ensureFolderOnDisk(created)
+              .then(() => toast.message(`已创建 ${created}`))
+              .catch(() => toast.message(`已创建 ${created}`));
           }
         }}
       />

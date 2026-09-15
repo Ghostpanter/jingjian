@@ -1,28 +1,29 @@
 # 静笺
 
-专注写作的本地 Markdown 笔记。没有账号，没有打开 / 保存菜单，输入即写入这台设备。
+专注写作的本地 Markdown 笔记。没有账号。笔记写在应用里，切到后台且正文有改动时会保存到系统「文档/jingjian」。
 
 适合平板分栏：左边是文件列表，右边直接写。点一篇笔记就开始编辑。手机竖屏用侧栏抽屉，横屏即使宽度不够也按平板来。
 
 ## 功能
 
-- 左侧文件列表按文件夹树排列，电子书仍按书名分章；可把笔记拖进文件夹，长按文件夹可删除或导出，长按笔记可删除
+- 左侧文件列表按文件夹树排列，电子书仍按书名分章；长按笔记可拖进或拖出文件夹，松手不移动则删除或移到根目录；长按文件夹可删除或导出
+- 新建文件夹会在系统文档 `jingjian` 目录落盘
+- 手动保存 / 另存为；切到其他应用时，正文有改动才自动保存
+- 当前文档查找与替换，支持正则、区分大小写、全词匹配（与 Typora 相近）
 - 侧栏右缘向左拖可关掉文件列表；目录和大纲之间可拖动高度
-- Markdown 源码、分栏、预览；分栏时两边按标题对齐同步滚动
+- Markdown 源码、分栏、预览；`Ctrl + /` 或 `Ctrl + E` 循环切换；分栏时两边按标题对齐同步滚动
 - 当前笔记的标题大纲，点一下跳到源码和预览对应位置
 - 代码高亮与 Mermaid 流程图
 - 插入外链：Ctrl + K，或把网址粘到选中文字上
 - 粘贴 / 拖入图片，可上传到图床
-- 即时搜索标题和正文
+- 侧栏搜索标题和正文；文档内搜索用 Ctrl + F
 - 新建 / 删除（删除前确认）
-- 字数与自动保存
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
 - 电子书：左侧 + 导入 EPUB、阅读翻章、按章编辑后再导出
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或 EPUB。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
 - 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
-- 键盘操作（`Ctrl+B` 加粗，`Ctrl+I` 斜体，`Ctrl+1`～`6` 标题，`?` 查看全部）
 - 手机竖屏：文件列表从左侧滑出，点遮罩关闭；横屏即使宽度不够也按平板显示侧栏
 - 打开数兆的 TXT / Markdown 不会卡死：预览只渲染开头，超大正文写入独立缓存
 - 系统状态栏透明叠在界面上：侧栏和编辑区各自的颜色顶到状态栏后面，时间、电量不再浮在一条错色的空边上
@@ -111,7 +112,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.13.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.14.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -121,9 +122,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.13-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.6.13-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.6.13-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.6.14-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.6.14-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.6.14-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 
@@ -166,14 +167,17 @@ npm run desktop:pack
 | `Ctrl + K` | 插入外链 |
 | `Ctrl + Shift + I` | 插入图片 |
 | `Ctrl + N` | 新建笔记 |
-| `Ctrl + F` 或 `/` | 搜索 |
-| `Ctrl + E` | 源码 / 分栏 / 预览 |
+| `Ctrl + F` | 当前文档查找 |
+| `Ctrl + H` | 当前文档替换 |
+| `/` | 搜索笔记列表 |
+| `Ctrl + /` 或 `Ctrl + E` | 源码 / 分栏 / 预览 |
+| `Ctrl + S` | 保存到文档/jingjian |
+| `Ctrl + Shift + S` | 另存为 |
 | `Ctrl + Shift + L` | 显示或收起文件列表 |
 | `Ctrl + ,` | 设置（同步 / 主题 / 图像） |
 | `Ctrl + Shift + E` | 导出 |
 | `Ctrl + Shift + Backspace` | 删除当前笔记 |
 | `J` / `K` 或方向键 | 上一条 / 下一条 |
-| `?` | 快捷键一览 |
 
 ## 许可
 

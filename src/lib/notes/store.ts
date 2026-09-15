@@ -395,3 +395,14 @@ export function useSortedNotes(): Note[] {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [notes, query]);
 }
+
+export function flushNotesPersist(): Promise<void> {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  const state = useNotesStore.getState();
+  if (!state.hydrated) return Promise.resolve();
+  persistChain = persistChain.then(() => writePersisted(state)).catch(() => undefined);
+  return persistChain;
+}
