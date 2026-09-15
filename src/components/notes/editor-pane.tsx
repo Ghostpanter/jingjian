@@ -19,6 +19,7 @@ type EditorPaneProps = {
   onChange: (value: string) => void;
   onImportFiles?: (files: File[]) => void;
   onScroll?: () => void;
+  onEditingChange?: (editing: boolean) => void;
 };
 
 export function EditorPane({
@@ -29,6 +30,7 @@ export function EditorPane({
   onChange,
   onImportFiles,
   onScroll,
+  onEditingChange,
 }: EditorPaneProps) {
   const large = isLargeNote(content);
 
@@ -115,6 +117,8 @@ export function EditorPane({
         id="note-editor"
         defaultValue={content}
         onChange={(event) => onChange(event.target.value)}
+        onFocus={() => onEditingChange?.(true)}
+        onBlur={() => onEditingChange?.(false)}
         onKeyDown={(event) => {
           if (event.key !== "Tab" || event.nativeEvent.isComposing) return;
           event.preventDefault();

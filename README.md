@@ -74,7 +74,7 @@
 | 本机目录 | 电脑选文件夹，安卓写入文档目录 | 文件夹名，默认 `Jingjian` |
 | 对象存储 | 阿里云 OSS、腾讯云 COS、华为 OBS、七牛 Kodo、火山 TOS、Amazon S3、MinIO | 桶内前缀，默认 `jingjian/` |
 
-开着自动同步时，平板和电脑可以同时改同一篇云端笔记。正在编辑的这一篇不会被远端覆盖；停笔后几秒内会对齐。
+开着自动同步时，开始或结束编辑、切到后台会同步；看笔记或正在输入时不会。也可点保存或设置里的立即同步。正在编辑的这一篇不会被远端覆盖。
 
 冲突按最后修改时间对齐。远端目录里是带少量 frontmatter 的 `.md` 文件，可用 Typora 打开同一文件夹。
 
@@ -119,7 +119,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.16.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.17.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -137,7 +137,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 Windows / macOS 压缩包里有「打开静笺」启动器，会清掉系统给下载文件打的隔离标记，一般不必再点 SmartScreen 或去「隐私与安全性」手动允许。系统级签名（完全不再提示）需要 Windows 代码签名证书和 Apple 开发者账号公证；打包时设置 `WIN_CSC_FILE` / `APPLE_CSC_FILE` 即可。
 
-桌面端与平板共用同一套同步。两边都打开自动同步后，可同时改云端同一篇笔记。
+桌面端与平板共用同一套同步。两边都打开自动同步后，开始/结束编辑或切到后台会对齐同一篇云端笔记。
 
 ## 本地运行
 

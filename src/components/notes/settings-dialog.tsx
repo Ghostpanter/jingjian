@@ -304,7 +304,7 @@ function SyncPanel({
   return (
     <>
       <p className="mt-3 text-sm text-muted">
-        输入会先写到本机。开着自动同步时，平板和电脑可以同时改同一篇云端笔记，正在写的这一篇不会被远端覆盖。
+        输入先写到本机。正在写的这一篇不会被远端覆盖。
       </p>
       <div className="provider-grid mt-4">
         {PROVIDERS.map((item) => {
@@ -506,7 +506,7 @@ function SyncPanel({
             checked={draft.autoSync}
             onChange={(event) => onPatch({ autoSync: event.target.checked })}
           />
-          自动同步
+          自动同步（开始/结束编辑或切到后台）
         </label>
       ) : null}
     </>

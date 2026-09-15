@@ -58,6 +58,7 @@ import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sy
 import { runSync } from "@/lib/notes/sync";
 import { applyTheme, readThemeConfig } from "@/lib/notes/theme";
 import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
+import { shouldRunSync, type SyncTrigger } from "@/lib/notes/sync-policy";
 import {
   hydrateNotesStore,
   flushNotesPersist,
@@ -310,6 +311,8 @@ export function NoteApp() {
     at: null,
   });
   const syncingRef = useRef(false);
+  const editingRef = useRef(false);
+  const autoSyncTimer = useRef(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bookInputRef = useRef<HTMLInputElement>(null);
   const markdownInputRef = useRef<HTMLInputElement>(null);
@@ -346,7 +349,7 @@ export function NoteApp() {
     setSyncStatus({ state: "syncing", message: "正在同步", at: Date.now() });
     try {
       const state = useNotesStore.getState();
-      const protectActive = document.activeElement?.id === "note-editor";
+      const protectActive = document.activeElement?.id === "note-editor" || editingRef.current;
       const result = await runSync(config, state.notes, {
         activeId: state.activeId,
         protectActive,
@@ -362,6 +365,29 @@ export function NoteApp() {
       syncingRef.current = false;
     }
   }, [applySyncedNotes]);
+
+  const requestAutoSync = useCallback(
+    (trigger: SyncTrigger) => {
+      const config = readSyncConfig();
+      if (!shouldRunSync({ provider: config.provider, autoSync: config.autoSync, trigger })) {
+        return;
+      }
+      if (trigger === "background") {
+        window.clearTimeout(autoSyncTimer.current);
+        void syncNow(true);
+        return;
+      }
+      window.clearTimeout(autoSyncTimer.current);
+      autoSyncTimer.current = window.setTimeout(() => void syncNow(true), 120);
+    },
+    [syncNow],
+  );
+
+  function handleEditingChange(next: boolean) {
+    if (editingRef.current === next) return;
+    editingRef.current = next;
+    requestAutoSync(next ? "edit-enter" : "edit-leave");
+  }
 
   useLayoutEffect(() => {
     applyTheme(readThemeConfig());
@@ -396,6 +422,7 @@ export function NoteApp() {
         .then(async () => {
           await flushNotesPersist();
           await autosaveNoteIfChanged(note);
+          requestAutoSync("background");
         })
         .catch(() => undefined);
     }
@@ -410,7 +437,7 @@ export function NoteApp() {
       document.removeEventListener("pause", onHide);
       window.removeEventListener("pagehide", onHide);
     };
-  }, [hydrated]);
+  }, [hydrated, requestAutoSync]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -466,43 +493,11 @@ export function NoteApp() {
   }, [hydrated]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    const config = readSyncConfig();
-    if (config.provider !== "off" && config.autoSync) {
-      void syncNow(true);
-    }
-  }, [hydrated, syncNow]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const config = readSyncConfig();
-    if (config.provider === "off" || !config.autoSync) return;
-    const timer = window.setTimeout(() => void syncNow(true), 900);
-    return () => window.clearTimeout(timer);
-  }, [rawNotes, hydrated, syncNow]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "hidden") return;
-      const config = readSyncConfig();
-      if (config.provider !== "off" && config.autoSync) void syncNow(true);
-    }, 4_000);
-    function onVisible() {
-      if (document.visibilityState !== "visible") return;
-      const config = readSyncConfig();
-      if (config.provider !== "off" && config.autoSync) void syncNow(true);
-    }
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [hydrated, syncNow]);
-
-  useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(autoSyncTimer.current);
+    };
   }, []);
 
   async function handleSave() {
@@ -514,6 +509,10 @@ export function NoteApp() {
     }
     try {
       const saved = await saveNoteToLibrary(note);
+      const config = readSyncConfig();
+      if (shouldRunSync({ provider: config.provider, autoSync: config.autoSync, trigger: "manual-save" })) {
+        await syncNow(true);
+      }
       toast.message(`已保存到 ${saved}`);
     } catch (error) {
       if (isLibraryCancelled(error) || isCancelled(error)) return;
@@ -530,6 +529,10 @@ export function NoteApp() {
     }
     try {
       const saved = await saveNoteAs(note);
+      const config = readSyncConfig();
+      if (shouldRunSync({ provider: config.provider, autoSync: config.autoSync, trigger: "manual-save" })) {
+        await syncNow(true);
+      }
       toast.message(`已另存为 ${saved.split(/[/\\]/).pop() || saved}`);
     } catch (error) {
       if (isLibraryCancelled(error) || isCancelled(error)) return;
@@ -1509,6 +1512,7 @@ export function NoteApp() {
                   onChange={(value) => updateNote(activeNote.id, value)}
                   onImportFiles={(files) => void handleDroppedFiles(files)}
                   onScroll={() => syncScroll("editor")}
+                  onEditingChange={handleEditingChange}
                 />
               ) : (
                 <EmptyEditor onCreate={handleCreate} />

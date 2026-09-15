@@ -19,7 +19,7 @@ const root = path.resolve(".");
 const staging = path.join(root, ".desktop-stage");
 const outDir = path.join(os.tmpdir(), "jingjian-desktop");
 const artifacts = path.join(root, "artifacts");
-const version = "1.6.16";
+const version = "1.6.17";
 const electronVersion = require("electron/package.json").version;
 
 function run(command, args) {
