@@ -21,7 +21,7 @@
 - 侧栏搜索标题和正文；文档内搜索用 Ctrl + F
 - 新建 / 删除（删除前确认）
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
-- 电子书：侧栏单独成「书」，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现）。导入按真正目录分章，导出带作者和封面。点章节仍打开 Markdown
+- 电子书：侧栏单独成「书」，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现，用系统语音；网页里没有朗读接口）。导入按真正目录分章，导出带作者和封面。点章节仍打开 Markdown
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或 EPUB。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
@@ -123,7 +123,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.0.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.1.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -133,9 +133,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.0-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.0-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.7.0-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.1-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.1-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.7.1-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

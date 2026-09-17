@@ -31,6 +31,7 @@ public class MainActivity extends BridgeActivity {
                 .start();
         });
         registerPlugin(JingjianFolderPlugin.class);
+        registerPlugin(JingjianTtsPlugin.class);
         super.onCreate(savedInstanceState);
         setTheme(R.style.AppTheme_NoActionBar);
         applySavedChrome();

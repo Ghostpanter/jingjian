@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pickZhVoice, speakableBlocks } from "./reader-tts.ts";
+import { pickZhVoice, speakableBlocks, ttsUnavailableMessage } from "./reader-tts.ts";
 
 test("prefers a neural chinese voice", () => {
   const picked = pickZhVoice([
@@ -28,4 +28,9 @@ test("speakable blocks keep child indexes including blanks", () => {
     ],
   } as unknown as ParentNode;
   assert.deepEqual(speakableBlocks(root), ["第一段", "", "第三段"]);
+});
+
+test("unavailable copy points to the app on web and system tts on native", () => {
+  assert.match(ttsUnavailableMessage(false), /安卓或电脑应用/);
+  assert.match(ttsUnavailableMessage(true), /文字转语音/);
 });

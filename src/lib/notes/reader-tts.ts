@@ -44,6 +44,11 @@ type TtsCallbacks = {
   onError: (message: string) => void;
 };
 
+export function ttsUnavailableMessage(native = false): string {
+  if (native) return "请到系统设置打开「文字转语音」，并安装中文语音包";
+  return "当前窗口不能朗读，请在静笺安卓或电脑应用里使用";
+}
+
 export function createTtsController(callbacks: TtsCallbacks) {
   let blocks: string[] = [];
   let index = 0;
@@ -51,15 +56,56 @@ export function createTtsController(callbacks: TtsCallbacks) {
   let playing = false;
   let paused = false;
   let utterance: SpeechSynthesisUtterance | null = null;
+  let generation = 0;
+  let native = false;
 
   function synth(): SpeechSynthesis | null {
     return typeof window !== "undefined" ? window.speechSynthesis : null;
   }
 
+  function waitForVoices(speech: SpeechSynthesis): Promise<void> {
+    if (speech.getVoices().length > 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => resolve();
+      speech.addEventListener("voiceschanged", done, { once: true });
+      window.setTimeout(done, 400);
+    });
+  }
+
+  async function speakNative(token: number) {
+    const { nativeTtsSpeak } = await import("./native-tts.ts");
+    while (playing && !paused && token === generation) {
+      while (index < blocks.length && !blocks[index]) index += 1;
+      const text = blocks[index];
+      if (!text) {
+        playing = false;
+        paused = false;
+        callbacks.onEnd();
+        return;
+      }
+      callbacks.onIndex(index);
+      try {
+        const result = await nativeTtsSpeak(text, rate);
+        if (token !== generation || !playing || paused) return;
+        if (result?.stopped) return;
+        index += 1;
+      } catch {
+        if (token !== generation) return;
+        playing = false;
+        paused = false;
+        callbacks.onError("朗读中断");
+        callbacks.onEnd();
+        return;
+      }
+    }
+  }
+
   function speakCurrent() {
     const speech = synth();
     if (!speech) {
-      callbacks.onError("这台设备不能朗读");
+      playing = false;
+      callbacks.onError(ttsUnavailableMessage(false));
+      callbacks.onEnd();
       return;
     }
     while (index < blocks.length && !blocks[index]) index += 1;
@@ -118,37 +164,66 @@ export function createTtsController(callbacks: TtsCallbacks) {
       writeTtsRate(rate);
     },
     start(nextBlocks: string[], from = 0) {
-      const speech = synth();
-      if (!speech) {
-        callbacks.onError("这台设备不能朗读");
-        return;
-      }
-      if (speech.getVoices().length === 0) {
-        speech.addEventListener("voiceschanged", () => undefined, { once: true });
-      }
-      blocks = nextBlocks;
-      if (!blocks.some(Boolean)) {
-        callbacks.onError("这一章没有可朗读的正文");
-        return;
-      }
-      index = Math.min(Math.max(0, from), blocks.length - 1);
-      playing = true;
-      paused = false;
-      speakCurrent();
+      void (async () => {
+        const token = ++generation;
+        blocks = nextBlocks;
+        if (!blocks.some(Boolean)) {
+          callbacks.onError("这一章没有可朗读的正文");
+          callbacks.onEnd();
+          return;
+        }
+        index = Math.min(Math.max(0, from), blocks.length - 1);
+        native = false;
+        let onNative = false;
+        try {
+          const mod = await import("./native-tts.ts");
+          onNative = mod.nativeTtsPlatform();
+          native = await mod.nativeTtsReady();
+        } catch {
+          native = false;
+        }
+        if (token !== generation) return;
+        if (!native && !synth()) {
+          callbacks.onError(ttsUnavailableMessage(onNative));
+          callbacks.onEnd();
+          return;
+        }
+        if (!native) {
+          const speech = synth();
+          if (speech) await waitForVoices(speech);
+          if (token !== generation) return;
+        }
+        playing = true;
+        paused = false;
+        if (native) {
+          await speakNative(token);
+          return;
+        }
+        speakCurrent();
+      })();
     },
     pause() {
-      const speech = synth();
-      if (!playing || !speech) return;
+      if (!playing) return;
       paused = true;
-      if (typeof speech.pause === "function") speech.pause();
-      else {
-        speech.cancel();
+      if (native) {
+        void import("./native-tts.ts").then((mod) => mod.nativeTtsStop());
+        return;
       }
+      const speech = synth();
+      if (!speech) return;
+      if (typeof speech.pause === "function") speech.pause();
+      else speech.cancel();
     },
     resume() {
-      const speech = synth();
-      if (!playing || !paused || !speech) return;
+      if (!playing || !paused) return;
       paused = false;
+      if (native) {
+        const token = generation;
+        void speakNative(token);
+        return;
+      }
+      const speech = synth();
+      if (!speech) return;
       if (typeof speech.resume === "function" && speech.paused) {
         speech.resume();
         return;
@@ -156,9 +231,11 @@ export function createTtsController(callbacks: TtsCallbacks) {
       speakCurrent();
     },
     stop() {
+      generation += 1;
       playing = false;
       paused = false;
       utterance = null;
+      if (native) void import("./native-tts.ts").then((mod) => mod.nativeTtsStop());
       synth()?.cancel();
       callbacks.onEnd();
     },
@@ -174,10 +251,13 @@ export function createTtsController(callbacks: TtsCallbacks) {
       this.start(nextBlocks, 0);
     },
     dispose() {
+      generation += 1;
       playing = false;
       paused = false;
       utterance = null;
+      if (native) void import("./native-tts.ts").then((mod) => mod.nativeTtsStop());
       synth()?.cancel();
     },
   };
 }
+

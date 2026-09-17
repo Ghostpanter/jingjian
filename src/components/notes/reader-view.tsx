@@ -75,7 +75,11 @@ export function ReaderView({
         setPaused(false);
         setSpeakIndex(-1);
       },
-      onError: (message) => toast.message(message),
+      onError: (message) => {
+        toast.message(message);
+        setSpeaking(false);
+        setPaused(false);
+      },
     });
     ttsRef.current = controller;
     return () => controller.dispose();
