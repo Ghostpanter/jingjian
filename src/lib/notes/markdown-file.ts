@@ -23,13 +23,23 @@ export function filenameForNote(note: Note): string {
   return `${stem || "未命名笔记"}.${shortId}.${noteExtension(note)}`;
 }
 
+function unquote(value: string): string {
+  return value.replace(/^"|"$/g, "");
+}
+
 export function serializeNote(note: Note): string {
   const book = note.bookId
-    ? `\nbookId: ${note.bookId}\nbookTitle: ${JSON.stringify(note.bookTitle ?? "")}\nchapterIndex: ${note.chapterIndex ?? 0}`
+    ? `\nbookId: ${note.bookId}\nbookTitle: ${JSON.stringify(note.bookTitle ?? "")}\nchapterIndex: ${note.chapterIndex ?? 0}${
+        note.bookAuthor ? `\nbookAuthor: ${JSON.stringify(note.bookAuthor)}` : ""
+      }${note.bookCover ? `\nbookCover: ${JSON.stringify(note.bookCover)}` : ""}`
     : "";
+  const read =
+    typeof note.readAt === "number"
+      ? `\nreadAt: ${note.readAt}\nreadRatio: ${Number(note.readRatio ?? 0)}`
+      : "";
   const format = note.format === "txt" ? "\nformat: txt" : "";
   const folder = note.folder ? `\nfolder: ${JSON.stringify(note.folder)}` : "";
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${folder}\n---\n${note.content}`;
+  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${read}${folder}\n---\n${note.content}`;
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
@@ -54,12 +64,14 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     meta[line.slice(0, index).trim()] = line.slice(index + 1).trim();
   }
   const bookId = meta.bookId || undefined;
-  const bookTitle = meta.bookTitle
-    ? meta.bookTitle.replace(/^"|"$/g, "")
-    : undefined;
+  const bookTitle = meta.bookTitle ? unquote(meta.bookTitle) : undefined;
+  const bookAuthor = meta.bookAuthor ? unquote(meta.bookAuthor) : undefined;
+  const bookCover = meta.bookCover ? unquote(meta.bookCover) : undefined;
   const chapterIndex = meta.chapterIndex ? Number(meta.chapterIndex) : undefined;
+  const readAt = meta.readAt ? Number(meta.readAt) : undefined;
+  const readRatio = meta.readRatio ? Number(meta.readRatio) : undefined;
   const format = meta.format === "txt" ? ("txt" as const) : undefined;
-  const folderRaw = meta.folder ? meta.folder.replace(/^"|"$/g, "") : "";
+  const folderRaw = meta.folder ? unquote(meta.folder) : "";
   return {
     id: meta.id || fallbackId,
     createdAt: Number(meta.createdAt) || Date.now(),
@@ -67,6 +79,12 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     content: text.slice(match[0].length),
     ...(format ? { format } : {}),
     ...(bookId ? { bookId, bookTitle, chapterIndex } : {}),
+    ...(bookAuthor ? { bookAuthor } : {}),
+    ...(bookCover ? { bookCover } : {}),
+    ...(typeof readAt === "number" && Number.isFinite(readAt) ? { readAt } : {}),
+    ...(typeof readRatio === "number" && Number.isFinite(readRatio)
+      ? { readRatio }
+      : {}),
     ...(folderRaw ? { folder: folderRaw } : {}),
   };
 }

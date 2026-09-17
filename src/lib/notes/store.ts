@@ -22,7 +22,12 @@ type NotesState = {
   hydrated: boolean;
   editorEpoch: number;
   folders: string[];
-  createNote: (options?: { format?: Note["format"]; folder?: string; content?: string }) => string;
+  createNote: (options?: {
+    format?: Note["format"];
+    folder?: string;
+    content?: string;
+    activate?: boolean;
+  }) => string;
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
   selectNote: (id: string) => void;
@@ -39,6 +44,7 @@ type NotesState = {
   createFolder: (path: string) => string | null;
   moveNote: (id: string, folder: string | null) => void;
   deleteFolder: (path: string) => string[];
+  setReadProgress: (id: string, ratio: number) => void;
 };
 
 type PersistedSlice = {
@@ -151,6 +157,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const format = options?.format === "txt" ? "txt" : undefined;
     const folder = normalizeFolder(options?.folder ?? "");
     const content = options?.content ?? "";
+    const activate = options?.activate !== false;
     if (!content) {
       const existingEmpty = get().notes.find(
         (note) =>
@@ -160,7 +167,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
           (note.folder ?? "") === folder,
       );
       if (existingEmpty) {
-        set({ activeId: existingEmpty.id, query: "", sidebarOpen: false });
+        if (activate) set({ activeId: existingEmpty.id, query: "", sidebarOpen: false });
         return existingEmpty.id;
       }
     }
@@ -175,12 +182,16 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     };
     set({
       notes: [note, ...get().notes],
-      activeId: note.id,
-      query: "",
-      previewMode: get().previewMode === "preview" ? "edit" : get().previewMode,
-      sidebarOpen: false,
+      ...(activate
+        ? {
+            activeId: note.id,
+            query: "",
+            previewMode: get().previewMode === "preview" ? "edit" : get().previewMode,
+            sidebarOpen: false,
+            editorEpoch: get().editorEpoch + 1,
+          }
+        : {}),
       folders: folder ? collectFolders([note, ...get().notes], get().folders) : get().folders,
-      editorEpoch: get().editorEpoch + 1,
     });
     return note.id;
   },
@@ -276,6 +287,8 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       updatedAt: now,
       bookId,
       bookTitle,
+      ...(siblings[0]?.bookAuthor ? { bookAuthor: siblings[0].bookAuthor } : {}),
+      ...(siblings[0]?.bookCover ? { bookCover: siblings[0].bookCover } : {}),
       chapterIndex: nextIndex,
     };
     set({
@@ -333,6 +346,15 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       activeId,
     });
     return result.removedIds;
+  },
+  setReadProgress: (id, ratio) => {
+    const readRatio = Math.min(1, Math.max(0, Number.isFinite(ratio) ? ratio : 0));
+    const readAt = Date.now();
+    set({
+      notes: get().notes.map((note) =>
+        note.id === id ? { ...note, readRatio, readAt } : note,
+      ),
+    });
   },
 }));
 

@@ -76,6 +76,7 @@ import {
   useSortedNotes,
 } from "@/lib/notes/store";
 import { parseNoteFile } from "@/lib/notes/markdown-file";
+import { EXCERPT_FOLDER, excerptNoteContent, readReaderSession } from "@/lib/notes/reader-progress";
 import { base64ToBytes, toArrayBuffer } from "@/lib/notes/bytes";
 import {
   classifyIncoming,
@@ -179,6 +180,7 @@ async function notesFromEpubBuffer(
   buffer: ArrayBuffer,
 ): Promise<{ title: string; notes: Note[] }> {
   const parsed = await parseEpub(buffer);
+  let coverSrc: string | undefined;
   for (const image of parsed.images) {
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const ext = extensionFor(image.mime, image.href);
@@ -190,12 +192,13 @@ async function notesFromEpubBuffer(
     });
     const from = image.href;
     const to = `images/${id}.${ext}`;
+    if (parsed.cover && image.href === parsed.cover.href) coverSrc = to;
     parsed.chapters = parsed.chapters.map((chapter) => ({
       ...chapter,
       content: chapter.content.replaceAll(from, to),
     }));
   }
-  return { title: parsed.title, notes: notesFromEpub(parsed) };
+  return { title: parsed.title, notes: notesFromEpub(parsed, Date.now(), coverSrc) };
 }
 
 function launchKey(file: LaunchFile): string {
@@ -294,6 +297,7 @@ export function NoteApp() {
   const createFolder = useNotesStore((state) => state.createFolder);
   const moveNote = useNotesStore((state) => state.moveNote);
   const deleteFolder = useNotesStore((state) => state.deleteFolder);
+  const setReadProgress = useNotesStore((state) => state.setReadProgress);
   const editorEpoch = useNotesStore((state) => state.editorEpoch);
   const rawNotes = useNotesStore((state) => state.notes);
 
@@ -304,6 +308,7 @@ export function NoteApp() {
   const [settingsTab, setSettingsTab] = useState<"sync" | "theme" | "image" | "blog">("sync");
   const [exportOpen, setExportOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
+  const restoredSession = useRef(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState<LinkDraft>({
@@ -419,6 +424,17 @@ export function NoteApp() {
     hydrateNotesStore();
     setSyncConfig(readSyncConfig());
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || restoredSession.current) return;
+    restoredSession.current = true;
+    const session = readReaderSession();
+    if (!session?.readerOpen) return;
+    const note = useNotesStore.getState().notes.find((item) => item.id === session.noteId);
+    if (!note) return;
+    selectNote(note.id);
+    setReaderOpen(true);
+  }, [hydrated, selectNote]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1312,16 +1328,37 @@ export function NoteApp() {
 
   if (readerOpen && activeNote) {
     return (
-      <ReaderView
-        notes={bookChapters}
-        activeId={activeNote.id}
-        onSelect={selectNote}
-        onClose={() => setReaderOpen(false)}
-        onChange={(id, value) => updateNote(id, value)}
-        onAddChapter={() => {
-          if (activeNote.bookId) addChapter(activeNote.bookId);
-        }}
-      />
+      <>
+        <Toaster
+          position="bottom-center"
+          duration={1600}
+          className="toaster"
+          offset={24}
+        />
+        <ReaderView
+          notes={bookChapters}
+          activeId={activeNote.id}
+          onSelect={selectNote}
+          onClose={() => setReaderOpen(false)}
+          onChange={(id, value) => updateNote(id, value)}
+          onAddChapter={() => {
+            if (activeNote.bookId) addChapter(activeNote.bookId);
+          }}
+          onProgress={setReadProgress}
+          onExcerpt={(quote) => {
+            createNote({
+              folder: EXCERPT_FOLDER,
+              content: excerptNoteContent({
+                bookTitle: activeNote.bookTitle || titleFromContent(activeNote.content),
+                chapterTitle: titleFromContent(activeNote.content),
+                quote,
+              }),
+              activate: false,
+            });
+            toast.message("已摘到「摘录」");
+          }}
+        />
+      </>
     );
   }
 

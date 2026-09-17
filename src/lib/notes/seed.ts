@@ -31,7 +31,7 @@ export function createSeedNotes(): Note[] {
 - 源码 / 分栏 / 预览：工具栏切换，或按 Ctrl + /、Ctrl + E
 - 插入图片：工具栏图片按钮，或把图片粘贴、拖进编辑区，或 Ctrl + Shift + I
 - 导出：右上角导出，只出 PDF、HTML、图片、Word、OpenOffice、RTF、EPUB
-- 导入：左上角加号里导入 Markdown、TXT、文件夹或 EPUB。电子书用阅读页翻章，点铅笔即可改。侧栏《廊下三章》是示例
+- 导入：左上角加号里导入 Markdown、TXT、文件夹或 EPUB。电子书出现在侧栏「书」，点阅读从上次停下的章节接着看；划线可摘到「摘录」；阅读页可朗读。点章节仍是 Markdown。侧栏《廊下三章》是示例
 - 主题与图床：侧栏齿轮 → 主题 / 图像。宣纸是默认，代码高亮已单独加深。图床可直接填，也可粘贴 PicGo 配置
 - 发布到博客：齿轮 → 博客填 GitHub 或 Gitee 仓库。侧栏报纸图标可查看仓库里已有的文章，点开阅读或拉进本地再改，工具栏纸飞机发回去。新建可用模板
 - 公式、任务、双链：\`$E=mc^2$\`，预览里勾选 \`- [ ]\`，\`[[笔记名]]\` 跳转，Ctrl + P 快速打开
@@ -182,7 +182,7 @@ function createSeedBook(): Note[] {
 
 夜深了。他把三章按顺序叠好，用一条浅青书签夹住。明天若还记得，就从这里接着读；若忘了，便当它从未被打开过。
 
-电子书可以这样读：从左侧加号导入 EPUB，在阅读页翻章；点铅笔就能改这一章，改完再导出本书。`,
+电子书可以这样读：侧栏「书」里点阅读，会回到上次的章节和位置；划线后点「摘录」写进笔记；朗读只出现在阅读页。点章节仍打开 Markdown。改完再导出本书，会带上作者和封面。`,
     },
   ];
   return chapters.map((chapter) => {
@@ -194,6 +194,7 @@ function createSeedBook(): Note[] {
       updatedAt,
       bookId,
       bookTitle,
+      bookAuthor: "静笺",
       chapterIndex: chapter.index,
     };
   });

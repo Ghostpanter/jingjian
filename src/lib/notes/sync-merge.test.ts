@@ -107,3 +107,29 @@ test("prefix or contained drafts still auto merge", () => {
   assert.equal(longer.conflicts.length, 0);
   assert.equal(longer.toUpload[0]?.content, "你好世界");
 });
+
+test("progress-only local changes are uploaded without a conflict", () => {
+  const local: Note = {
+    id: "a",
+    content: "同一章",
+    createdAt: 1,
+    updatedAt: 20,
+    readAt: 90,
+    readRatio: 0.6,
+  };
+  const remote: Note = {
+    id: "a",
+    content: "同一章",
+    createdAt: 1,
+    updatedAt: 40,
+    readAt: 10,
+    readRatio: 0.1,
+  };
+  const result = mergeNotes({ local: [local], remote: [remote], tombstones: {} });
+  assert.equal(result.notes[0]?.content, "同一章");
+  assert.equal(result.notes[0]?.updatedAt, 40);
+  assert.equal(result.notes[0]?.readAt, 90);
+  assert.equal(result.notes[0]?.readRatio, 0.6);
+  assert.equal(result.conflicts.length, 0);
+  assert.equal(result.toUpload[0]?.readAt, 90);
+});

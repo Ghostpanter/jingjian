@@ -15,6 +15,7 @@ import {
   type NoteSort,
 } from "@/lib/notes/format";
 import type { OutlineHeading } from "@/lib/notes/outline";
+import { chapterProgress, lastReadChapter } from "@/lib/notes/reader-progress";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -350,56 +351,70 @@ export function Sidebar({
           </div>
         ) : (
           <>
-            {books.map((group) => (
-              <div key={group.label} className="mb-3">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
-                  <BookOpen className="size-3.5" />
-                  <span className="min-w-0 flex-1 truncate">{group.label}</span>
-                  {onReadBook && group.notes[0] ? (
-                    <button
-                      type="button"
-                      className="btn-press rounded-sm px-1.5 py-0.5 text-[11px] text-muted hover:text-fg"
-                      onClick={() => onReadBook(group.notes[0].id)}
-                    >
-                      阅读
-                    </button>
-                  ) : null}
+            {books.length > 0 ? (
+              <div className="mb-3">
+                <div className="px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
+                  书
                 </div>
-                <ul role="listbox" aria-label={group.label}>
-                  {group.notes.map((note, index) => {
-                    const selected = note.id === activeId;
-                    return (
-                      <li key={note.id} role="none">
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          onClick={() => selectAndExpand(note.id)}
-                          className={cn(
-                            "note-item btn-press flex w-full flex-col items-start rounded-lg px-3 py-3 text-left",
-                            "transition-colors duration-(--motion-quick) ease-(--ease-out)",
-                            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                            selected ? "bg-paper shadow-border" : "hover:bg-overlay",
-                          )}
-                        >
-                          <span className="flex w-full items-baseline gap-2">
-                            <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
-                              {index + 1}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate font-medium text-fg">
-                              {titleFromContent(note.content)}
-                            </span>
-                          </span>
-                          <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
-                            {snippetFromContent(note.content)}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                {books.map((group) => {
+                  const progress = chapterProgress(group.notes);
+                  const resume = lastReadChapter(group.notes) ?? group.notes[0];
+                  return (
+                    <div key={group.label} className="mb-2">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
+                        <BookOpen className="size-3.5" />
+                        <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                        <span className="shrink-0 tabular-nums text-subtle">
+                          {progress.current}/{progress.total}
+                        </span>
+                        {onReadBook && resume ? (
+                          <button
+                            type="button"
+                            className="btn-press rounded-sm px-1.5 py-0.5 text-xs text-muted hover:text-fg"
+                            onClick={() => onReadBook(resume.id)}
+                          >
+                            阅读
+                          </button>
+                        ) : null}
+                      </div>
+                      <ul role="listbox" aria-label={group.label}>
+                        {group.notes.map((note, index) => {
+                          const selected = note.id === activeId;
+                          return (
+                            <li key={note.id} role="none">
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={selected}
+                                onClick={() => selectAndExpand(note.id)}
+                                className={cn(
+                                  "note-item btn-press flex w-full flex-col items-start rounded-lg px-3 py-3 text-left",
+                                  "transition-colors duration-(--motion-quick) ease-(--ease-out)",
+                                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                                  selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+                                )}
+                              >
+                                <span className="flex w-full items-baseline gap-2">
+                                  <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
+                                    {index + 1}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                                    {titleFromContent(note.content)}
+                                  </span>
+                                </span>
+                                <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
+                                  {snippetFromContent(note.content)}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            ) : null}
 
             {searching ? (
               <ul role="listbox" aria-label="搜索结果">

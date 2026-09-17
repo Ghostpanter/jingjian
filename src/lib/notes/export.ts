@@ -131,8 +131,20 @@ export async function exportNotes(options: {
       ? options.notes.filter((item) => item.bookId === options.note.bookId)
       : [options.note];
     const book = chaptersFromNotes(siblings, title);
+    let cover: { mime: string; bytes: Uint8Array } | undefined;
+    if (book.cover) {
+      const stored = await getImage(book.cover);
+      if (stored) {
+        cover = {
+          mime: stored.mime,
+          bytes: new Uint8Array(await stored.blob.arrayBuffer()),
+        };
+      }
+    }
     const bytes = await buildEpub({
       title: book.title,
+      author: book.author,
+      cover,
       chapters: await Promise.all(
         book.chapters.map(async (chapter) => {
           const content = await embedLocalImages(chapter.content);

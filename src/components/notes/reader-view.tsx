@@ -4,18 +4,24 @@ import {
   ChevronRight,
   List,
   Minus,
+  Pause,
   Pencil,
   Plus,
+  Volume2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { titleFromContent } from "@/lib/notes/format";
+import { writeReaderSession } from "@/lib/notes/reader-progress";
+import { createTtsController, readTtsRate, speakableBlocks } from "@/lib/notes/reader-tts";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
 const FONT_KEY = "jingjian.reader.font.v1";
+const RATE_STEPS = [0.8, 0.92, 1.05, 1.2];
 
 type ReaderViewProps = {
   notes: Note[];
@@ -24,6 +30,8 @@ type ReaderViewProps = {
   onClose: () => void;
   onChange: (id: string, content: string) => void;
   onAddChapter?: () => void;
+  onProgress: (id: string, ratio: number) => void;
+  onExcerpt: (quote: string) => void;
 };
 
 export function ReaderView({
@@ -33,6 +41,8 @@ export function ReaderView({
   onClose,
   onChange,
   onAddChapter,
+  onProgress,
+  onExcerpt,
 }: ReaderViewProps) {
   const current = notes.find((note) => note.id === activeId) ?? notes[0];
   const [editing, setEditing] = useState(false);
@@ -42,26 +52,156 @@ export function ReaderView({
     const raw = Number(localStorage.getItem(FONT_KEY));
     return Number.isFinite(raw) && raw >= 0.85 && raw <= 1.45 ? raw : 1;
   });
+  const [speaking, setSpeaking] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [speakIndex, setSpeakIndex] = useState(-1);
+  const [ttsRate, setTtsRate] = useState(readTtsRate);
+  const [excerpt, setExcerpt] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [ratio, setRatio] = useState(current?.readRatio ?? 0);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const progressTimer = useRef(0);
+  const ratioRef = useRef(current?.readRatio ?? 0);
+  const ttsRef = useRef<ReturnType<typeof createTtsController> | null>(null);
 
   useEffect(() => {
     localStorage.setItem(FONT_KEY, String(fontScale));
   }, [fontScale]);
 
   useEffect(() => {
+    const controller = createTtsController({
+      onIndex: (index) => setSpeakIndex(index),
+      onEnd: () => {
+        setSpeaking(false);
+        setPaused(false);
+        setSpeakIndex(-1);
+      },
+      onError: (message) => toast.message(message),
+    });
+    ttsRef.current = controller;
+    return () => controller.dispose();
+  }, []);
+
+  useEffect(() => {
     setEditing(false);
     setTocOpen(false);
+    setExcerpt(null);
+    ttsRef.current?.stop();
+    ratioRef.current = current?.readRatio ?? 0;
+    setRatio(current?.readRatio ?? 0);
+    if (!current?.bookId) return;
+    onProgress(current.id, current.readRatio ?? 0);
+    writeReaderSession({
+      bookId: current.bookId,
+      noteId: current.id,
+      readerOpen: true,
+      ratio: current.readRatio ?? 0,
+      at: Date.now(),
+    });
   }, [current?.id]);
+
+  useEffect(() => {
+    if (editing || !current?.bookId) return;
+    function onSel() {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim() ?? "";
+      if (text.length < 2) {
+        setExcerpt(null);
+        return;
+      }
+      if (!sel || sel.rangeCount === 0) return;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      setExcerpt({
+        text,
+        x: rect.left + rect.width / 2,
+        y: Math.max(12, rect.top - 8),
+      });
+    }
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, [editing, current?.id, current?.bookId]);
 
   if (!current) return null;
   const index = Math.max(0, notes.findIndex((note) => note.id === current.id));
   const prev = notes[index - 1];
   const next = notes[index + 1];
   const bookTitle = current.bookTitle || titleFromContent(current.content);
-  const progress = notes.length > 0 ? ((index + 1) / notes.length) * 100 : 0;
+  const chapterTitle = titleFromContent(current.content);
+  const ebook = Boolean(current.bookId);
+  const progress =
+    notes.length > 0 ? ((index + ratio) / notes.length) * 100 : 0;
+
+  function persistRatio(value: number) {
+    ratioRef.current = value;
+    if (progressTimer.current) window.clearTimeout(progressTimer.current);
+    progressTimer.current = window.setTimeout(() => {
+      setRatio(value);
+      onProgress(current.id, value);
+      if (current.bookId) {
+        writeReaderSession({
+          bookId: current.bookId,
+          noteId: current.id,
+          readerOpen: true,
+          ratio: value,
+          at: Date.now(),
+        });
+      }
+    }, 360);
+  }
 
   function go(note?: Note) {
     if (note) onSelect(note.id);
+  }
+
+  function closeReader() {
+    ttsRef.current?.dispose();
+    if (current.bookId) {
+      writeReaderSession({
+        bookId: current.bookId,
+        noteId: current.id,
+        readerOpen: false,
+        ratio: ratioRef.current,
+        at: Date.now(),
+      });
+    }
+    onClose();
+  }
+
+  function handleTts() {
+    const controller = ttsRef.current;
+    if (!controller || !ebook) return;
+    if (controller.playing && controller.paused) {
+      controller.resume();
+      setPaused(false);
+      setSpeaking(true);
+      return;
+    }
+    if (controller.playing) {
+      controller.pause();
+      setPaused(true);
+      return;
+    }
+    const root = document.querySelector(".reader-scroll .md-body");
+    const scroller = document.querySelector(".reader-scroll");
+    const blocks = speakableBlocks(root);
+    let from = 0;
+    if (root && scroller) {
+      const top = scroller.getBoundingClientRect().top;
+      const found = [...root.children].findIndex(
+        (node) => node.getBoundingClientRect().bottom > top + 24,
+      );
+      if (found >= 0) from = found;
+    }
+    setSpeaking(true);
+    setPaused(false);
+    controller.start(blocks, from);
+  }
+
+  function cycleRate() {
+    const controller = ttsRef.current;
+    const at = RATE_STEPS.findIndex((step) => Math.abs(step - ttsRate) < 0.02);
+    const nextRate = RATE_STEPS[(at + 1) % RATE_STEPS.length];
+    controller?.setRate(nextRate);
+    setTtsRate(nextRate);
   }
 
   function handlePagePointer(clientX: number, width: number, target: EventTarget | null) {
@@ -77,7 +217,7 @@ export function ReaderView({
   return (
     <div className="reader-shell safe-shell">
       <header className="reader-toolbar">
-        <Button variant="ghost" size="icon-sm" aria-label="关闭阅读" onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" aria-label="关闭阅读" onClick={closeReader}>
           <X />
         </Button>
         <Button
@@ -92,7 +232,8 @@ export function ReaderView({
         <div className="min-w-0 flex-1 px-2">
           <div className="truncate font-serif text-sm text-fg">{bookTitle}</div>
           <div className="truncate text-xs text-muted">
-            {index + 1} / {notes.length} · {titleFromContent(current.content)}
+            {index + 1} / {notes.length} · {chapterTitle}
+            {current.bookAuthor ? ` · ${current.bookAuthor}` : ""}
           </div>
         </div>
         <Button
@@ -200,15 +341,62 @@ export function ReaderView({
               onChange={(value) => onChange(current.id, value)}
             />
           ) : (
-            <PreviewPane content={current.content} format={current.format} reader />
+            <PreviewPane
+              key={current.id}
+              content={current.content}
+              format={current.format}
+              reader
+              restoreRatio={current.readRatio ?? 0}
+              speakIndex={speakIndex}
+              onScrollRatio={persistRatio}
+            />
           )}
         </div>
+        {excerpt ? (
+          <button
+            type="button"
+            className="reader-excerpt"
+            style={{ left: excerpt.x, top: excerpt.y }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onExcerpt(excerpt.text);
+              window.getSelection()?.removeAllRanges();
+              setExcerpt(null);
+            }}
+          >
+            摘录
+          </button>
+        ) : null}
       </div>
       <footer className="reader-nav">
         <Button variant="subtle" disabled={!prev} onClick={() => go(prev)}>
           <ChevronLeft />
           上一章
         </Button>
+        {ebook && !editing ? (
+          <div className="reader-tts">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={speaking && !paused ? "暂停朗读" : "朗读"}
+              aria-pressed={speaking && !paused}
+              onClick={handleTts}
+            >
+              {speaking && !paused ? <Pause /> : <Volume2 />}
+            </Button>
+            <button
+              type="button"
+              className="reader-tts-rate"
+              aria-label="朗读速度"
+              onClick={cycleRate}
+            >
+              {ttsRate.toFixed(2).replace(/0$/, "")}×
+            </button>
+          </div>
+        ) : (
+          <span />
+        )}
         <Button variant="subtle" disabled={!next} onClick={() => go(next)}>
           下一章
           <ChevronRight />

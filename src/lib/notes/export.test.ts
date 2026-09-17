@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { markdownToDocx, markdownToHtmlDocument, markdownToOdt, markdownToRtf } from "./export-formats.ts";
 import { jpegPagesToPdf, choosePageCut } from "./export-pdf.ts";
 import { cssUsesUnsupportedColor, exportArticleCss, stripUnsupportedColors } from "./export-render.ts";
-import { buildEpub, parseEpub } from "./epub.ts";
+import { buildEpub, isSkippableEpubPart, parseEpub, tocEntriesFromHtml, tocEntriesFromNcx } from "./epub.ts";
 import { filenameForNote, parseNoteFile, serializeNote } from "./markdown-file.ts";
 import { sanitizeHref } from "./markdown.ts";
 import { DEFAULT_THEME, paletteFor } from "./theme.ts";
@@ -52,6 +52,66 @@ test("epub roundtrip restores chapters", async () => {
   assert.equal(parsed.chapters.length, 2);
   assert.match(parsed.chapters[0].content, /晨光/);
 });
+
+test("epub export keeps author cover and nav titles", async () => {
+  const bytes = await buildEpub({
+    title: "廊下",
+    author: "某人",
+    cover: { mime: "image/jpeg", bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) },
+    chapters: [{ title: "一 廊下", content: "# 一 廊下\n\n纸灯。" }],
+  });
+  const parsed = await parseEpub(bytes);
+  assert.equal(parsed.author, "某人");
+  assert.ok(parsed.cover);
+  assert.equal(parsed.chapters[0]?.title, "一 廊下");
+});
+
+test("toc helpers flatten nav and skip boilerplate parts", () => {
+  const html = tocEntriesFromHtml(
+    `<nav epub:type="toc"><ol>
+      <li><a href="cover.xhtml">封面</a></li>
+      <li><a href="ch001.xhtml">一 廊下</a></li>
+    </ol></nav>`,
+    "OEBPS/nav.xhtml",
+  );
+  assert.equal(html[0]?.href, "OEBPS/cover.xhtml");
+  assert.equal(html[1]?.title, "一 廊下");
+  assert.equal(isSkippableEpubPart("封面", "OEBPS/cover.xhtml"), true);
+  assert.equal(isSkippableEpubPart("一 廊下", "OEBPS/ch001.xhtml"), false);
+  const ncx = tocEntriesFromNcx(
+    `<navMap><navPoint>
+      <navLabel><text>二 灯下</text></navLabel>
+      <content src="Text/ch2.xhtml"/>
+    </navPoint></navMap>`,
+    "OEBPS/toc.ncx",
+  );
+  assert.equal(ncx[0]?.title, "二 灯下");
+  assert.equal(ncx[0]?.href, "OEBPS/Text/ch2.xhtml");
+});
+
+test("reading progress survives serialize", () => {
+  const parsed = parseNoteFile(
+    serializeNote({
+      id: "11111111-2222-4333-a444-555555555555",
+      content: "# 一\n",
+      createdAt: 1,
+      updatedAt: 2,
+      bookId: "book",
+      bookTitle: "廊下三章",
+      bookAuthor: "某人",
+      bookCover: "images/cover.jpg",
+      chapterIndex: 0,
+      readAt: 90,
+      readRatio: 0.4,
+    }),
+    "fallback",
+  );
+  assert.equal(parsed.bookAuthor, "某人");
+  assert.equal(parsed.bookCover, "images/cover.jpg");
+  assert.equal(parsed.readAt, 90);
+  assert.equal(parsed.readRatio, 0.4);
+});
+
 
 test("docx and odt are zip packages", async () => {
   const docx = await markdownToDocx("# 静笺\n\n正文");

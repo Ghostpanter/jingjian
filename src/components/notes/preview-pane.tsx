@@ -14,7 +14,10 @@ type PreviewPaneProps = {
   centered?: boolean;
   reader?: boolean;
   previewId?: string;
+  restoreRatio?: number;
+  speakIndex?: number;
   onScroll?: () => void;
+  onScrollRatio?: (ratio: number) => void;
   onToggleTask?: (index: number) => void;
   onOpenWiki?: (title: string) => void;
 };
@@ -25,7 +28,10 @@ export function PreviewPane({
   centered = true,
   reader = false,
   previewId = "note-preview",
+  restoreRatio,
+  speakIndex,
   onScroll,
+  onScrollRatio,
   onToggleTask,
   onOpenWiki,
 }: PreviewPaneProps) {
@@ -36,14 +42,46 @@ export function PreviewPane({
   );
   const empty = isBlankContent(content);
   const articleRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const restored = useRef(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+
+  useLayoutEffect(() => {
+    restored.current = false;
+  }, [content]);
 
   useLayoutEffect(() => {
     const root = articleRef.current;
     if (!root || format === "txt") return;
     void renderMermaidBlocks(root, { palette: paletteFor(readThemeConfig()) });
     void resolvePreviewImages(root);
+    if (typeof speakIndex === "number") {
+      [...root.children].forEach((node, index) => {
+        node.classList.toggle("is-speaking", index === speakIndex);
+      });
+    }
   });
+
+  useLayoutEffect(() => {
+    if (!reader || restoreRatio == null) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    let cancelled = false;
+    const apply = () => {
+      if (cancelled || restored.current) return;
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 1) {
+        el.scrollTop = restoreRatio * max;
+        restored.current = true;
+      }
+    };
+    apply();
+    const timer = window.setTimeout(apply, 160);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [content, reader, restoreRatio]);
 
   function onPreviewClick(event: MouseEvent<HTMLElement>) {
     const target = event.target as HTMLElement | null;
@@ -89,9 +127,16 @@ export function PreviewPane({
 
   return (
     <div
+      ref={scrollRef}
       id={previewId}
       className={cn("h-full min-h-0 overflow-y-auto", reader && "reader-scroll")}
-      onScroll={onScroll}
+      onScroll={() => {
+        onScroll?.();
+        const el = scrollRef.current;
+        if (!el || !onScrollRatio) return;
+        const max = el.scrollHeight - el.clientHeight;
+        onScrollRatio(max > 0 ? el.scrollTop / max : 0);
+      }}
     >
       <div
         className={cn(

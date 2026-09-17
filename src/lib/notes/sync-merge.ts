@@ -1,4 +1,5 @@
 import type { Note } from "./types";
+import { withLatestProgress } from "./reader-progress.ts";
 
 export type MergeInput = {
   local: Note[];
@@ -54,12 +55,16 @@ export function mergeNotes(input: MergeInput): MergeResult {
       continue;
     }
     if (local.content === remote.content) {
-      notes.set(id, local.updatedAt >= remote.updatedAt ? local : remote);
+      const winner = local.updatedAt >= remote.updatedAt ? local : remote;
+      const merged = withLatestProgress(winner, local, remote);
+      notes.set(id, merged);
+      if ((local.readAt ?? 0) > (remote.readAt ?? 0)) toUpload.push(merged);
       continue;
     }
     if (isEditing(local, input, now)) {
-      notes.set(id, local);
-      toUpload.push(local);
+      const merged = withLatestProgress(local, local, remote);
+      notes.set(id, merged);
+      toUpload.push(merged);
       continue;
     }
     if (
@@ -67,13 +72,14 @@ export function mergeNotes(input: MergeInput): MergeResult {
       !local.content.includes(remote.content) &&
       !remote.content.includes(local.content)
     ) {
-      notes.set(id, local);
+      notes.set(id, withLatestProgress(local, local, remote));
       conflicts.push({ local, remote });
       continue;
     }
     if (local.updatedAt > remote.updatedAt) {
-      notes.set(id, local);
-      toUpload.push(local);
+      const merged = withLatestProgress(local, local, remote);
+      notes.set(id, merged);
+      toUpload.push(merged);
       continue;
     }
     if (remote.updatedAt > local.updatedAt) {
@@ -81,17 +87,26 @@ export function mergeNotes(input: MergeInput): MergeResult {
         local.content.startsWith(remote.content) ||
         local.content.includes(remote.content)
       ) {
-        notes.set(id, local);
-        toUpload.push(local);
+        const merged = withLatestProgress(local, local, remote);
+        notes.set(id, merged);
+        toUpload.push(merged);
       } else {
-        notes.set(id, remote);
+        const merged = withLatestProgress(remote, local, remote);
+        notes.set(id, merged);
+        if ((local.readAt ?? 0) > (remote.readAt ?? 0)) toUpload.push(merged);
       }
       continue;
     }
     const mergedContent = mergeNoteContent(local.content, remote.content);
-    const next = { ...local, content: mergedContent };
+    const next = withLatestProgress(
+      { ...local, content: mergedContent },
+      local,
+      remote,
+    );
     notes.set(id, next);
-    if (mergedContent !== remote.content) toUpload.push(next);
+    if (mergedContent !== remote.content || (local.readAt ?? 0) > (remote.readAt ?? 0)) {
+      toUpload.push(next);
+    }
   }
 
   for (const [id, local] of localMap) {
@@ -112,7 +127,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
 
 export function notesFingerprint(notes: Note[]): string {
   return notes
-    .map((note) => `${note.id}:${note.updatedAt}`)
+    .map((note) => `${note.id}:${note.updatedAt}:${note.readAt ?? 0}`)
     .sort()
     .join("|");
 }
@@ -145,21 +160,29 @@ export function reconcileNotes(
       continue;
     }
     if (current.content === remoteNote.content) {
-      notes.push(current.updatedAt >= remoteNote.updatedAt ? current : remoteNote);
+      const winner =
+        current.updatedAt >= remoteNote.updatedAt ? current : remoteNote;
+      notes.push(withLatestProgress(winner, current, remoteNote));
       continue;
     }
     const editing =
       current.id === activeId && now - current.updatedAt < EDITING_WINDOW_MS;
     if (editing || current.updatedAt >= remoteNote.updatedAt) {
-      notes.push(current);
+      notes.push(withLatestProgress(current, current, remoteNote));
       continue;
     }
     const mergedContent = mergeNoteContent(current.content, remoteNote.content);
-    notes.push({
-      ...remoteNote,
-      content: mergedContent,
-      updatedAt: Math.max(current.updatedAt, remoteNote.updatedAt),
-    });
+    notes.push(
+      withLatestProgress(
+        {
+          ...remoteNote,
+          content: mergedContent,
+          updatedAt: Math.max(current.updatedAt, remoteNote.updatedAt),
+        },
+        current,
+        remoteNote,
+      ),
+    );
     if (current.id === activeId && mergedContent !== current.content) {
       activeContentChanged = true;
     }

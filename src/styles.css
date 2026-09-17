@@ -853,6 +853,45 @@
     box-shadow: var(--shadow-raised);
   }
 
+  .md-body .is-speaking {
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    outline: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  }
+
+  .reader-excerpt {
+    position: fixed;
+    z-index: 40;
+    min-height: 2.75rem;
+    transform: translate(-50%, -100%);
+    border-radius: 999px;
+    background: var(--color-paper);
+    color: var(--color-fg);
+    padding: 0.35rem 0.9rem;
+    font-size: 0.875rem;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .reader-tts {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+
+  .reader-tts-rate {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    border-radius: 0.5rem;
+    padding: 0 0.35rem;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-muted);
+  }
+
+  .reader-tts-rate:hover {
+    color: var(--color-fg);
+  }
+
   .settings-dialog select {
     font-family: var(--font-sans);
     outline: none;
