@@ -96,6 +96,7 @@ type SettingsDialogProps = {
   onOpenChange: (open: boolean) => void;
   onSave: (config: SyncConfig) => void;
   onSyncNow: () => void;
+  onOpenBlogPosts?: () => void;
 };
 
 export function SettingsDialog({
@@ -105,6 +106,7 @@ export function SettingsDialog({
   onOpenChange,
   onSave,
   onSyncNow,
+  onOpenBlogPosts,
 }: SettingsDialogProps) {
   const [tab, setTab] = useState<TabId>("sync");
   const [draft, setDraft] = useState<SyncConfig>(config);
@@ -212,6 +214,14 @@ export function SettingsDialog({
     onOpenChange(false);
   }
 
+  function handleOpenBlogPosts() {
+    writeBlogConfig(blog);
+    applyTheme(savedTheme);
+    applyEditorPrefs(savedEditor);
+    onOpenChange(false);
+    onOpenBlogPosts?.();
+  }
+
   function handleSave() {
     writeThemeConfig(theme);
     writeImageConfig(image);
@@ -294,6 +304,11 @@ export function SettingsDialog({
           (tab === "blog" && isBlogConfigured(blog)) ? (
             <Button variant="subtle" disabled={busy} onClick={() => void handleTest()}>
               测试连接
+            </Button>
+          ) : null}
+          {tab === "blog" && isBlogConfigured(blog) && onOpenBlogPosts ? (
+            <Button variant="subtle" onClick={handleOpenBlogPosts}>
+              查看仓库文章
             </Button>
           ) : null}
           <Button onClick={handleSave}>保存</Button>

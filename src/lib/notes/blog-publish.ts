@@ -1,6 +1,7 @@
-import { utf8, uint8ToBase64 } from "./bytes.ts";
+import { utf8, uint8ToBase64, base64ToBytes } from "./bytes.ts";
 import {
   isBlogConfigured,
+  noteIdForPublishedPath,
   publishedPathFor,
   readBlogConfig,
   rememberPublished,
@@ -10,6 +11,7 @@ import {
 } from "./blog-config.ts";
 import { desktopRequest, isDesktopApp } from "./desktop.ts";
 import { firstLineTitle } from "./format.ts";
+import { stableIncomingId } from "./open-incoming.ts";
 import type { Note } from "./types.ts";
 
 export function githubParts(repo: string): { owner: string; name: string } {
@@ -308,5 +310,194 @@ export async function publishNoteToBlog(
       payload.html_url ||
       `https://${site}/${owner}/${name}/blob/${branch}/${chosen.path}`,
     updated: Boolean(sha),
+  };
+}
+
+const POST_NAME = /\.(md|markdown|mdx)$/i;
+const MAX_POSTS = 250;
+const MAX_DIR_DEPTH = 4;
+
+export type RepoEntry = {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  sha?: string;
+  size?: number;
+};
+
+export type BlogPostItem = {
+  name: string;
+  path: string;
+  sha?: string;
+  size?: number;
+};
+
+export type BlogPostFile = BlogPostItem & { content: string };
+
+export function isPostFilename(name: string): boolean {
+  const base = name.trim();
+  if (!base || base.startsWith(".")) return false;
+  if (base.toLowerCase() === "_index.md") return false;
+  return POST_NAME.test(base);
+}
+
+export function titleFromPostName(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  const base = parts[parts.length - 1] || path;
+  const stem = base.replace(POST_NAME, "");
+  if (/^index$/i.test(stem)) {
+    const parent = parts[parts.length - 2] || stem;
+    return parent.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/-/g, " ").trim() || parent;
+  }
+  const stripped = stem.replace(/^\d{4}-\d{2}-\d{2}-/, "");
+  return stripped.replace(/-/g, " ").trim() || stem;
+}
+
+export function titleFromPostContent(content: string, fallback: string): string {
+  const title = firstLineTitle(content);
+  return title === "未命名笔记" ? fallback : title;
+}
+
+export function decodeGitContent(content: string | undefined, encoding?: string): string {
+  const raw = (content || "").replace(/\s+/g, "");
+  if (!raw) return "";
+  if (encoding && encoding !== "base64") return content || "";
+  try {
+    return new TextDecoder("utf-8").decode(base64ToBytes(raw));
+  } catch {
+    return "";
+  }
+}
+
+export function blogNoteId(host: BlogHost, repo: string, path: string): string {
+  const { owner, name } = githubParts(repo);
+  return stableIncomingId(`blog:${host}:${owner}/${name}:${path}`);
+}
+
+export function localIdForBlogPost(
+  path: string,
+  host: BlogHost,
+  repo: string,
+  hasNote: (id: string) => boolean,
+): string | null {
+  const remembered = noteIdForPublishedPath(path);
+  if (remembered && hasNote(remembered)) return remembered;
+  try {
+    const generated = blogNoteId(host, repo, path);
+    if (hasNote(generated)) return generated;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function normalizeRepoEntries(payload: unknown): RepoEntry[] {
+  const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" ? [payload] : [];
+  const out: RepoEntry[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const name = typeof rec.name === "string" ? rec.name : "";
+    const path = typeof rec.path === "string" ? rec.path : name;
+    const type = rec.type === "dir" ? "dir" : rec.type === "file" ? "file" : "";
+    if (!name || !type) continue;
+    out.push({
+      name,
+      path,
+      type,
+      sha: typeof rec.sha === "string" ? rec.sha : undefined,
+      size: typeof rec.size === "number" ? rec.size : undefined,
+    });
+  }
+  return out;
+}
+
+export function collectDirectPosts(entries: RepoEntry[]): {
+  files: BlogPostItem[];
+  dirs: string[];
+} {
+  const files: BlogPostItem[] = [];
+  const dirs: string[] = [];
+  for (const entry of entries) {
+    if (entry.type === "file" && isPostFilename(entry.name)) {
+      files.push({ name: entry.name, path: entry.path, sha: entry.sha, size: entry.size });
+    } else if (entry.type === "dir" && entry.name && !entry.name.startsWith(".")) {
+      dirs.push(entry.path);
+    }
+  }
+  return { files, dirs };
+}
+
+function contentsUrl(config: BlogConfig, repoPath: string): string {
+  const { owner, name } = githubParts(config.repo);
+  const branch = config.branch.trim() || "main";
+  const dir = repoPath.replace(/^\/+|\/+$/g, "");
+  const encoded = dir ? `/${encodeContentPath(dir)}` : "";
+  return `/repos/${owner}/${name}/contents${encoded}?ref=${encodeURIComponent(branch)}`;
+}
+
+async function listDir(
+  config: BlogConfig,
+  repoPath: string,
+  depth: number,
+  acc: BlogPostItem[],
+): Promise<void> {
+  if (depth > MAX_DIR_DEPTH || acc.length >= MAX_POSTS) return;
+  const response = await contentsFetch(config, contentsUrl(config, repoPath));
+  if (!response.ok) {
+    if (response.status === 404 && depth === 0) {
+      throw new Error("找不到文章目录，检查设置里的路径");
+    }
+    throw hostError(config.host, response.status, await readApiMessage(response));
+  }
+  const payload: unknown = await response.json();
+  const { files, dirs } = collectDirectPosts(normalizeRepoEntries(payload));
+  for (const file of files) {
+    if (acc.length >= MAX_POSTS) return;
+    acc.push(file);
+  }
+  for (const dir of dirs) {
+    if (acc.length >= MAX_POSTS) return;
+    await listDir(config, dir, depth + 1, acc);
+  }
+}
+
+export async function listBlogPosts(
+  config: BlogConfig = readBlogConfig(),
+): Promise<BlogPostItem[]> {
+  if (!isBlogConfigured(config)) throw new Error("先在设置里填写博客仓库");
+  const dir = config.postsDir.trim().replace(/^\/+|\/+$/g, "");
+  const acc: BlogPostItem[] = [];
+  await listDir(config, dir, 0, acc);
+  acc.sort((a, b) => b.path.localeCompare(a.path, "zh-CN"));
+  return acc.slice(0, MAX_POSTS);
+}
+
+export async function readBlogPost(
+  path: string,
+  config: BlogConfig = readBlogConfig(),
+): Promise<BlogPostFile> {
+  if (!isBlogConfigured(config)) throw new Error("先在设置里填写博客仓库");
+  const response = await contentsFetch(config, contentsUrl(config, path));
+  if (!response.ok) throw hostError(config.host, response.status, await readApiMessage(response));
+  const payload: unknown = await response.json();
+  if (Array.isArray(payload)) throw new Error("这是文件夹，不是文章");
+  const rec = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const encoding = typeof rec.encoding === "string" ? rec.encoding : undefined;
+  const truncated = rec.truncated === true;
+  const content = decodeGitContent(
+    typeof rec.content === "string" ? rec.content : undefined,
+    encoding,
+  );
+  if ((truncated || encoding === "none") && !content) {
+    throw new Error("文章过大，无法拉取");
+  }
+  const name = typeof rec.name === "string" ? rec.name : path.split("/").pop() || path;
+  return {
+    name,
+    path: typeof rec.path === "string" ? rec.path : path,
+    sha: typeof rec.sha === "string" ? rec.sha : undefined,
+    size: typeof rec.size === "number" ? rec.size : undefined,
+    content,
   };
 }

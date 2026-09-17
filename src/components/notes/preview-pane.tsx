@@ -13,6 +13,7 @@ type PreviewPaneProps = {
   format?: NoteFormat;
   centered?: boolean;
   reader?: boolean;
+  previewId?: string;
   onScroll?: () => void;
   onToggleTask?: (index: number) => void;
   onOpenWiki?: (title: string) => void;
@@ -23,6 +24,7 @@ export function PreviewPane({
   format = "md",
   centered = true,
   reader = false,
+  previewId = "note-preview",
   onScroll,
   onToggleTask,
   onOpenWiki,
@@ -87,7 +89,7 @@ export function PreviewPane({
 
   return (
     <div
-      id="note-preview"
+      id={previewId}
       className={cn("h-full min-h-0 overflow-y-auto", reader && "reader-scroll")}
       onScroll={onScroll}
     >

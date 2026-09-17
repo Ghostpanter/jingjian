@@ -25,7 +25,7 @@
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或 EPUB。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
-- 博客：齿轮 → 博客，选 GitHub 或 Gitee，工具栏纸飞机把当前笔记发成 Hugo / Hexo 文章。新建可用日记 / 会议 / 博客文章模板
+- 博客：齿轮 → 博客，选 GitHub 或 Gitee。侧栏报纸图标列出仓库文章，点开可读、可拉进本地再改；工具栏纸飞机发回去。新建可用日记 / 会议 / 博客文章模板
 - 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
 - 手机竖屏：文件列表从左侧滑出，点遮罩关闭；横屏即使宽度不够也按平板显示侧栏
 - 打开数兆的 TXT / Markdown 不会卡死：预览只渲染开头，超大正文写入独立缓存
@@ -62,6 +62,8 @@
 ## 博客
 
 齿轮 → 博客。填写 GitHub Token（需要仓库 contents 写入）、仓库 `owner/repo`、分支、Hugo 或 Hexo、文章目录。
+
+填好后，侧栏报纸图标（或设置里「查看仓库文章」）会列出文章目录里已有的 Markdown。点开可读；没有本地副本就拉进「博客」文件夹，已有的可以打开或用仓库覆盖。YAML 会原样留下，改完用工具栏纸飞机发回同一个文件。
 
 工具栏纸飞机把当前笔记写成一篇 Markdown 提交到仓库：Hugo 默认 `content/posts`，Hexo 默认 `source/_posts`。文件名是日期加标题。同一篇再发会覆盖上次那个文件。分类用笔记所在文件夹名。网站仍由仓库里的 GitHub Actions 构建。
 
@@ -121,7 +123,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.19.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.20.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -131,9 +133,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.19-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.6.19-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.6.19-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.6.20-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.6.20-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.6.20-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

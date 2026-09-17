@@ -93,6 +93,8 @@ export function writeBlogConfig(config: BlogConfig) {
   }
 }
 
+export const BLOG_FOLDER = "博客";
+
 export function isBlogConfigured(config: BlogConfig = readBlogConfig()): boolean {
   return Boolean(config.token.trim() && config.repo.trim());
 }
@@ -117,10 +119,23 @@ export function publishedPathFor(noteId: string): string | null {
   return readPublishedMap()[noteId]?.path ?? null;
 }
 
+export function noteIdForPublishedPath(path: string): string | null {
+  const target = path.trim();
+  if (!target) return null;
+  for (const [id, post] of Object.entries(readPublishedMap())) {
+    if (post?.path === target) return id;
+  }
+  return null;
+}
+
 export function rememberPublished(noteId: string, path: string) {
   try {
     const map = readPublishedMap();
-    map[noteId] = { path, at: Date.now() };
+    const target = path.trim();
+    for (const [id, post] of Object.entries(map)) {
+      if (id !== noteId && post?.path === target) delete map[id];
+    }
+    map[noteId] = { path: target, at: Date.now() };
     localStorage.setItem(PUBLISHED_KEY, JSON.stringify(map));
   } catch {
     // private mode

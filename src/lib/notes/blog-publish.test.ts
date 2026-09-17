@@ -3,14 +3,22 @@ import test from "node:test";
 import {
   buildFrontMatter,
   buildPostFile,
+  blogNoteId,
   choosePostPath,
+  collectDirectPosts,
+  decodeGitContent,
   defaultPostPath,
   encodeContentPath,
   folderCategory,
   githubParts,
+  isPostFilename,
   joinRepoPath,
+  localIdForBlogPost,
+  normalizeRepoEntries,
   postSlug,
   stripMatchingHeading,
+  titleFromPostContent,
+  titleFromPostName,
 } from "./blog-publish.ts";
 import { postsDirFor } from "./blog-config.ts";
 import type { Note } from "./types.ts";
@@ -151,3 +159,70 @@ test("encodeContentPath encodes each segment", () => {
     "content/posts/%E6%95%B0%E6%8D%AE%E5%BA%93.md",
   );
 });
+
+test("isPostFilename keeps markdown and skips index or hidden files", () => {
+  assert.equal(isPostFilename("hello.md"), true);
+  assert.equal(isPostFilename("hello.markdown"), true);
+  assert.equal(isPostFilename("hello.mdx"), true);
+  assert.equal(isPostFilename("_index.md"), false);
+  assert.equal(isPostFilename(".hidden.md"), false);
+  assert.equal(isPostFilename("hello.txt"), false);
+});
+
+test("titleFromPostName strips date prefixes and uses parent for index", () => {
+  assert.equal(titleFromPostName("content/posts/2026-09-15-hello-world.md"), "hello world");
+  assert.equal(titleFromPostName("source/_posts/数据库.md"), "数据库");
+  assert.equal(titleFromPostName("content/posts/foo/index.md"), "foo");
+});
+
+test("titleFromPostContent prefers yaml title", () => {
+  assert.equal(titleFromPostContent('---\ntitle: "窗边"\n---\n\n正文', "fallback"), "窗边");
+  assert.equal(titleFromPostContent("", "fallback"), "fallback");
+});
+
+test("decodeGitContent reads base64 utf8", () => {
+  const text = "你好，静笺";
+  const b64 = Buffer.from(text, "utf8").toString("base64");
+  assert.equal(decodeGitContent(b64, "base64"), text);
+  assert.equal(decodeGitContent("", "base64"), "");
+});
+
+test("collectDirectPosts skips index, dots, and keeps nested dirs", () => {
+  const { files, dirs } = collectDirectPosts(
+    normalizeRepoEntries([
+      { name: "a.md", path: "content/posts/a.md", type: "file", sha: "1", size: 12 },
+      { name: "_index.md", path: "content/posts/_index.md", type: "file" },
+      { name: ".gitkeep", path: "content/posts/.gitkeep", type: "file" },
+      { name: "nested", path: "content/posts/nested", type: "dir" },
+      { name: "readme.txt", path: "content/posts/readme.txt", type: "file" },
+    ]),
+  );
+  assert.equal(files.length, 1);
+  assert.equal(files[0]?.path, "content/posts/a.md");
+  assert.deepEqual(dirs, ["content/posts/nested"]);
+});
+
+test("blogNoteId is stable across url forms and host-specific", () => {
+  assert.equal(
+    blogNoteId("github", "Ghostpanter/blog", "content/posts/a.md"),
+    blogNoteId("github", "https://github.com/Ghostpanter/blog.git", "content/posts/a.md"),
+  );
+  assert.notEqual(
+    blogNoteId("github", "Ghostpanter/blog", "a.md"),
+    blogNoteId("gitee", "Ghostpanter/blog", "a.md"),
+  );
+});
+
+test("localIdForBlogPost matches generated id when the note exists", () => {
+  const path = "content/posts/a.md";
+  const id = blogNoteId("github", "owner/blog", path);
+  assert.equal(
+    localIdForBlogPost(path, "github", "owner/blog", () => false),
+    null,
+  );
+  assert.equal(
+    localIdForBlogPost(path, "github", "owner/blog", (item) => item === id),
+    id,
+  );
+});
+

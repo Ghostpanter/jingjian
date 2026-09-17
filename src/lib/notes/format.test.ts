@@ -54,6 +54,15 @@ test("large notes never split or copy the full body", () => {
   assert.ok(Date.now() - started < 500, "large-note helpers must stay cheap");
 });
 
+test("yaml front matter supplies the title and is skipped in snippets", () => {
+  const content = '---\ntitle: "窗边的风"\ndate: 2026-09-15\n---\n\n# 窗边的风\n\n下午的光线落在桌上。\n';
+  assert.equal(firstLineTitle(content), "窗边的风");
+  assert.equal(titleFromContent(content), "窗边的风");
+  assert.match(snippetFromContent(content), /下午的光线/);
+  assert.doesNotMatch(snippetFromContent(content), /date:/);
+  assert.equal(firstLineTitle("---\ntitle: 廊下\n---\n\n正文\n"), "廊下");
+});
+
 test("search matches folder path", () => {
   assert.equal(
     matchesQuery(

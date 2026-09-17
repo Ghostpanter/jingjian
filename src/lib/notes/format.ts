@@ -43,7 +43,41 @@ function stripTitleDecor(line: string): string {
     .trim();
 }
 
+function frontMatterBlock(content: string): { yaml: string; body: string } | null {
+  if (!content.startsWith("---")) return null;
+  const head = content.length > 4096 ? content.slice(0, 4096) : content;
+  const match = head.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return null;
+  return { yaml: match[1], body: content.slice(match[0].length) };
+}
+
+function yamlScalar(raw: string): string {
+  const value = raw.trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+export function bodyAfterFrontMatter(content: string): string {
+  const block = frontMatterBlock(content);
+  return block ? block.body.replace(/^\s+/, "") : content;
+}
+
 export function firstLineTitle(content: string): string {
+  const block = frontMatterBlock(content);
+  if (block) {
+    const line = block.yaml.split("\n").find((item) => /^title\s*:/i.test(item.trim()));
+    if (line) {
+      const title = yamlScalar(line.replace(/^title\s*:\s*/i, ""));
+      if (title) return title;
+    }
+    const heading = stripTitleDecor(firstNonEmptyLine(block.body));
+    return heading || "未命名笔记";
+  }
   const stripped = stripTitleDecor(firstNonEmptyLine(content));
   return stripped || "未命名笔记";
 }
@@ -55,12 +89,13 @@ export function titleFromContent(content: string): string {
 }
 
 export function snippetFromContent(content: string): string {
-  const limit = Math.min(content.length, NOTE_HEAD_SCAN);
+  const source = bodyAfterFrontMatter(content);
+  const limit = Math.min(source.length, NOTE_HEAD_SCAN);
   const lines: string[] = [];
   let start = 0;
   for (let index = 0; index <= limit; index += 1) {
-    if (index === limit || content.charCodeAt(index) === 10) {
-      const line = content.slice(start, index).replace(/\r$/, "").trim();
+    if (index === limit || source.charCodeAt(index) === 10) {
+      const line = source.slice(start, index).replace(/\r$/, "").trim();
       if (line) {
         lines.push(line);
         if (lines.length >= 8) break;

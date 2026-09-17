@@ -64,6 +64,7 @@ import { dropTrash, emptyTrash, pushTrash, readTrash, restoreTrash, type Trashed
 import { FormatBar } from "@/components/notes/format-bar";
 import { QuickOpen } from "@/components/notes/quick-open";
 import { TrashDialog } from "@/components/notes/trash-dialog";
+import { BlogPostsDialog } from "@/components/notes/blog-posts-dialog";
 import { ConflictDialog, type SyncConflict } from "@/components/notes/conflict-dialog";
 import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
 import { shouldRunSync, type SyncTrigger } from "@/lib/notes/sync-policy";
@@ -93,8 +94,8 @@ import {
   saveNoteAs,
   saveNoteToLibrary,
 } from "@/lib/notes/library-fs";
-import { isBlogConfigured, readBlogConfig } from "@/lib/notes/blog-config";
-import { publishNoteToBlog } from "@/lib/notes/blog-publish";
+import { BLOG_FOLDER, isBlogConfigured, readBlogConfig, rememberPublished } from "@/lib/notes/blog-config";
+import { blogNoteId, localIdForBlogPost, publishNoteToBlog, type BlogPostFile } from "@/lib/notes/blog-publish";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -343,6 +344,7 @@ export function NoteApp() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashItems, setTrashItems] = useState<TrashedNote[]>([]);
+  const [blogPostsOpen, setBlogPostsOpen] = useState(false);
   const [noteSort, setNoteSort] = useState<NoteSort>("updated");
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
   const [sidebarDragging, setSidebarDragging] = useState(false);
@@ -579,6 +581,40 @@ export function NoteApp() {
     } finally {
       setBlogBusy(false);
     }
+  }
+
+  function openBlogPosts() {
+    if (!isBlogConfigured()) {
+      toast.message("先在设置里填写博客仓库");
+      setSettingsTab("blog");
+      setSettingsOpen(true);
+      return;
+    }
+    setBlogPostsOpen(true);
+  }
+
+  async function handlePullBlogPost(file: BlogPostFile, existingId: string | null) {
+    const config = readBlogConfig();
+    const state = useNotesStore.getState();
+    const id = existingId || blogNoteId(config.host, config.repo, file.path);
+    const previous = state.notes.find((item) => item.id === id);
+    const folder = previous?.folder || BLOG_FOLDER;
+    const now = Date.now();
+    const note: Note = {
+      id,
+      content: file.content.replace(/^\uFEFF/, ""),
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+      folder,
+    };
+    createFolder(folder);
+    await ensureFolderOnDisk(folder).catch(() => undefined);
+    importNotes([note]);
+    rememberPublished(id, file.path);
+    setActiveFolder(folder);
+    setPreviewMode("edit");
+    void saveNoteToLibrary(note).catch(() => undefined);
+    toast.message(previous ? "已用仓库覆盖，改完可用纸飞机发回去" : "已拉进本地，改完可用纸飞机发回去");
   }
 
   function handleMoveNote(id: string, folder: string | null) {
@@ -1384,6 +1420,7 @@ export function NoteApp() {
             setTrashItems(readTrash());
             setTrashOpen(true);
           }}
+          onOpenBlog={openBlogPosts}
           sort={noteSort}
           onSortChange={(next) => {
             setNoteSort(next);
@@ -1771,6 +1808,21 @@ export function NoteApp() {
           setTrashItems([]);
         }}
       />
+      <BlogPostsDialog
+        open={blogPostsOpen}
+        onOpenChange={setBlogPostsOpen}
+        localIdForPath={(path) => {
+          const config = readBlogConfig();
+          const ids = new Set(useNotesStore.getState().notes.map((note) => note.id));
+          return localIdForBlogPost(path, config.host, config.repo, (id) => ids.has(id));
+        }}
+        onOpenLocal={(id) => {
+          const note = useNotesStore.getState().notes.find((item) => item.id === id);
+          setActiveFolder(note?.folder ?? "");
+          selectNote(id);
+        }}
+        onPull={handlePullBlogPost}
+      />
       <ConflictDialog
         conflict={conflicts[0] ?? null}
         remaining={conflicts.length}
@@ -1791,6 +1843,7 @@ export function NoteApp() {
           setSyncConfig(next);
         }}
         onSyncNow={() => void syncNow(false)}
+        onOpenBlogPosts={openBlogPosts}
       />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <LinkDialog

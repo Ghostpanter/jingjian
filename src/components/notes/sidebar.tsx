@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { BookOpen, Newspaper, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { CreateMenu } from "@/components/notes/create-menu";
 import { FileTree } from "@/components/notes/file-tree";
 import { OutlineList } from "@/components/notes/outline-list";
@@ -90,6 +90,7 @@ type SidebarProps = {
   onCloseMobile: () => void;
   onOpenSettings: () => void;
   onOpenTrash: () => void;
+  onOpenBlog: () => void;
   sort: NoteSort;
   onSortChange: (sort: NoteSort) => void;
   onReadBook?: (noteId: string) => void;
@@ -126,6 +127,7 @@ export function Sidebar({
   onCloseMobile,
   onOpenSettings,
   onOpenTrash,
+  onOpenBlog,
   sort,
   onSortChange,
   onReadBook,
@@ -310,6 +312,9 @@ export function Sidebar({
           >
             排序：{NOTE_SORTS.find((item) => item.id === sort)?.label}
           </button>
+          <Button variant="ghost" size="icon-sm" aria-label="仓库文章" onClick={onOpenBlog}>
+            <Newspaper />
+          </Button>
           <Button variant="ghost" size="icon-sm" aria-label="回收站" onClick={onOpenTrash}>
             <Trash2 />
           </Button>
