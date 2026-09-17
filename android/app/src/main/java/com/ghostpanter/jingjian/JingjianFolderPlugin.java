@@ -550,6 +550,28 @@ public class JingjianFolderPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void setChrome(PluginCall call) {
+        String bg = call.getString("bg", "#F2EDE4");
+        boolean dark = Boolean.TRUE.equals(call.getBoolean("dark", false));
+        if (bg == null || !bg.matches("#[0-9a-fA-F]{6}")) {
+            bg = "#F2EDE4";
+        }
+        getContext()
+            .getSharedPreferences("jingjian_chrome", Activity.MODE_PRIVATE)
+            .edit()
+            .putString("bg", bg)
+            .putBoolean("dark", dark)
+            .apply();
+        final String color = bg;
+        final boolean night = dark;
+        Activity activity = getActivity();
+        if (activity != null) {
+            activity.runOnUiThread(() -> MainActivity.applyChrome(activity, color, night, true));
+        }
+        call.resolve();
+    }
+
     private SharedPreferences prefs() {
         return getContext().getSharedPreferences(PREFS, Activity.MODE_PRIVATE);
     }

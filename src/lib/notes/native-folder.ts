@@ -44,6 +44,7 @@ type NativeFolderPlugin = {
   }): Promise<{ uri: string; name: string }>;
   consumeLaunchFile(): Promise<LaunchFile>;
   readOpenUri(options: { uri: string; name?: string }): Promise<OpenUriFile>;
+  setChrome(options: { bg: string; dark: boolean }): Promise<void>;
   addListener(
     event: "openFile",
     callback: (data: LaunchFile) => void,

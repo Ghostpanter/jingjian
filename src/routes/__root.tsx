@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { THEME_BOOT_SCRIPT } from "@/lib/notes/theme-boot";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "静笺";
@@ -25,6 +26,7 @@ export const Route = createRootRoute({
         content: "专注写作的本地 Markdown 笔记，支持即时搜索与预览。",
       },
       { name: "theme-color", content: "#F2EDE4" },
+      { name: "color-scheme", content: "light" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       {
         name: "apple-mobile-web-app-status-bar-style",
@@ -47,6 +49,7 @@ export const Route = createRootRoute({
         href: "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;600&display=swap",
       },
     ],
+    scripts: [{ children: THEME_BOOT_SCRIPT }],
   }),
   component: () => (
     <html lang="zh-CN" className="antialiased" suppressHydrationWarning>

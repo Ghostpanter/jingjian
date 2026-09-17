@@ -8,7 +8,7 @@ import {
   protocol,
   shell,
 } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -303,13 +303,25 @@ function loadAppPage(win) {
   });
 }
 
+function lastChromeBg() {
+  try {
+    const data = JSON.parse(readFileSync(userDataFile("chrome.json"), "utf8"));
+    const bg = typeof data?.bg === "string" ? data.bg.trim() : "";
+    if (/^#[0-9a-fA-F]{6}$/.test(bg)) return bg;
+  } catch {
+    // first launch
+  }
+  return "#F2EDE4";
+}
+
 function createWindow(bounds) {
   const win = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
     minWidth: 720,
     minHeight: 520,
-    backgroundColor: "#F2EDE4",
+    backgroundColor: lastChromeBg(),
+    show: false,
     title: "静笺",
     autoHideMenuBar: true,
     webPreferences: {
@@ -341,6 +353,12 @@ function createWindow(bounds) {
       void win.loadFile(fallback);
     }
   });
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) win.show();
+  });
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) win.show();
+  }, 2500);
   loadAppPage(win);
   return win;
 }
@@ -523,6 +541,19 @@ function registerIpc() {
     };
     if (isTextName(name, mime)) result.text = bytes.toString("utf8");
     return result;
+  });
+
+  ipcMain.handle("set-chrome", async (event, payload) => {
+    const bg =
+      typeof payload?.bg === "string" && /^#[0-9a-fA-F]{6}$/.test(payload.bg)
+        ? payload.bg
+        : "#F2EDE4";
+    const dark = Boolean(payload?.dark);
+    await writeJson(userDataFile("chrome.json"), { bg, dark });
+    const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    if (win && !win.isDestroyed()) {
+      win.setBackgroundColor(bg);
+    }
   });
 
   ipcMain.handle("net-fetch", async (_event, payload) => {

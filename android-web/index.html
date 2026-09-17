@@ -13,6 +13,84 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>静笺</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      html { --color-bg: #f2ede4; --color-fg: #1a1814; --color-paper: #f7f3eb; --color-surface: #e8e0d2; }
+      html, body, #root { height: 100%; margin: 0; background: var(--color-bg); color: var(--color-fg); }
+    </style>
+    <script>
+      "use strict";
+      (function () {
+        try {
+          var bg = "#f2ede4",
+            fg = "#1a1814",
+            paper = "#f7f3eb",
+            surface = "#e8e0d2",
+            dark = false,
+            used = false;
+          var chRaw = localStorage.getItem("jingjian.chrome.v1");
+          if (chRaw) {
+            var ch = JSON.parse(chRaw);
+            if (ch && typeof ch.bg === "string" && /^#[0-9a-fA-F]{6}$/.test(ch.bg)) {
+              bg = ch.bg;
+              dark = !!ch.dark;
+              fg = typeof ch.fg === "string" && /^#[0-9a-fA-F]{6}$/.test(ch.fg) ? ch.fg : dark ? "#e8e2d6" : fg;
+              paper = bg;
+              surface = bg;
+              used = true;
+            }
+          }
+          if (!used) {
+            var raw = localStorage.getItem("jingjian.theme.v1");
+            if (raw) {
+              var c = JSON.parse(raw);
+              var id = (c && c.id) || "paper";
+              if (id === "ink") {
+                bg = "#161513";
+                fg = "#e8e2d6";
+                paper = "#1a1816";
+                surface = "#1e1c19";
+                dark = true;
+              } else if (id === "github") {
+                bg = "#ffffff";
+                fg = "#1f2328";
+                paper = "#ffffff";
+                surface = "#f6f8fa";
+              } else if (id === "github-dark") {
+                bg = "#0d1117";
+                fg = "#e6edf3";
+                paper = "#0d1117";
+                surface = "#161b22";
+                dark = true;
+              } else if (id === "custom-light" && c.customLight && /^#[0-9a-fA-F]{6}$/.test(c.customLight.bg)) {
+                bg = c.customLight.bg;
+                fg = c.customLight.fg || fg;
+                paper = bg;
+                surface = bg;
+              } else if (id === "custom-dark" && c.customDark && /^#[0-9a-fA-F]{6}$/.test(c.customDark.bg)) {
+                bg = c.customDark.bg;
+                fg = c.customDark.fg || "#e8e2d6";
+                paper = bg;
+                surface = bg;
+                dark = true;
+              }
+            }
+          }
+          var r = document.documentElement;
+          r.style.colorScheme = dark ? "dark" : "light";
+          r.style.setProperty("--color-bg", bg);
+          r.style.setProperty("--color-paper", paper);
+          r.style.setProperty("--color-surface", surface);
+          r.style.setProperty("--color-fg", fg);
+          r.style.background = bg;
+          r.style.backgroundColor = bg;
+          r.style.color = fg;
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute("content", bg);
+          var s = document.querySelector('meta[name="color-scheme"]');
+          if (s) s.setAttribute("content", dark ? "dark" : "light");
+        } catch (e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("jingjianDesktop", {
   consumeLaunchFile: () => ipcRenderer.invoke("launch-consume"),
   readOpenFile: (options) => ipcRenderer.invoke("launch-read", options),
   netFetch: (options) => ipcRenderer.invoke("net-fetch", options),
+  setChrome: (options) => ipcRenderer.invoke("set-chrome", options),
   onOpenFile: (callback) => {
     const listener = (_event, data) => {
       callback(data);

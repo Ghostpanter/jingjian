@@ -1,3 +1,6 @@
+import { desktopApi } from "./desktop.ts";
+import { nativeFolder } from "./native-folder.ts";
+
 export type ThemeId =
   | "paper"
   | "ink"
@@ -341,6 +344,7 @@ export function statusBarStyleFor(dark: boolean): "DARK" | "LIGHT" {
 }
 
 async function syncNativeChrome(palette: Palette, dark: boolean) {
+  persistChrome(palette, dark);
   try {
     const { Capacitor } = await import("@capacitor/core");
     if (!Capacitor.isNativePlatform()) return;
@@ -352,7 +356,33 @@ async function syncNativeChrome(palette: Palette, dark: boolean) {
     } catch {
       await StatusBar.setBackgroundColor({ color: palette.bg });
     }
+    await hideSplash();
   } catch {
-    // Web, desktop, or plugin missing.
+    await hideSplash();
+  }
+}
+
+function persistChrome(palette: Palette, dark: boolean) {
+  const bg = palette.bg;
+  try {
+    localStorage.setItem(
+      "jingjian.chrome.v1",
+      JSON.stringify({ bg, fg: palette.fg, dark }),
+    );
+  } catch {
+    // private mode
+  }
+  void nativeFolder.setChrome?.({ bg, dark })?.catch(() => undefined);
+  void Promise.resolve(desktopApi()?.setChrome?.({ bg, dark })).catch(() => undefined);
+}
+
+async function hideSplash() {
+  try {
+    const { Capacitor } = await import("@capacitor/core");
+    if (!Capacitor.isNativePlatform()) return;
+    const { SplashScreen } = await import("@capacitor/splash-screen");
+    await SplashScreen.hide({ fadeOutDuration: 180 });
+  } catch {
+    // web, desktop, or plugin missing
   }
 }

@@ -16,6 +16,7 @@ FONT_SEMI = ROOT / "scripts" / "fonts" / "NotoSerifSC-600.ttf"
 
 PINE = (44, 74, 66, 255)
 PAPER = (244, 239, 228, 255)
+SPLASH_BG = (242, 237, 228, 255)
 FOLD = (228, 216, 196, 255)
 FOLD_EDGE = (205, 191, 168, 255)
 INK = (44, 74, 66, 255)
@@ -143,24 +144,24 @@ def render_foreground(size: int) -> Image.Image:
 
 
 def render_splash(size: int = 1280) -> Image.Image:
-    im = Image.new("RGBA", (size, size), PINE)
-    mark = int(size * 0.42)
+    im = Image.new("RGBA", (size, size), SPLASH_BG)
+    mark = int(size * 0.28)
     tile = Image.new("RGBA", (mark, mark), (0, 0, 0, 0))
-    draw_mark(tile, mark, shadow=True)
-    word_font = ImageFont.truetype(str(FONT_SEMI), int(size * 0.055))
+    draw_mark(tile, mark, shadow=False)
+    word_font = ImageFont.truetype(str(FONT_SEMI), int(size * 0.048))
     d = ImageDraw.Draw(im)
     word = "静笺"
     bbox = d.textbbox((0, 0), word, font=word_font)
     word_w, word_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    gap = int(size * 0.028)
+    gap = int(size * 0.02)
     group_h = mark + gap + word_h
-    top = (size - group_h) // 2 - int(size * 0.015)
+    top = (size - group_h) // 2 - int(size * 0.01)
     im.alpha_composite(tile, ((size - mark) // 2, top))
     d.text(
         (size / 2, top + mark + gap + word_h / 2),
         word,
         font=word_font,
-        fill=WORD,
+        fill=PINE,
         anchor="mm",
     )
     return im
@@ -215,8 +216,10 @@ def main() -> None:
         save(downscale(foreground, adaptive), folder / "ic_launcher_foreground.png")
 
     drawable = ANDROID_RES / "drawable"
-    save(downscale(master, 432), drawable / "splash_logo.png")
-    save(splash, drawable / "splash.png")
+    save(downscale(foreground, 432), drawable / "splash_logo.png")
+    splash_png = drawable / "splash.png"
+    if splash_png.exists():
+        splash_png.unlink()
     for folder in ANDROID_RES.glob("drawable-*/"):
         target = folder / "splash.png"
         if target.exists() or folder.name.startswith("drawable-port") or folder.name.startswith("drawable-land"):
