@@ -22,7 +22,7 @@ type NotesState = {
   hydrated: boolean;
   editorEpoch: number;
   folders: string[];
-  createNote: (options?: { format?: Note["format"]; folder?: string }) => string;
+  createNote: (options?: { format?: Note["format"]; folder?: string; content?: string }) => string;
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
   selectNote: (id: string) => void;
@@ -150,21 +150,24 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   createNote: (options?) => {
     const format = options?.format === "txt" ? "txt" : undefined;
     const folder = normalizeFolder(options?.folder ?? "");
-    const existingEmpty = get().notes.find(
-      (note) =>
-        isBlankContent(note.content) &&
-        !note.bookId &&
-        (note.format ?? "md") === (format ?? "md") &&
-        (note.folder ?? "") === folder,
-    );
-    if (existingEmpty) {
-      set({ activeId: existingEmpty.id, query: "", sidebarOpen: false });
-      return existingEmpty.id;
+    const content = options?.content ?? "";
+    if (!content) {
+      const existingEmpty = get().notes.find(
+        (note) =>
+          isBlankContent(note.content) &&
+          !note.bookId &&
+          (note.format ?? "md") === (format ?? "md") &&
+          (note.folder ?? "") === folder,
+      );
+      if (existingEmpty) {
+        set({ activeId: existingEmpty.id, query: "", sidebarOpen: false });
+        return existingEmpty.id;
+      }
     }
     const now = Date.now();
     const note: Note = {
       id: crypto.randomUUID(),
-      content: "",
+      content,
       createdAt: now,
       updatedAt: now,
       ...(format ? { format } : {}),
@@ -177,6 +180,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       previewMode: get().previewMode === "preview" ? "edit" : get().previewMode,
       sidebarOpen: false,
       folders: folder ? collectFolders([note, ...get().notes], get().folders) : get().folders,
+      editorEpoch: get().editorEpoch + 1,
     });
     return note.id;
   },

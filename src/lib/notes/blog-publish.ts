@@ -6,6 +6,7 @@ import {
   rememberPublished,
   type BlogConfig,
   type BlogEngine,
+  type BlogHost,
 } from "./blog-config.ts";
 import { desktopRequest, isDesktopApp } from "./desktop.ts";
 import { firstLineTitle } from "./format.ts";
@@ -14,7 +15,7 @@ import type { Note } from "./types.ts";
 export function githubParts(repo: string): { owner: string; name: string } {
   const cleaned = repo
     .trim()
-    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^https?:\/\/(github|gitee)\.com\//i, "")
     .replace(/\.git$/i, "")
     .replace(/\/+$/g, "");
   const [owner, name] = cleaned.split("/").map((part) => part.trim()).filter(Boolean);
@@ -112,11 +113,23 @@ export function folderCategory(folder?: string): string | null {
   return name || null;
 }
 
+export function hasFrontMatter(content: string): boolean {
+  return /^---\r?\n/.test(content);
+}
+
+export function extraFrontMatterLines(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() && line.trim() !== "---");
+}
+
 export function buildFrontMatter(
   engine: BlogEngine,
   title: string,
   category: string | null,
   now = new Date(),
+  extra = "",
 ): string {
   const time = localDateTime(now);
   const lines = ["---", `title: ${yamlQuote(title)}`];
@@ -129,24 +142,52 @@ export function buildFrontMatter(
     lines.push(`date: ${time.iso}`, "draft: false");
     if (category) lines.push(`categories: [${yamlQuote(category)}]`);
   }
+  lines.push(...extraFrontMatterLines(extra));
   lines.push("---", "");
   return lines.join("\n");
 }
 
-export function buildPostFile(note: Note, engine: BlogEngine, now = new Date()): string {
+export function buildPostFile(
+  note: Note,
+  engine: BlogEngine,
+  now = new Date(),
+  extra = "",
+): string {
+  if (hasFrontMatter(note.content)) return note.content.replace(/^\uFEFF/, "");
   const title = firstLineTitle(note.content);
   const body = stripMatchingHeading(note.content, title);
-  return `${buildFrontMatter(engine, title, folderCategory(note.folder), now)}${body.replace(/^\uFEFF/, "")}`;
+  return `${buildFrontMatter(engine, title, folderCategory(note.folder), now, extra)}${body.replace(/^\uFEFF/, "")}`;
 }
 
-async function githubFetch(
+function hostName(host: BlogHost): string {
+  return host === "gitee" ? "Gitee" : "GitHub";
+}
+
+async function contentsFetch(
+  config: BlogConfig,
   path: string,
-  token: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  const { owner, name } = githubParts(config.repo);
+  const token = config.token.trim();
+  const host = config.host === "gitee" ? "gitee" : "github";
+  if (host === "gitee") {
+    const url = path.startsWith("http")
+      ? path
+      : `https://gitee.com/api/v5${path}${path.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}`;
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...(init.headers as Record<string, string> | undefined),
+    };
+    if (isDesktopApp()) {
+      headers["User-Agent"] = "jingjian";
+      return desktopRequest(url, { ...init, headers });
+    }
+    return fetch(url, { ...init, headers });
+  }
   const url = path.startsWith("http") ? path : `https://api.github.com${path}`;
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${token.trim()}`,
+    Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     ...(init.headers as Record<string, string> | undefined),
@@ -158,7 +199,7 @@ async function githubFetch(
   return fetch(url, { ...init, headers });
 }
 
-async function readGithubMessage(response: Response): Promise<string> {
+async function readApiMessage(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { message?: string };
     return payload.message?.trim() || "";
@@ -167,30 +208,31 @@ async function readGithubMessage(response: Response): Promise<string> {
   }
 }
 
-function githubError(status: number, message: string): Error {
+function hostError(host: BlogHost, status: number, message: string): Error {
+  const name = hostName(host);
   const lower = message.toLowerCase();
-  if (status === 401 || lower.includes("bad credentials")) {
+  if (status === 401 || lower.includes("bad credentials") || lower.includes("unauthorized")) {
     return new Error("Token 无效");
   }
   if (status === 403 && /rate limit/i.test(message)) {
-    return new Error("GitHub 次数用完，稍后再发");
+    return new Error(`${name} 次数用完，稍后再发`);
   }
-  if (status === 403 && /resource not accessible|must have/i.test(message)) {
+  if (status === 403 && /resource not accessible|must have|403/i.test(message)) {
     return new Error("Token 需要 contents 写入权限");
   }
   if (status === 404) {
     return new Error("仓库不存在，或 Token 没有权限");
   }
-  return new Error(message ? `GitHub：${message}` : `GitHub 失败（${status}）`);
+  return new Error(message ? `${name}：${message}` : `${name} 失败（${status}）`);
 }
 
 export async function testBlogConfig(config: BlogConfig): Promise<string> {
-  if (!config.token.trim()) throw new Error("请填写 GitHub Token");
+  if (!config.token.trim()) throw new Error("请填写 Token");
   const { owner, name } = githubParts(config.repo);
-  const response = await githubFetch(`/repos/${owner}/${name}`, config.token);
-  if (!response.ok) throw githubError(response.status, await readGithubMessage(response));
+  const response = await contentsFetch(config, `/repos/${owner}/${name}`);
+  if (!response.ok) throw hostError(config.host, response.status, await readApiMessage(response));
   const dir = config.postsDir.trim() || (config.engine === "hexo" ? "source/_posts" : "content/posts");
-  return `已连接 ${owner}/${name}，文章写入 ${dir}`;
+  return `已连接 ${hostName(config.host)} ${owner}/${name}，文章写入 ${dir}`;
 }
 
 export type PublishResult = {
@@ -206,19 +248,19 @@ export async function publishNoteToBlog(
   if (!isBlogConfigured(config)) throw new Error("先在设置里填写博客仓库");
   const title = firstLineTitle(note.content);
   if (title === "未命名笔记" && !note.content.trim()) throw new Error("这篇还没有内容");
-  const markdown = buildPostFile(note, config.engine);
-  if (utf8(markdown).byteLength > 900_000) throw new Error("文章过大，GitHub 接口装不下");
+  const markdown = buildPostFile(note, config.engine, new Date(), config.extraFrontMatter);
+  if (utf8(markdown).byteLength > 900_000) throw new Error("文章过大，接口装不下");
 
   const { owner, name } = githubParts(config.repo);
   const branch = config.branch.trim() || "main";
   const remembered = publishedPathFor(note.id);
   const probePath = remembered || defaultPostPath(title, config.postsDir);
-  const existing = await githubFetch(
+  const existing = await contentsFetch(
+    config,
     `/repos/${owner}/${name}/contents/${encodeContentPath(probePath)}?ref=${encodeURIComponent(branch)}`,
-    config.token,
   );
   if (!existing.ok && existing.status !== 404) {
-    throw githubError(existing.status, await readGithubMessage(existing));
+    throw hostError(config.host, existing.status, await readApiMessage(existing));
   }
   const chosen = choosePostPath({
     title,
@@ -235,30 +277,36 @@ export async function publishNoteToBlog(
     void existing.text();
   }
 
-  const response = await githubFetch(
+  const body: Record<string, string> = {
+    message: sha ? `静笺: 更新 ${title}` : `静笺: 发布 ${title}`,
+    content: uint8ToBase64(utf8(markdown)),
+    branch,
+  };
+  if (sha) body.sha = sha;
+  if (config.host === "gitee") body.access_token = config.token.trim();
+
+  const response = await contentsFetch(
+    config,
     `/repos/${owner}/${name}/contents/${encodeContentPath(chosen.path)}`,
-    config.token,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: sha ? `静笺: 更新 ${title}` : `静笺: 发布 ${title}`,
-        content: uint8ToBase64(utf8(markdown)),
-        branch,
-        ...(sha ? { sha } : {}),
-      }),
+      body: JSON.stringify(body),
     },
   );
-  if (!response.ok) throw githubError(response.status, await readGithubMessage(response));
+  if (!response.ok) throw hostError(config.host, response.status, await readApiMessage(response));
   const payload = (await response.json()) as {
     content?: { html_url?: string; path?: string };
+    html_url?: string;
   };
   rememberPublished(note.id, chosen.path);
+  const site = config.host === "gitee" ? "gitee.com" : "github.com";
   return {
     path: payload.content?.path || chosen.path,
     url:
       payload.content?.html_url ||
-      `https://github.com/${owner}/${name}/blob/${branch}/${chosen.path}`,
+      payload.html_url ||
+      `https://${site}/${owner}/${name}/blob/${branch}/${chosen.path}`,
     updated: Boolean(sha),
   };
 }

@@ -40,7 +40,17 @@ import {
   writeBlogConfig,
   type BlogConfig,
   type BlogEngine,
+  type BlogHost,
 } from "@/lib/notes/blog-config";
+import {
+  applyEditorPrefs,
+  DEFAULT_EDITOR_PREFS,
+  EDITOR_FONTS,
+  EDITOR_SIZES,
+  readEditorPrefs,
+  writeEditorPrefs,
+  type EditorPrefs,
+} from "@/lib/notes/editor-prefs";
 import { testBlogConfig } from "@/lib/notes/blog-publish";
 import { testImageUploader } from "@/lib/notes/image-upload";
 import { cn } from "@/lib/utils";
@@ -102,6 +112,8 @@ export function SettingsDialog({
   const [savedTheme, setSavedTheme] = useState<ThemeConfig>(DEFAULT_THEME);
   const [image, setImage] = useState<ImageConfig>(DEFAULT_IMAGE_CONFIG);
   const [blog, setBlog] = useState<BlogConfig>(DEFAULT_BLOG_CONFIG);
+  const [editor, setEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
+  const [savedEditor, setSavedEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
   const [busy, setBusy] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState(false);
@@ -116,6 +128,8 @@ export function SettingsDialog({
       setSavedTheme(currentTheme);
       setImage(readImageConfig());
       setBlog(readBlogConfig());
+      setEditor(readEditorPrefs());
+      setSavedEditor(readEditorPrefs());
       setTestMessage("");
       setBusy(false);
       setTab(initialTab);
@@ -194,6 +208,7 @@ export function SettingsDialog({
 
   function handleCancel() {
     applyTheme(savedTheme);
+    applyEditorPrefs(savedEditor);
     onOpenChange(false);
   }
 
@@ -201,6 +216,8 @@ export function SettingsDialog({
     writeThemeConfig(theme);
     writeImageConfig(image);
     writeBlogConfig(blog);
+    writeEditorPrefs(editor);
+    applyEditorPrefs(editor);
     applyTheme(theme);
     onSave(draft);
     onOpenChange(false);
@@ -253,7 +270,7 @@ export function SettingsDialog({
           />
         ) : null}
         {tab === "theme" ? (
-          <ThemePanel theme={theme} onChange={patchTheme} />
+          <ThemePanel theme={theme} editor={editor} onChange={patchTheme} onEditorChange={setEditor} />
         ) : null}
         {tab === "image" ? (
           <ImagePanel image={image} onChange={patchImage} />
@@ -515,10 +532,14 @@ function SyncPanel({
 
 function ThemePanel({
   theme,
+  editor,
   onChange,
+  onEditorChange,
 }: {
   theme: ThemeConfig;
+  editor: EditorPrefs;
   onChange: (theme: ThemeConfig) => void;
+  onEditorChange: (prefs: EditorPrefs) => void;
 }) {
   const custom = theme.id === "custom-light" || theme.id === "custom-dark";
   const colors = theme.id === "custom-dark" ? theme.customDark : theme.customLight;
@@ -588,6 +609,45 @@ function ThemePanel({
           />
         </div>
       ) : null}
+      <p className="mt-4 text-xs text-muted">正文字号与字体</p>
+      <div className="provider-grid mt-2">
+        {EDITOR_SIZES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => {
+              const next = { ...editor, size: item.id };
+              onEditorChange(next);
+              applyEditorPrefs(next);
+            }}
+            className={cn(
+              "btn-press rounded-md px-3 py-2 text-sm",
+              editor.size === item.id ? "bg-paper text-fg shadow-border" : "bg-overlay text-muted",
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="provider-grid mt-2">
+        {EDITOR_FONTS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => {
+              const next = { ...editor, font: item.id };
+              onEditorChange(next);
+              applyEditorPrefs(next);
+            }}
+            className={cn(
+              "btn-press rounded-md px-3 py-2 text-sm",
+              editor.font === item.id ? "bg-paper text-fg shadow-border" : "bg-overlay text-muted",
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
     </>
   );
 }
@@ -938,7 +998,31 @@ function BlogPanel({
           );
         })}
       </div>
-      <Field label="GitHub Token">
+      <div className="provider-grid mt-2">
+        {(
+          [
+            { id: "github", label: "GitHub", hint: "公开仓库" },
+            { id: "gitee", label: "Gitee", hint: "国内仓库" },
+          ] as const
+        ).map((item) => {
+          const selected = blog.host === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onChange({ host: item.id as BlogHost })}
+              className={cn(
+                "btn-press rounded-md px-3 py-2.5 text-left",
+                selected ? "bg-paper text-fg shadow-border" : "bg-overlay text-muted",
+              )}
+            >
+              <span className="block text-sm text-fg">{item.label}</span>
+              <span className="block text-xs text-subtle">{item.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+      <Field label={blog.host === "gitee" ? "Gitee Token" : "GitHub Token"}>
         <Input
           type="password"
           value={blog.token}
@@ -971,6 +1055,16 @@ function BlogPanel({
           value={blog.postsDir}
           onChange={(event) => onChange({ postsDir: event.target.value })}
           placeholder={blog.engine === "hexo" ? "source/_posts" : "content/posts"}
+          autoCapitalize="off"
+        />
+      </Field>
+      <Field label="额外 front matter">
+        <textarea
+          value={blog.extraFrontMatter}
+          onChange={(event) => onChange({ extraFrontMatter: event.target.value })}
+          placeholder={'tags: [随笔]\ncomments: false'}
+          className="mt-1 h-20 w-full resize-y rounded-md bg-overlay px-3 py-2 font-mono text-xs text-fg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          spellCheck={false}
           autoCapitalize="off"
         />
       </Field>

@@ -36,7 +36,8 @@ test("last write wins", () => {
     tombstones: {},
   });
   assert.equal(result.notes[0]?.content, "local");
-  assert.equal(result.toUpload[0]?.content, "local");
+  assert.equal(result.conflicts.length, 1);
+  assert.equal(result.toUpload.length, 0);
 });
 
 test("tombstone deletes older remote", () => {
@@ -91,6 +92,18 @@ test("idle remote wins when the editor is not active", () => {
     activeId: "b",
     now: 1_000_000,
   });
-  assert.equal(result.notes[0]?.content, "云端新稿");
+  assert.equal(result.notes[0]?.content, "本机旧稿");
+  assert.equal(result.conflicts.length, 1);
   assert.equal(result.toUpload.length, 0);
+});
+
+test("prefix or contained drafts still auto merge", () => {
+  const longer = mergeNotes({
+    local: [note("a", 30, "你好世界")],
+    remote: [note("a", 20, "你好")],
+    tombstones: {},
+  });
+  assert.equal(longer.notes[0]?.content, "你好世界");
+  assert.equal(longer.conflicts.length, 0);
+  assert.equal(longer.toUpload[0]?.content, "你好世界");
 });

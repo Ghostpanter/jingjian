@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { NOTE_TEMPLATES } from "@/lib/notes/templates";
 import { cn } from "@/lib/utils";
 
 type CreateMenuProps = {
@@ -11,6 +12,7 @@ type CreateMenuProps = {
   onCreateMarkdown: () => void;
   onCreateText: () => void;
   onCreateFolder: () => void;
+  onCreateFromTemplate: (id: string) => void;
   onImportMarkdown: () => void;
   onImportTxt: () => void;
   onImportFolder: () => void;
@@ -33,6 +35,7 @@ export function CreateMenu({
   onCreateMarkdown,
   onCreateText,
   onCreateFolder,
+  onCreateFromTemplate,
   onImportMarkdown,
   onImportTxt,
   onImportFolder,
@@ -90,6 +93,19 @@ export function CreateMenu({
       <button type="button" role="menuitem" className={itemClass} onClick={onCreateFolder}>
         文件夹
       </button>
+      <div className="my-2 h-px bg-border" />
+      <div className="px-1 py-1 text-xs text-subtle">模板</div>
+      {NOTE_TEMPLATES.filter((item) => item.id !== "blank").map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="menuitem"
+          className={itemClass}
+          onClick={() => onCreateFromTemplate(item.id)}
+        >
+          {item.name}
+        </button>
+      ))}
       <div className="my-2 h-px bg-border" />
       <div className="px-1 py-1 text-xs text-subtle">导入</div>
       <button type="button" role="menuitem" className={itemClass} onClick={onImportMarkdown}>

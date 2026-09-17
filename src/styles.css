@@ -91,7 +91,8 @@
   }
 
   #note-editor {
-    font-size: max(1.125rem, 16px);
+    font-size: max(var(--editor-size, 1.125rem), 16px);
+    font-family: var(--editor-font, var(--font-serif));
   }
 
   kbd {
@@ -311,7 +312,8 @@
 
   .md-body {
     color: var(--color-fg);
-    font-size: var(--text-editor);
+    font-size: var(--editor-size, var(--text-editor));
+    font-family: var(--editor-font, var(--font-serif));
     line-height: 1.75;
     overflow-wrap: break-word;
     word-break: normal;
@@ -453,6 +455,14 @@
   .md-body li input[type="checkbox"] {
     margin-right: 0.45rem;
     accent-color: var(--color-accent);
+    width: 1.05rem;
+    height: 1.05rem;
+    vertical-align: -0.15rem;
+  }
+
+  .md-body li input.task-toggle {
+    pointer-events: auto;
+    cursor: pointer;
   }
 
   .md-body blockquote {
@@ -531,7 +541,7 @@
   .md-body .code-block[data-lang]::before {
     content: attr(data-lang);
     display: block;
-    padding: 0.45rem 1.1rem 0;
+    padding: 0.45rem 2.8rem 0 1.1rem;
     color: var(--color-subtle);
     font-family: var(--font-sans);
     font-size: 0.7rem;
@@ -542,6 +552,106 @@
   .md-body .code-block pre {
     margin: 0;
     background: transparent;
+  }
+
+  .md-body .code-copy {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.45rem;
+    z-index: 1;
+    min-height: 1.75rem;
+    padding: 0 0.55rem;
+    border: 0;
+    border-radius: 6px;
+    background: var(--color-paper);
+    color: var(--color-muted);
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    box-shadow: var(--shadow-border);
+  }
+
+  .md-body .wiki-link {
+    color: var(--color-accent);
+    text-decoration: none;
+    box-shadow: inset 0 -1px 0 var(--color-border);
+  }
+
+  .md-body .callout {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    background: var(--color-overlay);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+  }
+
+  .md-body .callout-title {
+    margin: 0 0 0.35rem;
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-accent);
+  }
+
+  .md-body .callout-warning,
+  .md-body .callout-danger,
+  .md-body .callout-caution,
+  .md-body .callout-bug,
+  .md-body .callout-failure {
+    box-shadow: inset 3px 0 0 var(--color-danger);
+  }
+
+  .md-body .callout-warning .callout-title,
+  .md-body .callout-danger .callout-title,
+  .md-body .callout-caution .callout-title {
+    color: var(--color-danger);
+  }
+
+  .md-body .footnotes {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.9em;
+    color: var(--color-muted);
+  }
+
+  .md-body .fn-ref a {
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  .md-body .math-block {
+    margin: 0.8rem 0;
+    overflow-x: auto;
+  }
+
+  .md-body .katex {
+    font-size: 1.05em;
+  }
+
+  .image-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 1.5rem;
+    border: 0;
+    background: rgb(26 24 20 / 0.72);
+    cursor: zoom-out;
+  }
+
+  .image-lightbox img {
+    max-width: min(96vw, 72rem);
+    max-height: 92dvh;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .format-bar {
+    display: none;
   }
 
   .md-body .hljs-keyword,
@@ -783,6 +893,36 @@
   .safe-shell {
     /* Marker only. Insets live on sidebar / main so each column's color
        runs under the system status bar, same as Obsidian / iA Writer. */
+  }
+}
+
+@media (max-width: 767px) {
+  .format-bar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-around;
+    gap: 0.15rem;
+    min-height: 3.25rem;
+    padding: 0.2rem 0.4rem calc(0.2rem + var(--inset-bottom));
+    background: var(--color-paper);
+    box-shadow: inset 0 1px 0 var(--color-border);
+  }
+
+  .format-bar button {
+    display: inline-flex;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-fg);
+  }
+
+  .format-bar button:disabled {
+    opacity: 0.4;
   }
 }
 

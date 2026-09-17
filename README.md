@@ -12,6 +12,8 @@
 - 当前文档查找与替换，支持正则、区分大小写、全词匹配
 - 侧栏右缘向左拖可关掉文件列表；目录和大纲之间可拖动高度
 - Markdown 源码、分栏、预览；`Ctrl + /` 或 `Ctrl + E` 循环切换；分栏时两边按标题对齐同步滚动
+- 公式 `$...$` / `$$...$$`，任务列表可在预览勾选，代码块可复制，支持 Callout、脚注、`[[笔记名]]` 双链
+- `Ctrl + P` 按标题快速打开；删除进回收站；侧栏可按修改时间、创建时间、标题排序
 - 当前笔记的标题大纲，点一下跳到源码和预览对应位置
 - 代码高亮与 Mermaid 流程图
 - 插入外链：Ctrl + K，或把网址粘到选中文字上
@@ -23,7 +25,7 @@
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或 EPUB。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
-- 博客：齿轮 → 博客，填 GitHub 仓库后，工具栏纸飞机把当前笔记发成 Hugo / Hexo 文章
+- 博客：齿轮 → 博客，选 GitHub 或 Gitee，工具栏纸飞机把当前笔记发成 Hugo / Hexo 文章。新建可用日记 / 会议 / 博客文章模板
 - 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB；分享文字或图片也会收入笔记
 - 手机竖屏：文件列表从左侧滑出，点遮罩关闭；横屏即使宽度不够也按平板显示侧栏
 - 打开数兆的 TXT / Markdown 不会卡死：预览只渲染开头，超大正文写入独立缓存
@@ -119,7 +121,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.17.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.6.18.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -129,9 +131,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.6.14-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.6.14-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.6.14-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.6.18-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.6.18-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.6.18-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

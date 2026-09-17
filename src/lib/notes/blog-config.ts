@@ -1,4 +1,5 @@
 export type BlogEngine = "hugo" | "hexo";
+export type BlogHost = "github" | "gitee";
 
 export type BlogConfig = {
   token: string;
@@ -6,6 +7,8 @@ export type BlogConfig = {
   branch: string;
   engine: BlogEngine;
   postsDir: string;
+  host: BlogHost;
+  extraFrontMatter: string;
 };
 
 const STORAGE_KEY = "jingjian.blog.v1";
@@ -17,6 +20,8 @@ export const DEFAULT_BLOG_CONFIG: BlogConfig = {
   branch: "main",
   engine: "hugo",
   postsDir: "content/posts",
+  host: "github",
+  extraFrontMatter: "",
 };
 
 export const ENGINE_POSTS_DIR: Record<BlogEngine, string> = {
@@ -25,6 +30,7 @@ export const ENGINE_POSTS_DIR: Record<BlogEngine, string> = {
 };
 
 const ENGINES: BlogEngine[] = ["hugo", "hexo"];
+const HOSTS: BlogHost[] = ["github", "gitee"];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -53,12 +59,15 @@ export function readBlogConfig(): BlogConfig {
     const engine = ENGINES.includes(parsed.engine as BlogEngine)
       ? (parsed.engine as BlogEngine)
       : "hugo";
+    const host = HOSTS.includes(parsed.host as BlogHost) ? (parsed.host as BlogHost) : "github";
     return {
       token: str(parsed.token, ""),
       repo: str(parsed.repo, ""),
       branch: str(parsed.branch, "main") || "main",
       engine,
       postsDir: postsDirFor(engine, str(parsed.postsDir, "")),
+      host,
+      extraFrontMatter: str(parsed.extraFrontMatter, ""),
     };
   } catch {
     return { ...DEFAULT_BLOG_CONFIG };
@@ -67,12 +76,15 @@ export function readBlogConfig(): BlogConfig {
 
 export function writeBlogConfig(config: BlogConfig) {
   const engine = ENGINES.includes(config.engine) ? config.engine : "hugo";
+  const host = HOSTS.includes(config.host) ? config.host : "github";
   const next: BlogConfig = {
     token: config.token.trim(),
     repo: config.repo.trim(),
     branch: config.branch.trim() || "main",
     engine,
     postsDir: postsDirFor(engine, config.postsDir),
+    host,
+    extraFrontMatter: config.extraFrontMatter.replace(/\r\n/g, "\n").trim(),
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));

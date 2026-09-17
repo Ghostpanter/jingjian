@@ -14,6 +14,7 @@ export type MergeResult = {
   tombstones: Record<string, number>;
   toUpload: Note[];
   toDeleteRemote: string[];
+  conflicts: Array<{ local: Note; remote: Note }>;
 };
 
 const EDITING_WINDOW_MS = 60_000;
@@ -31,6 +32,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
   const notes = new Map<string, Note>();
   const toUpload: Note[] = [];
   const toDeleteRemote: string[] = [];
+  const conflicts: Array<{ local: Note; remote: Note }> = [];
   const seen = new Set<string>();
   const now = input.now ?? Date.now();
 
@@ -58,6 +60,15 @@ export function mergeNotes(input: MergeInput): MergeResult {
     if (isEditing(local, input, now)) {
       notes.set(id, local);
       toUpload.push(local);
+      continue;
+    }
+    if (
+      local.content !== remote.content &&
+      !local.content.includes(remote.content) &&
+      !remote.content.includes(local.content)
+    ) {
+      notes.set(id, local);
+      conflicts.push({ local, remote });
       continue;
     }
     if (local.updatedAt > remote.updatedAt) {
@@ -95,6 +106,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
     tombstones,
     toUpload,
     toDeleteRemote,
+    conflicts,
   };
 }
 

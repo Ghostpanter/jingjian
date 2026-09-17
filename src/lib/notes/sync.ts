@@ -23,10 +23,11 @@ export async function runSync(
   config: SyncConfig,
   local: Note[],
   options?: { activeId?: string | null; protectActive?: boolean },
-): Promise<{ notes: Note[]; status: SyncStatus }> {
+): Promise<{ notes: Note[]; status: SyncStatus; conflicts: Array<{ local: Note; remote: Note }> }> {
   if (config.provider === "off") {
     return {
       notes: local,
+      conflicts: [],
       status: { state: "idle", message: "仅本机", at: null },
     };
   }
@@ -51,11 +52,17 @@ export async function runSync(
   writeTombstones(merged.tombstones);
 
   const unchanged = notesFingerprint(local) === notesFingerprint(merged.notes);
+  const conflicted = merged.conflicts.length;
   return {
     notes: merged.notes,
+    conflicts: merged.conflicts,
     status: {
       state: "ok",
-      message: unchanged ? "已是最新" : "同步完成",
+      message: conflicted
+        ? `${conflicted} 篇有冲突，请选择`
+        : unchanged
+          ? "已是最新"
+          : "同步完成",
       at: Date.now(),
     },
   };

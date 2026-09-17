@@ -56,3 +56,10 @@ export function recordTombstone(id: string): void {
   tombstones[id] = Date.now();
   writeTombstones(tombstones);
 }
+
+export function clearTombstone(id: string): void {
+  const tombstones = readTombstones();
+  if (!(id in tombstones)) return;
+  delete tombstones[id];
+  writeTombstones(tombstones);
+}

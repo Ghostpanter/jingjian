@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isBlankContent, previewWindow } from "@/lib/notes/format";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
@@ -6,6 +6,7 @@ import { resolveImageSrc } from "@/lib/notes/image-store";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
 import type { NoteFormat } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
+import "katex/dist/katex.min.css";
 
 type PreviewPaneProps = {
   content: string;
@@ -13,6 +14,8 @@ type PreviewPaneProps = {
   centered?: boolean;
   reader?: boolean;
   onScroll?: () => void;
+  onToggleTask?: (index: number) => void;
+  onOpenWiki?: (title: string) => void;
 };
 
 export function PreviewPane({
@@ -21,6 +24,8 @@ export function PreviewPane({
   centered = true,
   reader = false,
   onScroll,
+  onToggleTask,
+  onOpenWiki,
 }: PreviewPaneProps) {
   const windowed = useMemo(() => previewWindow(content), [content]);
   const html = useMemo(
@@ -29,6 +34,7 @@ export function PreviewPane({
   );
   const empty = isBlankContent(content);
   const articleRef = useRef<HTMLElement>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
 
   useLayoutEffect(() => {
     const root = articleRef.current;
@@ -36,6 +42,48 @@ export function PreviewPane({
     void renderMermaidBlocks(root, { palette: paletteFor(readThemeConfig()) });
     void resolvePreviewImages(root);
   });
+
+  function onPreviewClick(event: MouseEvent<HTMLElement>) {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    const task = target.closest("input.task-toggle") as HTMLInputElement | null;
+    if (task) {
+      event.preventDefault();
+      const index = Number(task.dataset.task);
+      if (Number.isFinite(index)) onToggleTask?.(index);
+      return;
+    }
+    const wiki = target.closest("a.wiki-link") as HTMLAnchorElement | null;
+    if (wiki) {
+      event.preventDefault();
+      const title = wiki.dataset.wiki?.trim();
+      if (title) onOpenWiki?.(title);
+      return;
+    }
+    const copy = target.closest("button.code-copy") as HTMLButtonElement | null;
+    if (copy) {
+      event.preventDefault();
+      const block = copy.closest(".code-block");
+      const text = block?.querySelector("code")?.textContent ?? "";
+      void navigator.clipboard.writeText(text).then(
+        () => {
+          copy.textContent = "已复制";
+          window.setTimeout(() => {
+            copy.textContent = "复制";
+          }, 1200);
+        },
+        () => {
+          copy.textContent = "失败";
+        },
+      );
+      return;
+    }
+    const image = target.closest("img") as HTMLImageElement | null;
+    if (image && !image.closest(".mermaid-block")) {
+      event.preventDefault();
+      setLightbox({ src: image.currentSrc || image.src, alt: image.alt || "" });
+    }
+  }
 
   return (
     <div
@@ -64,9 +112,20 @@ export function PreviewPane({
             ref={articleRef}
             className="md-body font-serif"
             dangerouslySetInnerHTML={{ __html: html }}
+            onClick={onPreviewClick}
           />
         )}
       </div>
+      {lightbox ? (
+        <button
+          type="button"
+          className="image-lightbox"
+          aria-label="关闭图片"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox.src} alt={lightbox.alt} />
+        </button>
+      ) : null}
     </div>
   );
 }

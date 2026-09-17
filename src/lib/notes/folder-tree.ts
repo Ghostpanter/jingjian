@@ -1,3 +1,4 @@
+import { compareNotes, type NoteSort } from "./format.ts";
 import type { Note } from "./types.ts";
 
 export type FolderNode = {
@@ -115,7 +116,11 @@ export function foldersFromImportPaths(relativePaths: string[]): string[] {
   return collectFolders([], extra);
 }
 
-export function buildFileTree(notes: Note[], extraFolders: string[] = []): TreeNode[] {
+export function buildFileTree(
+  notes: Note[],
+  extraFolders: string[] = [],
+  sort: NoteSort = "updated",
+): TreeNode[] {
   const folders = collectFolders(notes, extraFolders);
   const folderNodes = new Map<string, FolderNode>();
   for (const path of folders) {
@@ -141,7 +146,7 @@ export function buildFileTree(notes: Note[], extraFolders: string[] = []): TreeN
 
   const loose = notes
     .filter((note) => !note.bookId)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+    .sort((a, b) => compareNotes(a, b, sort));
 
   for (const note of loose) {
     const folder = normalizeFolder(note.folder ?? "");

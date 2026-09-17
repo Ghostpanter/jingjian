@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Plus, Search, Settings, X } from "lucide-react";
+import { BookOpen, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { CreateMenu } from "@/components/notes/create-menu";
 import { FileTree } from "@/components/notes/file-tree";
 import { OutlineList } from "@/components/notes/outline-list";
@@ -9,8 +9,10 @@ import { ancestorFolders, buildFileTree } from "@/lib/notes/folder-tree";
 import {
   formatRelativeTime,
   groupNotes,
+  NOTE_SORTS,
   snippetFromContent,
   titleFromContent,
+  type NoteSort,
 } from "@/lib/notes/format";
 import type { OutlineHeading } from "@/lib/notes/outline";
 import type { Note } from "@/lib/notes/types";
@@ -73,6 +75,7 @@ type SidebarProps = {
   onCreate: () => void;
   onCreateText: () => void;
   onCreateFolder: () => void;
+  onCreateFromTemplate: (id: string) => void;
   onCreateInFolder: (path: string) => void;
   onImportMarkdown: () => void;
   onImportTxt: () => void;
@@ -86,6 +89,9 @@ type SidebarProps = {
   onJumpHeading: (heading: OutlineHeading) => void;
   onCloseMobile: () => void;
   onOpenSettings: () => void;
+  onOpenTrash: () => void;
+  sort: NoteSort;
+  onSortChange: (sort: NoteSort) => void;
   onReadBook?: (noteId: string) => void;
   syncLabel: string;
 };
@@ -105,6 +111,7 @@ export function Sidebar({
   onCreate,
   onCreateText,
   onCreateFolder,
+  onCreateFromTemplate,
   onCreateInFolder,
   onImportMarkdown,
   onImportTxt,
@@ -118,6 +125,9 @@ export function Sidebar({
   onJumpHeading,
   onCloseMobile,
   onOpenSettings,
+  onOpenTrash,
+  sort,
+  onSortChange,
   onReadBook,
   syncLabel,
 }: SidebarProps) {
@@ -125,8 +135,8 @@ export function Sidebar({
   const books = groups.filter((group) => group.book);
   const treeNotes = notes.filter((note) => !note.bookId);
   const tree = useMemo(
-    () => buildFileTree(treeNotes, folders),
-    [treeNotes, folders],
+    () => buildFileTree(treeNotes, folders, sort),
+    [treeNotes, folders, sort],
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(readOpenFolders);
@@ -240,6 +250,10 @@ export function Sidebar({
               closeCreate();
               onCreateFolder();
             }}
+            onCreateFromTemplate={(id) => {
+              closeCreate();
+              onCreateFromTemplate(id);
+            }}
             onImportMarkdown={() => {
               closeCreate();
               onImportMarkdown();
@@ -285,6 +299,21 @@ export function Sidebar({
             aria-label="搜索笔记"
           />
         </label>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            className="btn-press min-h-11 flex-1 rounded-md bg-overlay px-3 text-left text-xs text-muted"
+            onClick={() => {
+              const index = NOTE_SORTS.findIndex((item) => item.id === sort);
+              onSortChange(NOTE_SORTS[(index + 1) % NOTE_SORTS.length].id);
+            }}
+          >
+            排序：{NOTE_SORTS.find((item) => item.id === sort)?.label}
+          </button>
+          <Button variant="ghost" size="icon-sm" aria-label="回收站" onClick={onOpenTrash}>
+            <Trash2 />
+          </Button>
+        </div>
       </div>
 
       <nav

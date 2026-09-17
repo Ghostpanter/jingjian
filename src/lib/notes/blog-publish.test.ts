@@ -21,8 +21,8 @@ test("githubParts accepts owner/repo and github urls", () => {
     owner: "Ghostpanter",
     name: "blog",
   });
-  assert.deepEqual(githubParts("https://github.com/Ghostpanter/blog/"), {
-    owner: "Ghostpanter",
+  assert.deepEqual(githubParts("https://gitee.com/owner/blog.git"), {
+    owner: "owner",
     name: "blog",
   });
   assert.throws(() => githubParts("only-owner"), /owner\/repo/);
@@ -81,6 +81,24 @@ test("buildPostFile wraps the note body", () => {
   assert.match(file, /categories: \["写作"\]/);
   assert.match(file, /一段话。/);
   assert.doesNotMatch(file, /^# 标题/m);
+});
+
+test("buildPostFile keeps existing front matter and extra yaml", () => {
+  const note: Note = {
+    id: "n2",
+    content: "---\ntitle: \"已有\"\n---\n\n正文\n",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const kept = buildPostFile(note, "hugo");
+  assert.match(kept, /title: "已有"/);
+  const wrapped = buildPostFile(
+    { ...note, content: "# 新\n\n正文\n" },
+    "hugo",
+    new Date(2026, 8, 15, 3, 0, 0),
+    "tags: [静笺]",
+  );
+  assert.match(wrapped, /tags: \[静笺\]/);
 });
 
 test("postsDirFor switches defaults with the engine", () => {

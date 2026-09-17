@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
-import { formatCharCount, isLargeNote, titleFromContent } from "@/lib/notes/format";
+import { formatCharCount, isLargeNote, readNoteSort, titleFromContent, writeNoteSort, type NoteSort } from "@/lib/notes/format";
 import { foldersFromImportPaths, isImportableNoteName, isUnderFolder, notesInFolder, relativeDir } from "@/lib/notes/folder-tree";
 import { exportFolderArchive } from "@/lib/notes/export-folder";
 import { pickImportFolder, isImportCancelled, type ImportFolderFile } from "@/lib/notes/import-folder";
@@ -54,9 +54,17 @@ import {
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor, resolveInsertedImage, storeLocalImage } from "@/lib/notes/image-insert";
 import { putImage, extensionFor } from "@/lib/notes/image-store";
-import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
-import { runSync } from "@/lib/notes/sync";
+import { recordTombstone, clearTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
+import { runSync, createAdapter } from "@/lib/notes/sync";
 import { applyTheme, readThemeConfig } from "@/lib/notes/theme";
+import { applyEditorPrefs } from "@/lib/notes/editor-prefs";
+import { findNoteByTitle, toggleTaskAt } from "@/lib/notes/markdown-extra";
+import { templateById } from "@/lib/notes/templates";
+import { dropTrash, emptyTrash, pushTrash, readTrash, restoreTrash, type TrashedNote } from "@/lib/notes/trash";
+import { FormatBar } from "@/components/notes/format-bar";
+import { QuickOpen } from "@/components/notes/quick-open";
+import { TrashDialog } from "@/components/notes/trash-dialog";
+import { ConflictDialog, type SyncConflict } from "@/components/notes/conflict-dialog";
 import { DEFAULT_SYNC_CONFIG, type SyncConfig, type SyncStatus } from "@/lib/notes/sync-types";
 import { shouldRunSync, type SyncTrigger } from "@/lib/notes/sync-policy";
 import {
@@ -332,6 +340,11 @@ export function NoteApp() {
   const [replaceMode, setReplaceMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [blogBusy, setBlogBusy] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState<TrashedNote[]>([]);
+  const [noteSort, setNoteSort] = useState<NoteSort>("updated");
+  const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarPan = useRef<{ pointerId: number; startX: number; width: number; x: number } | null>(
@@ -356,7 +369,8 @@ export function NoteApp() {
       });
       applySyncedNotes(result.notes);
       setSyncStatus(result.status);
-      if (!silent) toast.message(result.status.message);
+      if (result.conflicts.length) setConflicts(result.conflicts);
+      if (!silent && !result.conflicts.length) toast.message(result.status.message);
     } catch (error) {
       const message = error instanceof Error ? error.message : "同步失败";
       setSyncStatus({ state: "error", message, at: Date.now() });
@@ -391,6 +405,8 @@ export function NoteApp() {
 
   useLayoutEffect(() => {
     applyTheme(readThemeConfig());
+    applyEditorPrefs();
+    setNoteSort(readNoteSort());
   }, []);
 
   useEffect(() => {
@@ -607,6 +623,8 @@ export function NoteApp() {
         setLinkOpen(false);
         setExportOpen(false);
         setReaderOpen(false);
+        setQuickOpen(false);
+        setTrashOpen(false);
         setSidebarOpen(false);
         if (typing) target.blur();
         return;
@@ -623,6 +641,12 @@ export function NoteApp() {
         setSidebarOpen(true);
         setDesktopCollapsed(false);
         document.getElementById("note-search")?.focus();
+        return;
+      }
+
+      if (mod && key.toLowerCase() === "p") {
+        event.preventDefault();
+        setQuickOpen(true);
         return;
       }
 
@@ -711,7 +735,7 @@ export function NoteApp() {
       }
 
       const overlayOpen =
-        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen || findOpen;
+        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen || findOpen || quickOpen || trashOpen || conflicts.length > 0;
       const inEditor = target?.id === "note-editor";
       const inOtherField = typing && !inEditor;
       if (
@@ -1022,12 +1046,33 @@ export function NoteApp() {
     }
   }
 
-  function handleCreate(format: "md" | "txt" = "md", folder = activeFolder) {
+  function handleCreate(format: "md" | "txt" = "md", folder = activeFolder, content?: string) {
     createNote({
       ...(format === "txt" ? { format: "txt" as const } : {}),
       ...(folder ? { folder } : {}),
+      ...(content ? { content } : {}),
     });
     window.setTimeout(() => document.getElementById("note-editor")?.focus(), 0);
+  }
+
+  function handleCreateFromTemplate(id: string) {
+    const template = templateById(id);
+    handleCreate("md", activeFolder, template?.content() ?? "");
+  }
+
+  function applyEditorMutator(
+    mutator: (value: string, start: number, end: number) => MarkupEdit,
+  ) {
+    if (!activeNote) return;
+    const selection = readEditorSelection();
+    if (!selection) {
+      toast.message("先点进正文");
+      return;
+    }
+    const next = mutator(selection.value, selection.start, selection.end);
+    writeEditorValue(next.value, { start: next.start, end: next.end }, (value) =>
+      updateNote(activeNote.id, value),
+    );
   }
 
   function headingAnchors() {
@@ -1164,6 +1209,31 @@ export function NoteApp() {
     setSidebarDragging(true);
   }
 
+  function resolveConflict(choice: "local" | "remote" | "both") {
+    const current = conflicts[0];
+    if (!current) return;
+    const uploadLocal = () => {
+      const config = readSyncConfig();
+      if (config.provider === "off") return;
+      void createAdapter(config).upsert(current.local).catch((error) => {
+        toast.message(error instanceof Error ? error.message : "同步失败");
+      });
+    };
+    if (choice === "remote") {
+      applySyncedNotes(
+        useNotesStore.getState().notes.map((note) =>
+          note.id === current.local.id ? current.remote : note,
+        ),
+      );
+    } else if (choice === "local") {
+      uploadLocal();
+    } else {
+      importNotes([{ ...current.remote, id: crypto.randomUUID() }]);
+      uploadLocal();
+    }
+    setConflicts(conflicts.slice(1));
+  }
+
   async function handleExportFolder(path: string) {
     try {
       const saved = await exportFolderArchive(rawNotes, path, () => toast.message("正在生成…"));
@@ -1177,6 +1247,9 @@ export function NoteApp() {
   function handleConfirmFolderDelete() {
     const path = pendingFolderDelete;
     if (!path) return;
+    const doomed = notesInFolder(rawNotes, path);
+    for (const note of doomed) pushTrash(note);
+    setTrashItems(readTrash());
     const removed = deleteFolder(path);
     for (const id of removed) recordTombstone(id);
     if (isUnderFolder(path, activeFolder) || activeFolder === path) setActiveFolder("");
@@ -1277,6 +1350,7 @@ export function NoteApp() {
           onCreate={() => handleCreate("md")}
           onCreateText={() => handleCreate("txt")}
           onCreateFolder={() => setFolderOpen(true)}
+          onCreateFromTemplate={handleCreateFromTemplate}
           onCreateInFolder={(path) => {
             setActiveFolder(path);
             handleCreate("md", path);
@@ -1305,6 +1379,15 @@ export function NoteApp() {
           onOpenSettings={() => {
             setSettingsTab("sync");
             setSettingsOpen(true);
+          }}
+          onOpenTrash={() => {
+            setTrashItems(readTrash());
+            setTrashOpen(true);
+          }}
+          sort={noteSort}
+          onSortChange={(next) => {
+            setNoteSort(next);
+            writeNoteSort(next);
           }}
           onMoveNote={handleMoveNote}
           onNoteMenu={(note) => setItemMenu({ kind: "note", note })}
@@ -1528,6 +1611,18 @@ export function NoteApp() {
                   format={activeNote.format}
                   centered={previewMode !== "split"}
                   onScroll={() => syncScroll("preview")}
+                  onToggleTask={(index) => {
+                    updateNote(activeNote.id, toggleTaskAt(activeNote.content, index));
+                  }}
+                  onOpenWiki={(title) => {
+                    const found = findNoteByTitle(rawNotes, title);
+                    if (!found) {
+                      toast.message(`没有「${title}」`);
+                      return;
+                    }
+                    setActiveFolder(found.folder ?? "");
+                    selectNote(found.id);
+                  }}
                 />
               ) : (
                 <EmptyEditor onCreate={handleCreate} />
@@ -1535,6 +1630,15 @@ export function NoteApp() {
             </div>
           ) : null}
         </div>
+
+        {showEditor ? (
+          <FormatBar
+            disabled={!activeNote || activeNote.format === "txt"}
+            onApply={applyEditorMutator}
+            onLink={openLinkDialog}
+            onImage={() => imageInputRef.current?.click()}
+          />
+        ) : null}
 
         <footer className="app-status">
           <span className="tabular-nums">{charCount}</span>
@@ -1560,11 +1664,13 @@ export function NoteApp() {
         onConfirm={() => {
           const target = pendingNoteDelete ?? activeNote;
           if (!target) return;
+          pushTrash(target);
+          setTrashItems(readTrash());
           recordTombstone(target.id);
           deleteNote(target.id);
           setPendingDelete(false);
           setPendingNoteDelete(null);
-          toast.message("笔记已删除");
+          toast.message("已移入回收站");
         }}
       />
       <DeleteFolderDialog
@@ -1621,6 +1727,56 @@ export function NoteApp() {
             setPendingNoteDelete(itemMenu.note);
           }
         }}
+      />
+      <QuickOpen
+        open={quickOpen}
+        notes={rawNotes}
+        onOpenChange={setQuickOpen}
+        onSelect={(id) => {
+          const note = rawNotes.find((item) => item.id === id);
+          setActiveFolder(note?.folder ?? "");
+          selectNote(id);
+        }}
+      />
+      <TrashDialog
+        open={trashOpen}
+        items={trashItems}
+        onOpenChange={setTrashOpen}
+        onRestore={(id) => {
+          const note = restoreTrash(id);
+          setTrashItems(readTrash());
+          if (!note) return;
+          clearTombstone(note.id);
+          importNotes([
+            {
+              id: note.id,
+              content: note.content,
+              createdAt: note.createdAt,
+              updatedAt: Date.now(),
+              ...(note.format ? { format: note.format } : {}),
+              ...(note.folder ? { folder: note.folder } : {}),
+              ...(note.bookId ? { bookId: note.bookId } : {}),
+              ...(note.bookTitle ? { bookTitle: note.bookTitle } : {}),
+              ...(typeof note.chapterIndex === "number" ? { chapterIndex: note.chapterIndex } : {}),
+            },
+          ]);
+          toast.message("已恢复");
+        }}
+        onDrop={(id) => {
+          dropTrash(id);
+          setTrashItems(readTrash());
+        }}
+        onEmpty={() => {
+          emptyTrash();
+          setTrashItems([]);
+        }}
+      />
+      <ConflictDialog
+        conflict={conflicts[0] ?? null}
+        remaining={conflicts.length}
+        onKeepLocal={() => resolveConflict("local")}
+        onKeepRemote={() => resolveConflict("remote")}
+        onKeepBoth={() => resolveConflict("both")}
       />
       <SettingsDialog
         open={settingsOpen}

@@ -25,7 +25,7 @@ export function DeleteNoteDialog({
             删除这篇笔记？
           </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-sm leading-normal text-muted text-pretty">
-            「{title}」将从本机移除，无法恢复。
+            「{title}」将移入回收站，可在回收站恢复。
           </AlertDialog.Description>
           <div className="mt-6 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
@@ -259,6 +259,7 @@ const SHORTCUT_GROUPS = [
       ["E", "源码 / 分栏 / 预览"],
       ["S", "保存"],
       ["Shift + S", "另存为"],
+      ["P", "快速打开"],
       ["Shift + L", "显示或收起文件列表"],
       [",", "设置"],
       ["Shift + E", "导出"],

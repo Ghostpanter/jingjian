@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  compareNotes,
   countChars,
   firstLineTitle,
   formatCharCount,
@@ -61,4 +62,13 @@ test("search matches folder path", () => {
     ),
     true,
   );
+});
+
+test("compareNotes sorts by updated, created, or title", () => {
+  const a = { id: "a", content: "# 窗边", createdAt: 10, updatedAt: 20 };
+  const b = { id: "b", content: "# 廊下", createdAt: 30, updatedAt: 15 };
+  assert.ok(compareNotes(a, b, "updated") < 0);
+  assert.ok(compareNotes(a, b, "created") > 0);
+  assert.notEqual(compareNotes(a, b, "title"), 0);
+  assert.equal(compareNotes(a, b, "title"), -compareNotes(b, a, "title"));
 });

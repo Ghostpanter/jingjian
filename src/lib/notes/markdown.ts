@@ -1,6 +1,14 @@
 import { Marked } from "marked";
 import { escapeHtml } from "./escape-html.ts";
 import { displayLang, highlightCode } from "./highlight.ts";
+import {
+  expandWikiLinks,
+  extractFootnotes,
+  extractMath,
+  parseCalloutOpen,
+  restoreFootnotes,
+  restoreMath,
+} from "./markdown-extra.ts";
 import { headingIdFor } from "./outline.ts";
 
 const marked = new Marked({
@@ -9,6 +17,7 @@ const marked = new Marked({
 });
 
 const headingSeen = new Map<string, number>();
+let taskIndex = 0;
 
 marked.use({
   renderer: {
@@ -27,11 +36,26 @@ marked.use({
       const highlighted = highlightCode(text, lang);
       const langAttr = label ? ` data-lang="${escapeHtml(label)}"` : "";
       const className = label ? ` class="hljs language-${escapeHtml(label)}"` : ' class="hljs"';
-      return `<div class="code-block"${langAttr}><pre><code${className}>${highlighted}</code></pre></div>`;
+      return `<div class="code-block"${langAttr}><button type="button" class="code-copy">复制</button><pre><code${className}>${highlighted}</code></pre></div>`;
+    },
+    checkbox({ checked }) {
+      const index = taskIndex;
+      taskIndex += 1;
+      return `<input type="checkbox" class="task-toggle" data-task="${index}"${checked ? " checked" : ""} />`;
+    },
+    blockquote({ tokens }) {
+      const inner = this.parser.parse(tokens);
+      const callout = parseCalloutOpen(inner.trim());
+      if (!callout) return `<blockquote>${inner}</blockquote>\n`;
+      return `<aside class="callout callout-${escapeHtml(callout.kind)}" data-callout="${escapeHtml(callout.kind)}"><p class="callout-title">${escapeHtml(callout.title)}</p>${callout.rest}</aside>\n`;
     },
     link({ href, title, text }) {
       const safe = sanitizeHref(href);
       if (!safe) return escapeHtml(text);
+      if (safe.startsWith("jingjian-wiki://")) {
+        const wiki = decodeURIComponent(safe.slice("jingjian-wiki://".length));
+        return `<a class="wiki-link" href="#wiki" data-wiki="${escapeHtml(wiki)}">${escapeHtml(text)}</a>`;
+      }
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
       return `<a href="${escapeHtml(safe)}"${titleAttr} target="_blank" rel="noreferrer noopener">${escapeHtml(text)}</a>`;
     },
@@ -76,6 +100,7 @@ export function sanitizeHref(href: string | null | undefined): string | null {
     return /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(trimmed) ? trimmed : null;
   }
   if (lower.startsWith("jingjian-img://")) return trimmed;
+  if (lower.startsWith("jingjian-wiki://")) return trimmed;
   if (
     trimmed.startsWith("https://") ||
     trimmed.startsWith("http://") ||
@@ -93,8 +118,14 @@ export function sanitizeHref(href: string | null | undefined): string | null {
 
 export function renderMarkdown(source: string): string {
   headingSeen.clear();
-  const html = marked.parse(source || "", { async: false }) as string;
-  return html
+  taskIndex = 0;
+  const math = extractMath(source || "");
+  const wiki = expandWikiLinks(math.source);
+  const footnotes = extractFootnotes(wiki);
+  const html = marked.parse(footnotes.source || "", { async: false }) as string;
+  const withMath = restoreMath(html, math.slots);
+  const withNotes = restoreFootnotes(withMath, footnotes.notes);
+  return withNotes
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/javascript:/gi, "");

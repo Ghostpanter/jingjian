@@ -79,6 +79,43 @@ export function countChars(content: string): number {
   return content.replace(/\s/g, "").length;
 }
 
+export type NoteSort = "updated" | "created" | "title";
+
+export const NOTE_SORTS: { id: NoteSort; label: string }[] = [
+  { id: "updated", label: "修改时间" },
+  { id: "created", label: "创建时间" },
+  { id: "title", label: "标题" },
+];
+
+const SORTS: NoteSort[] = ["updated", "created", "title"];
+const SORT_KEY = "jingjian.sort.v1";
+
+export function readNoteSort(): NoteSort {
+  try {
+    const raw = localStorage.getItem(SORT_KEY);
+    if (SORTS.includes(raw as NoteSort)) return raw as NoteSort;
+  } catch {
+    // private mode
+  }
+  return "updated";
+}
+
+export function writeNoteSort(sort: NoteSort) {
+  try {
+    localStorage.setItem(SORT_KEY, sort);
+  } catch {
+    // private mode
+  }
+}
+
+export function compareNotes(a: Note, b: Note, sort: NoteSort = "updated"): number {
+  if (sort === "created") return b.createdAt - a.createdAt;
+  if (sort === "title") {
+    return firstLineTitle(a.content).localeCompare(firstLineTitle(b.content), "zh-CN");
+  }
+  return b.updatedAt - a.updatedAt;
+}
+
 export function formatCharCount(content: string): string {
   if (isLargeNote(content)) {
     return `约 ${content.length.toLocaleString("zh-CN")} 字`;
