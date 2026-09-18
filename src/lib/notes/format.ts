@@ -213,7 +213,26 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
-export function groupNotes(notes: Note[]): { label: string; notes: Note[]; book?: boolean }[] {
+export type NoteGroup = {
+  label: string;
+  notes: Note[];
+  book?: boolean;
+  bookId?: string;
+};
+
+export function parseOpenIds(raw: unknown): Set<string> {
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(raw.filter((item): item is string => typeof item === "string" && item.length > 0));
+}
+
+export function toggleOpenId(open: Iterable<string>, id: string): Set<string> {
+  const next = new Set(open);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
+export function groupNotes(notes: Note[]): NoteGroup[] {
   const now = new Date();
   const startOfToday = new Date(
     now.getFullYear(),
@@ -238,11 +257,12 @@ export function groupNotes(notes: Note[]): { label: string; notes: Note[]; book?
     }
   }
 
-  const groups: { label: string; notes: Note[]; book?: boolean }[] = [];
-  for (const book of books.values()) {
+  const groups: NoteGroup[] = [];
+  for (const [bookId, book] of books) {
     groups.push({
       label: book.title,
       book: true,
+      bookId,
       notes: [...book.notes].sort(
         (a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0),
       ),

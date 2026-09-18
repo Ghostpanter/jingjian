@@ -11,6 +11,9 @@ import {
   matchesQuery,
   previewWindow,
   snippetFromContent,
+  groupNotes,
+  parseOpenIds,
+  toggleOpenId,
   titleFromContent,
 } from "./format.ts";
 
@@ -80,4 +83,38 @@ test("compareNotes sorts by updated, created, or title", () => {
   assert.ok(compareNotes(a, b, "created") > 0);
   assert.notEqual(compareNotes(a, b, "title"), 0);
   assert.equal(compareNotes(a, b, "title"), -compareNotes(b, a, "title"));
+});
+
+test("books group by bookId and stay collapsed until opened", () => {
+  const chapters = [
+    {
+      id: "c1",
+      content: "# 一",
+      createdAt: 1,
+      updatedAt: 1,
+      bookId: "b1",
+      bookTitle: "廊下三章",
+      chapterIndex: 0,
+    },
+    {
+      id: "c2",
+      content: "# 二",
+      createdAt: 1,
+      updatedAt: 2,
+      bookId: "b1",
+      bookTitle: "廊下三章",
+      chapterIndex: 1,
+    },
+    { id: "n1", content: "# 窗边", createdAt: 3, updatedAt: 3 },
+  ];
+  const groups = groupNotes(chapters);
+  assert.equal(groups[0]?.book, true);
+  assert.equal(groups[0]?.bookId, "b1");
+  assert.equal(groups[0]?.label, "廊下三章");
+  assert.deepEqual(groups[0]?.notes.map((note) => note.id), ["c1", "c2"]);
+  assert.equal(parseOpenIds(null).size, 0);
+  assert.deepEqual([...parseOpenIds(["b1", "", 2])], ["b1"]);
+  const opened = toggleOpenId([], "b1");
+  assert.equal(opened.has("b1"), true);
+  assert.equal(toggleOpenId(opened, "b1").has("b1"), false);
 });

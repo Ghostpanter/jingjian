@@ -363,7 +363,7 @@ export function ReaderView({
                     setTocOpen(false);
                   }}
                   className={cn(
-                    "btn-press flex w-full items-start gap-3 rounded-md px-3 py-3 text-left",
+                    "btn-press flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left",
                     selected ? "bg-paper text-fg shadow-border" : "hover:bg-overlay",
                   )}
                 >

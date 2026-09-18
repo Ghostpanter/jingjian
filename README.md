@@ -21,7 +21,7 @@
 - 侧栏搜索标题和正文；文档内搜索用 Ctrl + F
 - 新建 / 删除（删除前确认）
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
-- 电子书：侧栏单独成「书」，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现，用系统语音；中英可混读，专业词按单词而不是字母。读完本章默认接着下一章，长段会滚到正在读的句子。齿轮 → 朗读 可选语种、音色和自动播放）。导入 EPUB、Kindle、FB2、带章节的 TXT 或 HTML，按目录分章；导出带作者和封面。点章节仍打开 Markdown
+- 电子书：侧栏单独成「书」，点书名展开或收起章节，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现，用系统语音；中英可混读，专业词按单词而不是字母。读完本章默认接着下一章，长段会滚到正在读的句子。齿轮 → 朗读 可选语种、音色和自动播放）。导入 EPUB、Kindle、FB2、带章节的 TXT 或 HTML，按目录分章；导出带作者和封面。点章节仍打开 Markdown
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或电子书（EPUB、Kindle、FB2、带章节的 TXT、HTML）。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
@@ -37,7 +37,7 @@
 
 每次导出会先打开系统对话框，选好位置后再生成文件。平板用系统「另存为」，电脑用保存对话框或浏览器下载。PDF / 图片 / HTML 会按预览排版导出，Mermaid 流程图会画成图，而不是源码。PDF 里流程图整张落在一页内，过长会等比缩小，不会从中间切开。PDF 按段落和代码块分页；行内代码保持一整块，长命令会在代码块内换行，不会从单词中间裁开。
 
-导入 EPUB、Kindle（MOBI / AZW / AZW3）、FB2、带章节的 TXT、HTML 或整个文件夹后出现在侧栏。文件夹会按原来的相对路径挂到目录树里；带「第 X 章」这类标题的 TXT 会当成电子书，普通 TXT 仍是笔记。电子书在「书」里，阅读页记住章节和章内位置，并随同步走；划线可摘成笔记。导入会尽量保留表格、列表和脚注。导出 EPUB 带作者与封面。部分较新的 Kindle 书若打不开，可先转成 EPUB 再导入。
+导入 EPUB、Kindle（MOBI / AZW / AZW3）、FB2、带章节的 TXT、HTML 或整个文件夹后出现在侧栏。文件夹会按原来的相对路径挂到目录树里；带「第 X 章」这类标题的 TXT 会当成电子书，普通 TXT 仍是笔记。电子书在「书」里，点书名展开章节、再点可收起，下面的 Markdown 笔记就能翻到。阅读页记住章节和章内位置，并随同步走；划线可摘成笔记。导入会尽量保留表格、列表和脚注。导出 EPUB 带作者与封面。部分较新的 Kindle 书若打不开，可先转成 EPUB 再导入。
 
 ## 主题
 
@@ -135,7 +135,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.2.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.3.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -145,9 +145,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.2-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.2-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
-- `jingjian-v1.7.2-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.3-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.3-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
+- `jingjian-v1.7.3-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` / `.mobi` / `.azw3` / `.fb2` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 
