@@ -31,6 +31,6 @@ const built = path.join(
 );
 const destDir = path.join(root, "artifacts");
 mkdirSync(destDir, { recursive: true });
-const dest = path.join(destDir, "jingjian-v1.7.1.apk");
+const dest = path.join(destDir, "jingjian-v1.7.2.apk");
 copyFileSync(built, dest);
 console.log(`APK_READY ${dest}`);

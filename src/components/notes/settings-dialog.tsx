@@ -53,6 +53,22 @@ import {
 } from "@/lib/notes/editor-prefs";
 import { testBlogConfig } from "@/lib/notes/blog-publish";
 import { testImageUploader } from "@/lib/notes/image-upload";
+import {
+  DEFAULT_TTS_PREFS,
+  TTS_LANG_MODES,
+  TTS_RATE_STEPS,
+  listTtsVoices,
+  readTtsPrefs,
+  speakTtsPreview,
+  sortTtsVoices,
+  stopTtsPreview,
+  ttsVoiceLabel,
+  voiceLangKind,
+  writeTtsPrefs,
+  type TtsLangMode,
+  type TtsPrefs,
+  type TtsVoiceInfo,
+} from "@/lib/notes/reader-tts";
 import { cn } from "@/lib/utils";
 
 const PROVIDERS: { id: SyncProvider; label: string; hint: string }[] = [
@@ -68,6 +84,7 @@ const TABS = [
   { id: "theme", label: "主题" },
   { id: "image", label: "图像" },
   { id: "blog", label: "博客" },
+  { id: "tts", label: "朗读" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -116,6 +133,7 @@ export function SettingsDialog({
   const [blog, setBlog] = useState<BlogConfig>(DEFAULT_BLOG_CONFIG);
   const [editor, setEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
   const [savedEditor, setSavedEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
+  const [tts, setTts] = useState<TtsPrefs>(DEFAULT_TTS_PREFS);
   const [busy, setBusy] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState(false);
@@ -132,6 +150,7 @@ export function SettingsDialog({
       setBlog(readBlogConfig());
       setEditor(readEditorPrefs());
       setSavedEditor(readEditorPrefs());
+      setTts(readTtsPrefs());
       setTestMessage("");
       setBusy(false);
       setTab(initialTab);
@@ -211,6 +230,7 @@ export function SettingsDialog({
   function handleCancel() {
     applyTheme(savedTheme);
     applyEditorPrefs(savedEditor);
+    stopTtsPreview();
     onOpenChange(false);
   }
 
@@ -218,6 +238,7 @@ export function SettingsDialog({
     writeBlogConfig(blog);
     applyTheme(savedTheme);
     applyEditorPrefs(savedEditor);
+    stopTtsPreview();
     onOpenChange(false);
     onOpenBlogPosts?.();
   }
@@ -228,7 +249,9 @@ export function SettingsDialog({
     writeBlogConfig(blog);
     writeEditorPrefs(editor);
     applyEditorPrefs(editor);
+    writeTtsPrefs(tts);
     applyTheme(theme);
+    stopTtsPreview();
     onSave(draft);
     onOpenChange(false);
     if (draft.provider !== "off") onSyncNow();
@@ -250,7 +273,7 @@ export function SettingsDialog({
         <h2 id="settings-title" className="font-serif text-lg font-medium">
           设置
         </h2>
-        <div className="mt-3 flex gap-1 rounded-md bg-overlay p-1">
+        <div className="mt-3 flex gap-1 overflow-x-auto rounded-md bg-overlay p-1">
           {TABS.map((item) => (
             <button
               key={item.id}
@@ -260,7 +283,7 @@ export function SettingsDialog({
                 setTestMessage("");
               }}
               className={cn(
-                "btn-press flex-1 rounded-sm py-2 text-xs sm:text-sm",
+                "btn-press flex-1 whitespace-nowrap rounded-sm py-2 text-xs sm:text-sm",
                 tab === item.id ? "bg-paper text-fg shadow-border" : "text-muted",
               )}
             >
@@ -288,6 +311,7 @@ export function SettingsDialog({
         {tab === "blog" ? (
           <BlogPanel blog={blog} onChange={patchBlog} />
         ) : null}
+        {tab === "tts" ? <TtsPanel prefs={tts} onChange={setTts} /> : null}
 
         {testMessage ? (
           <p className={cn("mt-3 text-sm", testError ? "text-danger" : "text-muted")}>
@@ -1119,6 +1143,140 @@ function ColorField({
         />
       </div>
     </label>
+  );
+}
+
+function TtsPanel({
+  prefs,
+  onChange,
+}: {
+  prefs: TtsPrefs;
+  onChange: (prefs: TtsPrefs) => void;
+}) {
+  const [voices, setVoices] = useState<TtsVoiceInfo[]>([]);
+  const [previewing, setPreviewing] = useState(false);
+  const [hint, setHint] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const list = await listTtsVoices();
+        if (!cancelled) setVoices(sortTtsVoices(list));
+      } catch {
+        if (!cancelled) setVoices([]);
+      }
+    }
+    void load();
+    const speech = typeof window !== "undefined" ? window.speechSynthesis : null;
+    const onVoices = () => {
+      void load();
+    };
+    speech?.addEventListener("voiceschanged", onVoices);
+    return () => {
+      cancelled = true;
+      speech?.removeEventListener("voiceschanged", onVoices);
+      stopTtsPreview();
+    };
+  }, []);
+
+  const shown = voices.filter((voice) => {
+    const kind = voiceLangKind(voice.lang, voice.name);
+    return kind === "zh" || kind === "en" || voice.name === prefs.voiceName;
+  });
+  const hasEn = voices.some((voice) => voiceLangKind(voice.lang, voice.name) === "en");
+  const hasZh = voices.some((voice) => voiceLangKind(voice.lang, voice.name) === "zh");
+
+  async function handlePreview() {
+    setPreviewing(true);
+    setHint("");
+    const message = await speakTtsPreview(prefs);
+    setPreviewing(false);
+    if (message) setHint(message);
+  }
+
+  return (
+    <>
+      <p className="mt-3 text-sm text-muted">
+        只在电子书阅读页生效。英文专业词会按单词朗读，不再逐个字母拼。
+      </p>
+      <p className="mt-4 text-xs text-muted">语种</p>
+      <div className="provider-grid mt-2">
+        {TTS_LANG_MODES.map((item) => {
+          const selected = prefs.lang === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onChange({ ...prefs, lang: item.id as TtsLangMode })}
+              className={cn(
+                "btn-press rounded-md px-3 py-2 text-left",
+                selected ? "bg-paper text-fg shadow-border" : "bg-overlay text-muted",
+              )}
+            >
+              <div className="text-sm font-medium text-fg">{item.label}</div>
+              <div className="text-xs text-subtle">{item.hint}</div>
+            </button>
+          );
+        })}
+      </div>
+      <Field label="音色">
+        <select
+          className="h-11 w-full rounded-md bg-overlay px-3 text-sm text-fg"
+          value={prefs.voiceName}
+          onChange={(event) => onChange({ ...prefs, voiceName: event.target.value })}
+        >
+          <option value="">系统默认（按语种自动选）</option>
+          {shown.map((voice) => (
+            <option key={`${voice.lang}-${voice.name}`} value={voice.name}>
+              {ttsVoiceLabel(voice)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {!hasEn && voices.length > 0 ? (
+        <p className="mt-2 text-xs text-muted">
+          当前没有英文音色。请到系统设置安装英文语音包，否则专业词可能被拼成字母。
+        </p>
+      ) : null}
+      {!hasZh && voices.length > 0 ? (
+        <p className="mt-2 text-xs text-muted">当前没有中文音色。请到系统设置安装中文语音包。</p>
+      ) : null}
+      {voices.length === 0 ? (
+        <p className="mt-2 text-xs text-muted">
+          当前窗口没有可列的音色。电脑和安卓应用里会列出系统已安装的语音。
+        </p>
+      ) : null}
+      <p className="mt-4 text-xs text-muted">语速</p>
+      <div className="provider-grid mt-2">
+        {TTS_RATE_STEPS.map((step) => (
+          <button
+            key={step}
+            type="button"
+            onClick={() => onChange({ ...prefs, rate: step })}
+            className={cn(
+              "btn-press rounded-md px-3 py-2 text-sm",
+              Math.abs(prefs.rate - step) < 0.02
+                ? "bg-paper text-fg shadow-border"
+                : "bg-overlay text-muted",
+            )}
+          >
+            {step.toFixed(2).replace(/0$/, "")}×
+          </button>
+        ))}
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        <Button variant="subtle" disabled={previewing} onClick={() => void handlePreview()}>
+          {previewing ? "试听中…" : "试听"}
+        </Button>
+        {previewing ? (
+          <Button variant="ghost" onClick={() => stopTtsPreview()}>
+            停止
+          </Button>
+        ) : null}
+      </div>
+      {hint ? <p className="mt-2 text-sm text-muted">{hint}</p> : null}
+    </>
   );
 }
 

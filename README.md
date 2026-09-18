@@ -21,7 +21,7 @@
 - 侧栏搜索标题和正文；文档内搜索用 Ctrl + F
 - 新建 / 删除（删除前确认）
 - 导出：PDF、HTML、HTML（不含样式）、图片、Word、OpenOffice、RTF、EPUB
-- 电子书：侧栏单独成「书」，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现，用系统语音；网页里没有朗读接口）。导入按真正目录分章，导出带作者和封面。点章节仍打开 Markdown
+- 电子书：侧栏单独成「书」，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现，用系统语音；中英可混读，专业词按单词而不是字母。齿轮 → 朗读 可选语种和音色）。导入按真正目录分章，导出带作者和封面。点章节仍打开 Markdown
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或 EPUB。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
@@ -42,6 +42,17 @@
 ## 主题
 
 齿轮 → 主题。内置宣纸、墨夜、GitHub、GitHub 夜间。自定义浅色 / 深色可改纸色、字色、强调色。宣纸是默认：代码关键字、字符串、函数用独立高对比配色，不再混进正文。要整体最清楚，选 GitHub 夜间。
+
+
+## 朗读
+
+齿轮 → 朗读。电子书阅读页可用系统语音读正文。
+
+- 语种：自动、中文、英语、中英混合。自动和中英混合会把 Kubernetes、JSON、REST API 这类词交给英文语音，避免逐字母拼读
+- 音色：列出本机已安装的中文和英文语音。没有英文音色时，请到系统设置安装英文语音包
+- 语速：与阅读页底栏相同，四档可切换
+
+网页预览里通常没有朗读接口，请在安卓或电脑应用中使用。
 
 ## 图像 / 图床
 
@@ -123,7 +134,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.1.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.2.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -133,9 +144,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.1-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.1-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
-- `jingjian-v1.7.1-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.2-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.2-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB 可选「打开方式」
+- `jingjian-v1.7.2-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

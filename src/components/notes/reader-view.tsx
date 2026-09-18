@@ -16,12 +16,11 @@ import { EditorPane } from "@/components/notes/editor-pane";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { titleFromContent } from "@/lib/notes/format";
 import { writeReaderSession } from "@/lib/notes/reader-progress";
-import { createTtsController, readTtsRate, speakableBlocks } from "@/lib/notes/reader-tts";
+import { createTtsController, readTtsRate, speakableBlocks, TTS_RATE_STEPS } from "@/lib/notes/reader-tts";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
 const FONT_KEY = "jingjian.reader.font.v1";
-const RATE_STEPS = [0.8, 0.92, 1.05, 1.2];
 
 type ReaderViewProps = {
   notes: Note[];
@@ -202,8 +201,8 @@ export function ReaderView({
 
   function cycleRate() {
     const controller = ttsRef.current;
-    const at = RATE_STEPS.findIndex((step) => Math.abs(step - ttsRate) < 0.02);
-    const nextRate = RATE_STEPS[(at + 1) % RATE_STEPS.length];
+    const at = TTS_RATE_STEPS.findIndex((step) => Math.abs(step - ttsRate) < 0.02);
+    const nextRate = TTS_RATE_STEPS[(at + 1) % TTS_RATE_STEPS.length];
     controller?.setRate(nextRate);
     setTtsRate(nextRate);
   }

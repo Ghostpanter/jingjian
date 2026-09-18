@@ -305,7 +305,7 @@ export function NoteApp() {
   const activeNote = useActiveNote();
   const [pendingDelete, setPendingDelete] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"sync" | "theme" | "image" | "blog">("sync");
+  const [settingsTab, setSettingsTab] = useState<"sync" | "theme" | "image" | "blog" | "tts">("sync");
   const [exportOpen, setExportOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
   const restoredSession = useRef(false);
