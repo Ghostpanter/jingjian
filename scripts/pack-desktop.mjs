@@ -216,11 +216,16 @@ const macExtendInfo = {
       CFBundleTypeMIMETypes: ["text/markdown", "text/x-markdown", "text/plain"],
     },
     {
-      CFBundleTypeName: "EPUB",
+      CFBundleTypeName: "Ebook",
       CFBundleTypeRole: "Viewer",
       LSHandlerRank: "Alternate",
-      CFBundleTypeExtensions: ["epub"],
-      CFBundleTypeMIMETypes: ["application/epub+zip"],
+      CFBundleTypeExtensions: ["epub", "mobi", "azw", "azw3", "prc", "fb2", "fbz"],
+      CFBundleTypeMIMETypes: [
+        "application/epub+zip",
+        "application/x-mobipocket-ebook",
+        "application/vnd.amazon.mobi8-ebook",
+        "application/x-fictionbook+xml",
+      ],
     },
   ],
 };
@@ -274,7 +279,7 @@ Exec=Jingjian %F
 Icon=jingjian
 Terminal=false
 Categories=Office;TextEditor;
-MimeType=text/markdown;text/x-markdown;text/plain;application/epub+zip;
+MimeType=text/markdown;text/x-markdown;text/plain;application/epub+zip;application/x-mobipocket-ebook;application/vnd.amazon.mobi8-ebook;application/x-fictionbook+xml;
 StartupWMClass=Jingjian
 `,
   );

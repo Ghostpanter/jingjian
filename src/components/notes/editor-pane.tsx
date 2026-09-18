@@ -97,7 +97,7 @@ export function EditorPane({
     });
     const docs = files.filter((file) => {
       const kind = classifyIncoming(file.name, file.type);
-      return kind === "markdown" || kind === "txt" || kind === "epub";
+      return kind === "markdown" || kind === "txt" || kind === "ebook";
     });
     if (images.length === 0 && docs.length === 0) return;
     event.preventDefault();

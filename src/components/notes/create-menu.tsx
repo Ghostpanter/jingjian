@@ -118,7 +118,7 @@ export function CreateMenu({
         文件夹
       </button>
       <button type="button" role="menuitem" className={itemClass} onClick={onImportEpub}>
-        EPUB 电子书
+        电子书
       </button>
       {canMakeBook || hasBook ? (
         <>

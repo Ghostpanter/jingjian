@@ -820,6 +820,15 @@ public class JingjianFolderPlugin extends Plugin {
         if ("epub".equals(ext)) {
             return "application/epub+zip";
         }
+        if ("mobi".equals(ext) || "azw".equals(ext) || "prc".equals(ext)) {
+            return "application/x-mobipocket-ebook";
+        }
+        if ("azw3".equals(ext)) {
+            return "application/vnd.amazon.mobi8-ebook";
+        }
+        if ("fb2".equals(ext) || "fbz".equals(ext)) {
+            return "application/x-fictionbook+xml";
+        }
         return mime != null ? mime : "";
     }
 

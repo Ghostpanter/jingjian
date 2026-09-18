@@ -59,7 +59,7 @@ let mainWindow = null;
 const pendingFiles = [];
 
 function isOpenableFile(filePath) {
-  return /\.(md|markdown|txt|epub|png|jpe?g|gif|webp|bmp)$/i.test(filePath);
+  return /\.(md|markdown|txt|epub|mobi|azw|azw3|prc|fb2|fbz|html|htm|png|jpe?g|gif|webp|bmp)$/i.test(filePath);
 }
 
 function filesFromArgv(argv) {
@@ -78,6 +78,10 @@ function mimeFromName(name) {
   if (ext === "md" || ext === "markdown") return "text/markdown";
   if (ext === "txt") return "text/plain";
   if (ext === "epub") return "application/epub+zip";
+  if (ext === "mobi" || ext === "azw" || ext === "prc") return "application/x-mobipocket-ebook";
+  if (ext === "azw3") return "application/vnd.amazon.mobi8-ebook";
+  if (ext === "fb2" || ext === "fbz") return "application/x-fictionbook+xml";
+  if (ext === "html" || ext === "htm") return "text/html";
   if (ext === "png") return "image/png";
   if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
   if (ext === "gif") return "image/gif";

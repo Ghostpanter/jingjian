@@ -6,11 +6,15 @@ import {
   stableIncomingId,
 } from "./open-incoming.ts";
 
-test("classifies markdown, txt, epub and images", () => {
+test("classifies markdown, txt, ebooks and images", () => {
   assert.equal(classifyIncoming("笔记.md"), "markdown");
   assert.equal(classifyIncoming("a.markdown", "application/octet-stream"), "markdown");
   assert.equal(classifyIncoming("draft.txt"), "txt");
-  assert.equal(classifyIncoming("book.epub"), "epub");
+  assert.equal(classifyIncoming("book.epub"), "ebook");
+  assert.equal(classifyIncoming("novel.mobi"), "ebook");
+  assert.equal(classifyIncoming("kindle.azw3"), "ebook");
+  assert.equal(classifyIncoming("story.fb2"), "ebook");
+  assert.equal(classifyIncoming("page.html"), "ebook");
   assert.equal(classifyIncoming("cover.png", "image/png"), "image");
   assert.equal(classifyIncoming("share", "text/plain"), "text");
 });

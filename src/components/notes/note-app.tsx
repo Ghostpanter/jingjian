@@ -28,7 +28,8 @@ import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
 import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
-import { notesFromEpub, parseEpub } from "@/lib/notes/epub";
+import { notesFromEpub } from "@/lib/notes/epub";
+import { decodeEbookBytes, parseEbook, parseTxtEbook, titleFromFilename } from "@/lib/notes/ebook-parse";
 import { formatCharCount, isLargeNote, readNoteSort, titleFromContent, writeNoteSort, type NoteSort } from "@/lib/notes/format";
 import { foldersFromImportPaths, isImportableNoteName, isUnderFolder, notesInFolder, relativeDir } from "@/lib/notes/folder-tree";
 import { exportFolderArchive } from "@/lib/notes/export-folder";
@@ -176,10 +177,11 @@ function applyFormatHotkey(
   return false;
 }
 
-async function notesFromEpubBuffer(
+async function notesFromEbookBuffer(
   buffer: ArrayBuffer,
+  name = "book.epub",
 ): Promise<{ title: string; notes: Note[] }> {
-  const parsed = await parseEpub(buffer);
+  const parsed = await parseEbook(buffer, name);
   let coverSrc: string | undefined;
   for (const image of parsed.images) {
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
@@ -238,9 +240,9 @@ async function ingestLaunchFile(file: LaunchFile): Promise<void> {
   const mime = opened.mime || file.mime || "";
   const kind = classifyIncoming(name, mime);
 
-  if (kind === "epub") {
+  if (kind === "ebook") {
     const buffer = await new Blob([toArrayBuffer(base64ToBytes(opened.data))]).arrayBuffer();
-    const { title, notes } = await notesFromEpubBuffer(buffer);
+    const { title, notes } = await notesFromEbookBuffer(buffer, name);
     useNotesStore.getState().importNotes(notes);
     toast.message(`已导入《${title}》，${notes.length} 章`);
     return;
@@ -265,7 +267,19 @@ async function ingestLaunchFile(file: LaunchFile): Promise<void> {
   }
 
   if (kind === "markdown" || kind === "txt" || kind === "text") {
-    const raw = opened.text ?? new TextDecoder().decode(base64ToBytes(opened.data));
+    const bytes = opened.data ? base64ToBytes(opened.data) : undefined;
+    const raw = bytes
+      ? decodeEbookBytes(bytes)
+      : (opened.text ?? "").replace(/^\uFEFF/, "");
+    if (kind === "txt" || kind === "text") {
+      const book = parseTxtEbook(raw, titleFromFilename(name));
+      if (book) {
+        const notes = notesFromEpub(book);
+        useNotesStore.getState().importNotes(notes);
+        toast.message(`已导入《${book.title}》，${notes.length} 章`);
+        return;
+      }
+    }
     const note = noteFromIncoming(raw, kind, stableIncomingId(file.uri));
     useNotesStore.getState().importNotes([note]);
     toast.message(`已打开 ${name}`);
@@ -942,7 +956,7 @@ export function NoteApp() {
 
   async function handleImportBook(file: File) {
     try {
-      const { title, notes } = await notesFromEpubBuffer(await file.arrayBuffer());
+      const { title, notes } = await notesFromEbookBuffer(await file.arrayBuffer(), file.name);
       importNotes(notes);
       toast.message(`已导入《${title}》，${notes.length} 章`);
     } catch (error) {
@@ -952,6 +966,7 @@ export function NoteApp() {
 
   async function handleImportTextFiles(files: File[], format?: "md" | "txt") {
     const imported: Note[] = [];
+    let books = 0;
     try {
       for (const file of files) {
         const relative =
@@ -960,8 +975,16 @@ export function NoteApp() {
         const kind =
           format ??
           (classifyIncoming(file.name, file.type) === "txt" ? "txt" : "md");
-        const raw = await file.text();
+        const raw = decodeEbookBytes(new Uint8Array(await file.arrayBuffer()));
         if (kind === "txt") {
+          const book = parseTxtEbook(raw, titleFromFilename(file.name));
+          if (book) {
+            const notes = notesFromEpub(book);
+            importNotes(notes);
+            books += 1;
+            toast.message(`已导入《${book.title}》，${notes.length} 章`);
+            continue;
+          }
           imported.push({
             id: crypto.randomUUID(),
             content: raw.replace(/^\uFEFF/, ""),
@@ -976,7 +999,7 @@ export function NoteApp() {
         imported.push(folder && !parsed.folder ? { ...parsed, folder } : parsed);
       }
       if (imported.length === 0) {
-        toast.message("没有可导入的文件");
+        if (books === 0) toast.message("没有可导入的文件");
         return;
       }
       importNotes(imported);
@@ -1008,6 +1031,7 @@ export function NoteApp() {
 
   async function importFolderEntries(entries: ImportFolderFile[]) {
     const imported: Note[] = [];
+    let books = 0;
     for (const file of entries) {
       const relative = file.relativePath || file.name;
       if (!isImportableNoteName(relative)) continue;
@@ -1015,6 +1039,12 @@ export function NoteApp() {
       const kind = classifyIncoming(file.name, "") === "txt" ? "txt" : "md";
       const raw = file.content.replace(/^\uFEFF/, "");
       if (kind === "txt") {
+        const book = parseTxtEbook(raw, titleFromFilename(file.name));
+        if (book) {
+          importNotes(notesFromEpub(book));
+          books += 1;
+          continue;
+        }
         imported.push({
           id: crypto.randomUUID(),
           content: raw,
@@ -1029,7 +1059,13 @@ export function NoteApp() {
       imported.push(folder && !parsed.folder ? { ...parsed, folder } : parsed);
     }
     if (imported.length === 0) {
-      toast.message("文件夹里没有 Markdown 或 TXT");
+      toast.message(
+        books
+          ? books === 1
+            ? "已导入 1 本电子书"
+            : `已导入 ${books} 本电子书`
+          : "文件夹里没有 Markdown 或 TXT",
+      );
       return;
     }
     for (const folder of foldersFromImportPaths(entries.map((item) => item.relativePath))) {
@@ -1037,7 +1073,13 @@ export function NoteApp() {
       await ensureFolderOnDisk(folder).catch(() => undefined);
     }
     importNotes(imported);
-    toast.message(imported.length === 1 ? "已导入 1 篇笔记" : `已导入 ${imported.length} 篇笔记`);
+    toast.message(
+      books
+        ? `已导入 ${imported.length} 篇笔记，${books} 本电子书`
+        : imported.length === 1
+          ? "已导入 1 篇笔记"
+          : `已导入 ${imported.length} 篇笔记`,
+    );
   }
 
   async function handleImportFolder() {
@@ -1073,7 +1115,7 @@ export function NoteApp() {
       await handleImportFolderFiles(files);
       return;
     }
-    const books = files.filter((file) => classifyIncoming(file.name, file.type) === "epub");
+    const books = files.filter((file) => classifyIncoming(file.name, file.type) === "ebook");
     const markdown = files.filter((file) => classifyIncoming(file.name, file.type) === "markdown");
     const txt = files.filter((file) => classifyIncoming(file.name, file.type) === "txt");
     for (const book of books) await handleImportBook(book);
@@ -1917,7 +1959,7 @@ export function NoteApp() {
       <input
         ref={bookInputRef}
         type="file"
-        accept=".epub,application/epub+zip"
+        accept=".epub,.mobi,.azw,.azw3,.prc,.fb2,.fbz,.html,.htm,application/epub+zip,application/x-mobipocket-ebook,application/x-fictionbook+xml"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];

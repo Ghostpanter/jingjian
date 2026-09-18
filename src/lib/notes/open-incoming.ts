@@ -4,15 +4,28 @@ import type { Note } from "./types.ts";
 export type IncomingKind =
   | "markdown"
   | "txt"
-  | "epub"
+  | "ebook"
   | "image"
   | "text"
   | "unknown";
 
+const EBOOK_NAME =
+  /\.(epub|mobi|azw|azw3|prc|fb2|fbz|html|htm)$/i;
+
 export function classifyIncoming(name: string, mime = ""): IncomingKind {
   const file = name.trim().toLowerCase();
   const type = mime.trim().toLowerCase();
-  if (file.endsWith(".epub") || type.includes("epub")) return "epub";
+  if (
+    file.endsWith(".fb2.zip") ||
+    EBOOK_NAME.test(file) ||
+    type.includes("epub") ||
+    type.includes("mobipocket") ||
+    type.includes("fictionbook") ||
+    type.includes("amazon.ebook") ||
+    type.includes("mobi8")
+  ) {
+    return "ebook";
+  }
   if (
     file.endsWith(".md") ||
     file.endsWith(".markdown") ||
