@@ -854,6 +854,7 @@
   }
 
   .md-body .is-speaking {
+    scroll-margin-top: 0.75rem;
     border-radius: 4px;
     background: color-mix(in srgb, var(--color-accent) 14%, transparent);
     outline: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);

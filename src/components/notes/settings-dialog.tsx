@@ -1198,7 +1198,7 @@ function TtsPanel({
   return (
     <>
       <p className="mt-3 text-sm text-muted">
-        只在电子书阅读页生效。英文专业词会按单词朗读，不再逐个字母拼。
+        只在电子书阅读页生效。专业词按单词读。读完本章默认可接着下一章。
       </p>
       <p className="mt-4 text-xs text-muted">语种</p>
       <div className="provider-grid mt-2">
@@ -1265,7 +1265,34 @@ function TtsPanel({
           </button>
         ))}
       </div>
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-fg">自动播放</p>
+          <p className="text-xs text-subtle">读完本章接着下一章</p>
+        </div>
+        <div className="flex rounded-md bg-overlay p-1">
+          {(
+            [
+              { on: true, label: "开" },
+              { on: false, label: "关" },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              aria-pressed={prefs.autoplay === item.on}
+              onClick={() => onChange({ ...prefs, autoplay: item.on })}
+              className={cn(
+                "btn-press min-w-12 rounded-sm px-3 py-1.5 text-sm",
+                prefs.autoplay === item.on ? "bg-paper text-fg shadow-border" : "text-muted",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
         <Button variant="subtle" disabled={previewing} onClick={() => void handlePreview()}>
           {previewing ? "试听中…" : "试听"}
         </Button>

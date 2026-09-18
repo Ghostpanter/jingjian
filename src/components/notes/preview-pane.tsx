@@ -63,6 +63,13 @@ export function PreviewPane({
   });
 
   useLayoutEffect(() => {
+    if (!reader || typeof speakIndex !== "number" || speakIndex < 0) return;
+    const node = articleRef.current?.children[speakIndex] as HTMLElement | undefined;
+    if (!node) return;
+    node.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  }, [reader, speakIndex]);
+
+  useLayoutEffect(() => {
     if (!reader || restoreRatio == null) return;
     const el = scrollRef.current;
     if (!el) return;

@@ -16,7 +16,14 @@ import { EditorPane } from "@/components/notes/editor-pane";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { titleFromContent } from "@/lib/notes/format";
 import { writeReaderSession } from "@/lib/notes/reader-progress";
-import { createTtsController, readTtsRate, speakableBlocks, TTS_RATE_STEPS } from "@/lib/notes/reader-tts";
+import {
+  createTtsController,
+  readTtsPrefs,
+  readTtsRate,
+  shouldContinueTts,
+  speakableBlocks,
+  TTS_RATE_STEPS,
+} from "@/lib/notes/reader-tts";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +51,11 @@ export function ReaderView({
   onExcerpt,
 }: ReaderViewProps) {
   const current = notes.find((note) => note.id === activeId) ?? notes[0];
+  const chapterIndex = current
+    ? Math.max(0, notes.findIndex((note) => note.id === current.id))
+    : 0;
+  const prevNote = current ? notes[chapterIndex - 1] : undefined;
+  const nextNote = current ? notes[chapterIndex + 1] : undefined;
   const [editing, setEditing] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [fontScale, setFontScale] = useState(() => {
@@ -61,6 +73,16 @@ export function ReaderView({
   const progressTimer = useRef(0);
   const ratioRef = useRef(current?.readRatio ?? 0);
   const ttsRef = useRef<ReturnType<typeof createTtsController> | null>(null);
+  const currentRef = useRef(current);
+  const nextNoteRef = useRef(nextNote);
+  const onSelectRef = useRef(onSelect);
+  const onProgressRef = useRef(onProgress);
+  const continueForIdRef = useRef<string | null>(null);
+  currentRef.current = current;
+  nextNoteRef.current = nextNote;
+  onSelectRef.current = onSelect;
+  onProgressRef.current = onProgress;
+
 
   useEffect(() => {
     localStorage.setItem(FONT_KEY, String(fontScale));
@@ -68,8 +90,33 @@ export function ReaderView({
 
   useEffect(() => {
     const controller = createTtsController({
-      onIndex: (index) => setSpeakIndex(index),
-      onEnd: () => {
+      onIndex: (blockIndex) => setSpeakIndex(blockIndex),
+      onEnd: (reason) => {
+        const note = currentRef.current;
+        const following = nextNoteRef.current;
+        if (reason === "finished" && note) {
+          onProgressRef.current(note.id, 1);
+          if (note.bookId) {
+            writeReaderSession({
+              bookId: note.bookId,
+              noteId: note.id,
+              readerOpen: true,
+              ratio: 1,
+              at: Date.now(),
+            });
+          }
+        }
+        if (shouldContinueTts(readTtsPrefs().autoplay, Boolean(following), reason) && following) {
+          continueForIdRef.current = following.id;
+          setSpeaking(true);
+          setPaused(false);
+          setSpeakIndex(-1);
+          onSelectRef.current(following.id);
+          return;
+        }
+        if (reason === "finished" && readTtsPrefs().autoplay && !following) {
+          toast.message("已读完本书");
+        }
         setSpeaking(false);
         setPaused(false);
         setSpeakIndex(-1);
@@ -88,19 +135,50 @@ export function ReaderView({
     setEditing(false);
     setTocOpen(false);
     setExcerpt(null);
-    ttsRef.current?.stop();
-    ratioRef.current = current?.readRatio ?? 0;
-    setRatio(current?.readRatio ?? 0);
     if (!current?.bookId) return;
-    onProgress(current.id, current.readRatio ?? 0);
+    const continueFor = current.id;
+    const continueTts = continueForIdRef.current === continueFor;
+    if (!continueTts) {
+      if (continueForIdRef.current && continueForIdRef.current !== continueFor) {
+        continueForIdRef.current = null;
+      }
+      ttsRef.current?.stop();
+      setSpeaking(false);
+      setPaused(false);
+      setSpeakIndex(-1);
+      ratioRef.current = current.readRatio ?? 0;
+      setRatio(current.readRatio ?? 0);
+      onProgress(current.id, current.readRatio ?? 0);
+      writeReaderSession({
+        bookId: current.bookId,
+        noteId: current.id,
+        readerOpen: true,
+        ratio: current.readRatio ?? 0,
+        at: Date.now(),
+      });
+      return;
+    }
+    ratioRef.current = 0;
+    setRatio(0);
+    onProgress(current.id, 0);
     writeReaderSession({
       bookId: current.bookId,
       noteId: current.id,
       readerOpen: true,
-      ratio: current.readRatio ?? 0,
+      ratio: 0,
       at: Date.now(),
     });
+    const timer = window.setTimeout(() => {
+      if (continueForIdRef.current !== continueFor) return;
+      continueForIdRef.current = null;
+      const root = document.querySelector(".reader-scroll .md-body");
+      setSpeaking(true);
+      setPaused(false);
+      ttsRef.current?.start(speakableBlocks(root), 0);
+    }, 160);
+    return () => window.clearTimeout(timer);
   }, [current?.id]);
+
 
   useEffect(() => {
     if (editing || !current?.bookId) return;
@@ -124,9 +202,9 @@ export function ReaderView({
   }, [editing, current?.id, current?.bookId]);
 
   if (!current) return null;
-  const index = Math.max(0, notes.findIndex((note) => note.id === current.id));
-  const prev = notes[index - 1];
-  const next = notes[index + 1];
+  const index = chapterIndex;
+  const prev = prevNote;
+  const next = nextNote;
   const bookTitle = current.bookTitle || titleFromContent(current.content);
   const chapterTitle = titleFromContent(current.content);
   const ebook = Boolean(current.bookId);
@@ -152,7 +230,9 @@ export function ReaderView({
   }
 
   function go(note?: Note) {
-    if (note) onSelect(note.id);
+    if (!note) return;
+    continueForIdRef.current = null;
+    onSelect(note.id);
   }
 
   function closeReader() {
@@ -278,6 +358,7 @@ export function ReaderView({
                   key={note.id}
                   type="button"
                   onClick={() => {
+                    continueForIdRef.current = null;
                     onSelect(note.id);
                     setTocOpen(false);
                   }}
@@ -349,7 +430,7 @@ export function ReaderView({
               content={current.content}
               format={current.format}
               reader
-              restoreRatio={current.readRatio ?? 0}
+              restoreRatio={continueForIdRef.current === current.id ? 0 : current.readRatio ?? 0}
               speakIndex={speakIndex}
               onScrollRatio={persistRatio}
             />

@@ -10,21 +10,26 @@ export type TtsVoiceInfo = {
   local?: boolean;
   quality?: number;
 };
+export type TtsEndReason = "finished" | "stopped";
 export type TtsPrefs = {
   lang: TtsLangMode;
   voiceName: string;
   rate: number;
+  autoplay: boolean;
 };
 export type SpeakChunk = {
   text: string;
   lang: SpeakLang;
 };
 
+
 export const DEFAULT_TTS_PREFS: TtsPrefs = {
   lang: "auto",
   voiceName: "",
   rate: 0.92,
+  autoplay: true,
 };
+
 
 export const TTS_LANG_MODES: { id: TtsLangMode; label: string; hint: string }[] = [
   { id: "auto", label: "自动", hint: "按正文切换中英文" },
@@ -49,33 +54,40 @@ export function writeTtsRate(rate: number) {
   writeTtsPrefs({ ...readTtsPrefs(), rate: clampTtsRate(rate) });
 }
 
+export function parseTtsPrefs(raw: unknown, fallbackRate = DEFAULT_TTS_PREFS.rate): TtsPrefs {
+  const parsed = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+  return {
+    lang: LANG_MODES.includes(parsed.lang as TtsLangMode)
+      ? (parsed.lang as TtsLangMode)
+      : "auto",
+    voiceName: typeof parsed.voiceName === "string" ? parsed.voiceName : "",
+    rate: clampTtsRate(typeof parsed.rate === "number" ? parsed.rate : fallbackRate),
+    autoplay: parsed.autoplay !== false,
+  };
+}
+
+export function shouldContinueTts(
+  autoplay: boolean,
+  hasNext: boolean,
+  reason: TtsEndReason,
+): boolean {
+  return reason === "finished" && autoplay && hasNext;
+}
+
 export function readTtsPrefs(): TtsPrefs {
   try {
     const raw = localStorage.getItem(TTS_PREFS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<TtsPrefs>;
-      return {
-        lang: LANG_MODES.includes(parsed.lang as TtsLangMode)
-          ? (parsed.lang as TtsLangMode)
-          : "auto",
-        voiceName: typeof parsed.voiceName === "string" ? parsed.voiceName : "",
-        rate: clampTtsRate(
-          typeof parsed.rate === "number" ? parsed.rate : readLegacyRate(),
-        ),
-      };
-    }
+    if (raw) return parseTtsPrefs(JSON.parse(raw), readLegacyRate());
   } catch {
     // private mode or invalid json
   }
-  return { ...DEFAULT_TTS_PREFS, rate: readLegacyRate() };
+  return parseTtsPrefs({}, readLegacyRate());
 }
 
 export function writeTtsPrefs(prefs: TtsPrefs) {
-  const next: TtsPrefs = {
-    lang: LANG_MODES.includes(prefs.lang) ? prefs.lang : "auto",
-    voiceName: prefs.voiceName || "",
-    rate: clampTtsRate(prefs.rate),
-  };
+  const next = parseTtsPrefs(prefs);
   try {
     localStorage.setItem(TTS_PREFS_KEY, JSON.stringify(next));
     localStorage.setItem(TTS_RATE_KEY, String(next.rate));
@@ -83,6 +95,7 @@ export function writeTtsPrefs(prefs: TtsPrefs) {
     // private mode
   }
 }
+
 
 function readLegacyRate(): number {
   try {
@@ -236,9 +249,10 @@ export function speakableBlocks(root: ParentNode | null): string[] {
 
 type TtsCallbacks = {
   onIndex: (index: number) => void;
-  onEnd: () => void;
+  onEnd: (reason: TtsEndReason) => void;
   onError: (message: string) => void;
 };
+
 
 export function ttsUnavailableMessage(native = false): string {
   if (native) return "请到系统设置打开「文字转语音」，并安装中文或英文语音包";
@@ -342,7 +356,7 @@ export function createTtsController(
       if (!text) {
         playing = false;
         paused = false;
-        callbacks.onEnd();
+        callbacks.onEnd("finished");
         return;
       }
       callbacks.onIndex(index);
@@ -370,7 +384,7 @@ export function createTtsController(
           playing = false;
           paused = false;
           callbacks.onError("朗读中断");
-          callbacks.onEnd();
+          callbacks.onEnd("stopped");
           return;
         }
       }
@@ -384,7 +398,7 @@ export function createTtsController(
     if (!speech) {
       playing = false;
       callbacks.onError(ttsUnavailableMessage(false));
-      callbacks.onEnd();
+      callbacks.onEnd("stopped");
       return;
     }
     while (index < blocks.length && !blocks[index]) index += 1;
@@ -392,7 +406,7 @@ export function createTtsController(
     if (!text) {
       playing = false;
       paused = false;
-      callbacks.onEnd();
+      callbacks.onEnd("finished");
       return;
     }
     chunks = splitSpeakChunks(text, prefs().lang);
@@ -437,7 +451,7 @@ export function createTtsController(
       playing = false;
       paused = false;
       callbacks.onError("朗读中断");
-      callbacks.onEnd();
+      callbacks.onEnd("stopped");
     };
     utterance = next;
     speech.speak(next);
@@ -469,7 +483,7 @@ export function createTtsController(
         rate = clampTtsRate(getPrefs().rate);
         if (!blocks.some(Boolean)) {
           callbacks.onError("这一章没有可朗读的正文");
-          callbacks.onEnd();
+          callbacks.onEnd("stopped");
           return;
         }
         index = Math.min(Math.max(0, from), blocks.length - 1);
@@ -485,7 +499,7 @@ export function createTtsController(
         if (token !== generation) return;
         if (!native && !synth()) {
           callbacks.onError(ttsUnavailableMessage(onNative));
-          callbacks.onEnd();
+          callbacks.onEnd("stopped");
           return;
         }
         try {
@@ -550,7 +564,7 @@ export function createTtsController(
       chunks = [];
       if (native) void import("./native-tts.ts").then((mod) => mod.nativeTtsStop());
       synth()?.cancel();
-      callbacks.onEnd();
+      callbacks.onEnd("stopped");
     },
     toggle(nextBlocks: string[]) {
       if (playing && paused) {

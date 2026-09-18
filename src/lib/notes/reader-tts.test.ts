@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  parseTtsPrefs,
   pickEnVoice,
   pickVoiceForLang,
   pickZhVoice,
+  shouldContinueTts,
   splitSpeakChunks,
   speakableBlocks,
   ttsUnavailableMessage,
@@ -127,4 +129,17 @@ test("speakable blocks keep child indexes including blanks", () => {
 test("unavailable copy points to the app on web and system tts on native", () => {
   assert.match(ttsUnavailableMessage(false), /安卓或电脑应用/);
   assert.match(ttsUnavailableMessage(true), /中文或英文语音包/);
+});
+
+test("autoplay defaults on and can be turned off", () => {
+  assert.equal(parseTtsPrefs({}).autoplay, true);
+  assert.equal(parseTtsPrefs({ autoplay: false }).autoplay, false);
+  assert.equal(parseTtsPrefs({ autoplay: true, lang: "en" }).lang, "en");
+});
+
+test("continues only when a chapter finishes, autoplay is on, and a next chapter exists", () => {
+  assert.equal(shouldContinueTts(true, true, "finished"), true);
+  assert.equal(shouldContinueTts(true, true, "stopped"), false);
+  assert.equal(shouldContinueTts(false, true, "finished"), false);
+  assert.equal(shouldContinueTts(true, false, "finished"), false);
 });
