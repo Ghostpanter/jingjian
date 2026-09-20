@@ -23,7 +23,7 @@ import { FindBar } from "@/components/notes/find-bar";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { ReaderView } from "@/components/notes/reader-view";
-import { SettingsDialog } from "@/components/notes/settings-dialog";
+import { SettingsDialog, type TabId } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
 import { Button } from "@/components/ui/button";
 import { exportNotes, type ExportFormat } from "@/lib/notes/export";
@@ -319,7 +319,7 @@ export function NoteApp() {
   const activeNote = useActiveNote();
   const [pendingDelete, setPendingDelete] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"sync" | "theme" | "image" | "blog" | "tts">("sync");
+  const [settingsTab, setSettingsTab] = useState<TabId>("sync");
   const [exportOpen, setExportOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
   const restoredSession = useRef(false);

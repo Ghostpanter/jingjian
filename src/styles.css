@@ -903,8 +903,10 @@
   }
 
   .settings-dialog {
+    display: flex;
     max-height: min(42rem, 90dvh);
-    overflow: auto;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .shortcuts-list {

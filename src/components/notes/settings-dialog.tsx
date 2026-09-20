@@ -69,6 +69,14 @@ import {
   type TtsPrefs,
   type TtsVoiceInfo,
 } from "@/lib/notes/reader-tts";
+import {
+  APP_META,
+  MIT_LICENSE,
+  formatReleasedAt,
+  hasNewerRelease,
+  parseLatestRelease,
+  versionLine,
+} from "@/lib/notes/app-meta";
 import { cn } from "@/lib/utils";
 
 const PROVIDERS: { id: SyncProvider; label: string; hint: string }[] = [
@@ -85,9 +93,10 @@ const TABS = [
   { id: "image", label: "图像" },
   { id: "blog", label: "博客" },
   { id: "tts", label: "朗读" },
+  { id: "about", label: "关于" },
 ] as const;
 
-type TabId = (typeof TABS)[number]["id"];
+export type TabId = (typeof TABS)[number]["id"];
 
 const INSERT_ACTIONS: { id: ImageInsertAction; label: string }[] = [
   { id: "none", label: "无特殊操作" },
@@ -270,10 +279,10 @@ export function SettingsDialog({
         className="settings-dialog dialog-content w-full max-w-lg rounded-xl bg-bg p-5 text-fg shadow-raised sm:p-6"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="settings-title" className="font-serif text-lg font-medium">
+        <h2 id="settings-title" className="shrink-0 font-serif text-lg font-medium">
           设置
         </h2>
-        <div className="mt-3 flex gap-1 overflow-x-auto rounded-md bg-overlay p-1">
+        <div className="mt-3 flex shrink-0 gap-1 overflow-x-auto rounded-md bg-overlay p-1">
           {TABS.map((item) => (
             <button
               key={item.id}
@@ -283,7 +292,7 @@ export function SettingsDialog({
                 setTestMessage("");
               }}
               className={cn(
-                "btn-press flex-1 whitespace-nowrap rounded-sm py-2 text-xs sm:text-sm",
+                "btn-press flex-1 whitespace-nowrap rounded-sm px-2 py-2 text-xs sm:text-sm",
                 tab === item.id ? "bg-paper text-fg shadow-border" : "text-muted",
               )}
             >
@@ -292,6 +301,7 @@ export function SettingsDialog({
           ))}
         </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "sync" ? (
           <SyncPanel
             draft={draft}
@@ -312,30 +322,38 @@ export function SettingsDialog({
           <BlogPanel blog={blog} onChange={patchBlog} />
         ) : null}
         {tab === "tts" ? <TtsPanel prefs={tts} onChange={setTts} /> : null}
+        {tab === "about" ? <AboutPanel native={native} desktop={desktop} /> : null}
 
         {testMessage ? (
           <p className={cn("mt-3 text-sm", testError ? "text-danger" : "text-muted")}>
             {testMessage}
           </p>
         ) : null}
+        </div>
 
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" onClick={handleCancel}>
-            取消
-          </Button>
-          {(tab === "sync" && draft.provider !== "off") ||
-          (tab === "image" && image.uploader !== "none") ||
-          (tab === "blog" && isBlogConfigured(blog)) ? (
-            <Button variant="subtle" disabled={busy} onClick={() => void handleTest()}>
-              测试连接
-            </Button>
-          ) : null}
-          {tab === "blog" && isBlogConfigured(blog) && onOpenBlogPosts ? (
-            <Button variant="subtle" onClick={handleOpenBlogPosts}>
-              查看仓库文章
-            </Button>
-          ) : null}
-          <Button onClick={handleSave}>保存</Button>
+        <div className="mt-4 flex shrink-0 flex-wrap justify-end gap-2">
+          {tab === "about" ? (
+            <Button onClick={handleCancel}>关闭</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={handleCancel}>
+                取消
+              </Button>
+              {(tab === "sync" && draft.provider !== "off") ||
+              (tab === "image" && image.uploader !== "none") ||
+              (tab === "blog" && isBlogConfigured(blog)) ? (
+                <Button variant="subtle" disabled={busy} onClick={() => void handleTest()}>
+                  测试连接
+                </Button>
+              ) : null}
+              {tab === "blog" && isBlogConfigured(blog) && onOpenBlogPosts ? (
+                <Button variant="subtle" onClick={handleOpenBlogPosts}>
+                  查看仓库文章
+                </Button>
+              ) : null}
+              <Button onClick={handleSave}>保存</Button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1304,6 +1322,150 @@ function TtsPanel({
       </div>
       {hint ? <p className="mt-2 text-sm text-muted">{hint}</p> : null}
     </>
+  );
+}
+
+function AboutPanel({ native, desktop }: { native: boolean; desktop: boolean }) {
+  const [licenseOpen, setLicenseOpen] = useState(false);
+  const [updateHint, setUpdateHint] = useState("");
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const runtime = desktop ? "电脑应用" : native ? "安卓" : "网页";
+
+  async function handleCheckUpdate() {
+    setUpdateBusy(true);
+    setUpdateHint("");
+    try {
+      const response = await fetch(APP_META.latestApiUrl, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (!response.ok) throw new Error("无法检查更新");
+      const latest = parseLatestRelease(await response.json());
+      if (hasNewerRelease(APP_META.version, latest.version)) {
+        setUpdateHint(`有新版本 ${latest.version}`);
+        window.open(latest.url, "_blank", "noopener,noreferrer");
+      } else {
+        setUpdateHint("已是最新版");
+      }
+    } catch {
+      setUpdateHint("无法在线检查，已打开发布页");
+      window.open(APP_META.releasesUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  async function handleCopyVersion() {
+    const text = versionLine();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.message("已复制版本信息");
+    } catch {
+      toast.message("无法复制，请长按选择");
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-3">
+        <img
+          src="/favicon.svg"
+          alt=""
+          width={40}
+          height={40}
+          className="size-10 shrink-0 rounded-md"
+        />
+        <div className="min-w-0">
+          <div className="font-serif text-lg leading-tight font-medium">{APP_META.name}</div>
+          <p className="text-xs text-muted">{APP_META.tagline} · 没有账号</p>
+        </div>
+      </div>
+
+      <dl className="mt-4 divide-y divide-border">
+        <AboutFact label="版本" value={APP_META.version} />
+        <AboutFact label="更新日期" value={formatReleasedAt(APP_META.releasedAt)} />
+        <AboutFact label="开源协议" value={APP_META.license} />
+        <AboutFact label="作者" value={APP_META.author} />
+        <AboutFact label="运行环境" value={runtime} />
+      </dl>
+
+      <button
+        type="button"
+        className="btn-press mt-2 flex min-h-11 w-full items-center justify-between rounded-md px-1 text-left text-sm"
+        aria-expanded={licenseOpen}
+        onClick={() => setLicenseOpen((open) => !open)}
+      >
+        <span className="text-muted">查看 MIT 协议全文</span>
+        <span className="text-xs text-subtle">{licenseOpen ? "收起" : "展开"}</span>
+      </button>
+      {licenseOpen ? (
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-overlay px-3 py-2 text-xs leading-relaxed text-muted">
+          {MIT_LICENSE}
+        </pre>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-2">
+        <button
+          type="button"
+          className="btn-press flex min-h-11 items-center justify-between rounded-md bg-overlay px-3 text-sm hover:bg-overlay-strong"
+          disabled={updateBusy}
+          onClick={() => void handleCheckUpdate()}
+        >
+          <span className="text-fg">{updateBusy ? "正在检查…" : "检查更新"}</span>
+          <span className="text-xs text-subtle">发布页</span>
+        </button>
+        <AboutLink href={APP_META.repoUrl} label="源代码" hint="GitHub" />
+        <AboutLink href={APP_META.issuesUrl} label="问题反馈" hint="Issues" />
+        <a
+          href={APP_META.donateUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-press flex min-h-11 items-center justify-between rounded-md bg-accent px-3 text-sm text-accent-fg hover:opacity-90"
+        >
+          <span>捐赠支持</span>
+          <span className="text-xs opacity-80">{APP_META.donateLabel}</span>
+        </a>
+        <button
+          type="button"
+          className="btn-press flex min-h-11 items-center justify-between rounded-md bg-overlay px-3 text-sm hover:bg-overlay-strong"
+          onClick={() => void handleCopyVersion()}
+        >
+          <span className="text-fg">复制版本信息</span>
+          <span className="text-xs text-subtle">反馈时用</span>
+        </button>
+      </div>
+
+      {updateHint ? <p className="mt-2 text-sm text-muted">{updateHint}</p> : null}
+
+      <p className="mt-4 text-xs leading-relaxed text-muted">
+        免费、无广告、无会员。笔记默认只在本机，切到后台且正文有改动时写入「文档/jingjian」。同步、图床、博客需你主动填写，不会上传使用情况。
+      </p>
+      <p className="mt-2 text-xs text-subtle">
+        Copyright © {APP_META.copyrightYear} {APP_META.author}
+      </p>
+    </div>
+  );
+}
+
+function AboutFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-3">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="truncate text-sm text-fg">{value}</dd>
+    </div>
+  );
+}
+
+function AboutLink({ href, label, hint }: { href: string; label: string; hint: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="btn-press flex min-h-11 items-center justify-between rounded-md bg-overlay px-3 text-sm hover:bg-overlay-strong"
+    >
+      <span className="text-fg">{label}</span>
+      <span className="text-xs text-subtle">{hint}</span>
+    </a>
   );
 }
 

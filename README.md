@@ -24,6 +24,7 @@
 - 电子书：侧栏单独成「书」，点书名展开或收起章节，点阅读从上次章节和位置接着看；划线摘到「摘录」；阅读页可朗读（只在电子书阅读时出现，用系统语音；中英可混读，专业词按单词而不是字母。读完本章默认接着下一章，长段会滚到正在读的句子。齿轮 → 朗读 可选语种、音色和自动播放）。导入 EPUB、Kindle、FB2、带章节的 TXT 或 HTML，按目录分章；导出带作者和封面。点章节仍打开 Markdown
 - 左侧 +：新建 Markdown / 纯文本 / 文件夹，导入 Markdown、TXT、文件夹或电子书（EPUB、Kindle、FB2、带章节的 TXT、HTML）。导入文件夹走系统选文件夹，不再误选成里面的文件
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
+- 关于：齿轮 → 关于，可看版本、更新日期、MIT 协议、检查更新、源代码、问题反馈和捐赠
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
 - 博客：齿轮 → 博客，选 GitHub 或 Gitee。侧栏报纸图标列出仓库文章，点开可读、可拉进本地再改；工具栏纸飞机发回去。新建可用日记 / 会议 / 博客文章模板
 - 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB、Kindle、FB2；分享文字或图片也会收入笔记
@@ -135,7 +136,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.3.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.4.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -145,9 +146,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.3-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.3-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
-- `jingjian-v1.7.3-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.4-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.4-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
+- `jingjian-v1.7.4-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` / `.mobi` / `.azw3` / `.fb2` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 
@@ -195,11 +196,15 @@ npm run desktop:pack
 | `Ctrl + S` | 保存到文档/jingjian |
 | `Ctrl + Shift + S` | 另存为 |
 | `Ctrl + Shift + L` | 显示或收起文件列表 |
-| `Ctrl + ,` | 设置（同步 / 主题 / 图像） |
+| `Ctrl + ,` | 设置（同步 / 主题 / 图像 / 关于） |
 | `Ctrl + Shift + E` | 导出 |
 | `Ctrl + Shift + Backspace` | 删除当前笔记 |
 | `J` / `K` 或方向键 | 上一条 / 下一条 |
 
 ## 许可
 
-MIT
+MIT。齿轮 → 关于 可查看版本、更新日期和协议全文。
+
+## 捐赠
+
+静笺免费、没有账号和广告。若想支持后续开发，可到 [GitHub Sponsors](https://github.com/sponsors/Ghostpanter)，或给仓库点星。
