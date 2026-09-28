@@ -8,6 +8,7 @@ import {
   Link2,
   PanelLeft,
   Pencil,
+  Printer,
   Save,
   Search,
   Send,
@@ -22,6 +23,7 @@ import { ExportMenu } from "@/components/notes/export-menu";
 import { FindBar } from "@/components/notes/find-bar";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
 import { PreviewPane } from "@/components/notes/preview-pane";
+import { PrintDialog } from "@/components/notes/print-dialog";
 import { ReaderView } from "@/components/notes/reader-view";
 import { SettingsDialog, type TabId } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
@@ -321,6 +323,7 @@ export function NoteApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<TabId>("sync");
   const [exportOpen, setExportOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
   const restoredSession = useRef(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -688,6 +691,7 @@ export function NoteApp() {
         setSettingsOpen(false);
         setLinkOpen(false);
         setExportOpen(false);
+        setPrintOpen(false);
         setReaderOpen(false);
         setQuickOpen(false);
         setTrashOpen(false);
@@ -707,6 +711,17 @@ export function NoteApp() {
         setSidebarOpen(true);
         setDesktopCollapsed(false);
         document.getElementById("note-search")?.focus();
+        return;
+      }
+
+      if (mod && event.shiftKey && key.toLowerCase() === "p") {
+        event.preventDefault();
+        if (!activeNote) {
+          toast.message("先打开一篇笔记");
+          return;
+        }
+        setExportOpen(false);
+        setPrintOpen((open) => !open);
         return;
       }
 
@@ -801,7 +816,7 @@ export function NoteApp() {
       }
 
       const overlayOpen =
-        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen || findOpen || quickOpen || trashOpen || conflicts.length > 0;
+        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen || printOpen || findOpen || quickOpen || trashOpen || conflicts.length > 0;
       const inEditor = target?.id === "note-editor";
       const inOtherField = typing && !inEditor;
       if (
@@ -861,6 +876,7 @@ export function NoteApp() {
     linkOpen,
     settingsOpen,
     exportOpen,
+    printOpen,
     findOpen,
     shortcutsOpen,
     selectNote,
@@ -1616,6 +1632,20 @@ export function NoteApp() {
             <Button
               variant="ghost"
               size="icon-sm"
+              aria-label="打印"
+              disabled={!activeNote}
+              onClick={() => {
+                setExportOpen(false);
+                setPrintOpen(true);
+              }}
+            >
+              <Printer />
+            </Button>
+          </div>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon-sm"
               aria-label="导出"
               disabled={!activeNote}
               onClick={() => setExportOpen((open) => !open)}
@@ -1925,6 +1955,14 @@ export function NoteApp() {
         onOpenBlogPosts={openBlogPosts}
       />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <PrintDialog
+        open={printOpen}
+        notes={rawNotes}
+        activeId={activeNote?.id ?? ""}
+        onOpenChange={setPrintOpen}
+        onError={(message) => toast.message(message)}
+        onSent={() => toast.message("已交给系统打印")}
+      />
       <LinkDialog
         open={linkOpen}
         draft={linkDraft}

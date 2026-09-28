@@ -51,6 +51,10 @@ export type DesktopApi = {
     timeoutMs?: number;
   }): Promise<DesktopNetResult>;
   setChrome?(options: { bg: string; dark: boolean }): Promise<void> | void;
+  printHtml?(options: {
+    html: string;
+    jobName?: string;
+  }): Promise<{ cancelled?: boolean } | void>;
 };
 
 export function desktopApi(): DesktopApi | undefined {

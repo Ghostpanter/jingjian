@@ -597,6 +597,53 @@ function registerIpc() {
       clearTimeout(timer);
     }
   });
+
+  ipcMain.handle("print-html", async (event, payload) => {
+    const html = typeof payload?.html === "string" ? payload.html : "";
+    if (!html) throw new Error("没有可打印的内容");
+    if (html.length > 8_000_000) throw new Error("内容过长，请分开打印");
+    const jobName = String(payload?.jobName || "静笺").replace(/[\r\n]+/g, " ").slice(0, 80) || "静笺";
+    const file = path.join(app.getPath("temp"), `jingjian-print-${Date.now().toString(36)}.html`);
+    await writeFile(file, html, "utf8");
+    const parent = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    const printWin = new BrowserWindow({
+      show: false,
+      width: 794,
+      height: 1123,
+      title: jobName,
+      parent: parent && !parent.isDestroyed() ? parent : undefined,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        javascript: false,
+      },
+    });
+    try {
+      await printWin.loadFile(file);
+      const cancelled = await new Promise((resolve, reject) => {
+        printWin.webContents.print(
+          { silent: false, printBackground: true, color: true },
+          (success, failureReason) => {
+            if (success) {
+              resolve(false);
+              return;
+            }
+            const reason = String(failureReason || "");
+            if (/cancel/i.test(reason)) {
+              resolve(true);
+              return;
+            }
+            reject(new Error(reason || "无法打开系统打印"));
+          },
+        );
+      });
+      return { cancelled };
+    } finally {
+      if (!printWin.isDestroyed()) printWin.close();
+      await unlink(file).catch(() => undefined);
+    }
+  });
 }
 
 app.on("open-file", (event, filePath) => {
