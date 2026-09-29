@@ -1,23 +1,24 @@
 import { blobToDataUrl, getImage } from "./image-store.ts";
 import { renderMermaidBlocks } from "./mermaid-render.ts";
+import { wrapPrintHtml } from "./print-doc.ts";
 import { desktopApi } from "./desktop.ts";
 import { isNativeApp } from "./native-folder.ts";
 import { nativePrintHtml } from "./native-print.ts";
 
 export type PrintDispatch = "sent" | "cancelled" | "opened";
 
-export async function preparePrintDocument(doc: Document): Promise<void> {
-  if (!doc.body || doc.body.dataset.baked === "1") return;
-  await inlinePrintImages(doc);
-  if (doc.body.querySelector("pre.mermaid")) {
-    await renderMermaidBlocks(doc.body, { rasterize: true, maxHeight: 960 });
+export async function preparePrintRoot(root: HTMLElement): Promise<void> {
+  if (root.dataset.baked === "1") return;
+  await inlinePrintImages(root);
+  if (root.querySelector("pre.mermaid")) {
+    await renderMermaidBlocks(root, { rasterize: true, maxHeight: 960 });
   }
-  doc.querySelectorAll("script, button.code-copy").forEach((node) => node.remove());
-  doc.body.dataset.baked = "1";
+  root.querySelectorAll("script, button.code-copy").forEach((node) => node.remove());
+  root.dataset.baked = "1";
 }
 
-async function inlinePrintImages(doc: Document): Promise<void> {
-  const images = [...doc.querySelectorAll("img")];
+async function inlinePrintImages(root: ParentNode): Promise<void> {
+  const images = [...root.querySelectorAll("img")];
   await Promise.all(
     images.map(async (image) => {
       const src = image.getAttribute("src") || "";
@@ -39,11 +40,6 @@ async function inlinePrintImages(doc: Document): Promise<void> {
   );
 }
 
-export function serializePrintDocument(doc: Document): string {
-  doc.querySelectorAll("script").forEach((node) => node.remove());
-  return `<!doctype html>${doc.documentElement.outerHTML}`;
-}
-
 export async function submitPrint(html: string, jobName: string): Promise<PrintDispatch> {
   const desktop = desktopApi();
   if (desktop?.printHtml) {
@@ -58,14 +54,21 @@ export async function submitPrint(html: string, jobName: string): Promise<PrintD
   return "opened";
 }
 
-export async function printPreparedFrame(
-  frame: HTMLIFrameElement,
+export async function printPreparedRoot(
+  root: HTMLElement,
   jobName: string,
 ): Promise<PrintDispatch> {
-  const doc = frame.contentDocument;
-  if (!doc?.body) throw new Error("预览还没准备好");
-  await preparePrintDocument(doc);
-  return submitPrint(serializePrintDocument(doc), jobName);
+  await preparePrintRoot(root);
+  return submitPrint(wrapPrintHtml(jobName, root.outerHTML), jobName);
+}
+
+function discardFrame(frame: HTMLIFrameElement) {
+  try {
+    frame.src = "about:blank";
+  } catch {
+    // Already detached.
+  }
+  frame.remove();
 }
 
 function printWithHiddenFrame(html: string): Promise<void> {
@@ -74,25 +77,28 @@ function printWithHiddenFrame(html: string): Promise<void> {
     frame.setAttribute("aria-hidden", "true");
     frame.title = "打印";
     frame.style.cssText =
-      "position:fixed;left:0;top:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;";
+      "position:fixed;left:-12000px;top:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;";
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
     let settled = false;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       if (error) {
-        frame.remove();
+        URL.revokeObjectURL(url);
+        discardFrame(frame);
         reject(error);
         return;
       }
       resolve();
     };
     const cleanup = () => {
-      if (frame.isConnected) frame.remove();
+      URL.revokeObjectURL(url);
+      discardFrame(frame);
     };
     frame.onload = () => {
-      if (settled) return;
+      if (settled || frame.src === "about:blank") return;
       const win = frame.contentWindow;
-      if (!win) {
+      if (!win || win === window) {
         finish(new Error("无法打开系统打印"));
         return;
       }
@@ -107,7 +113,7 @@ function printWithHiddenFrame(html: string): Promise<void> {
       }
     };
     document.body.appendChild(frame);
-    frame.srcdoc = html;
+    frame.src = url;
     window.setTimeout(() => finish(new Error("无法打开系统打印")), 8_000);
   });
 }

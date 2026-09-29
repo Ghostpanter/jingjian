@@ -157,11 +157,11 @@ function sectionHtml(section: PrintSection): string {
   return `<section class="print-chapter">${heading}${notice}${body}</section>`;
 }
 
-export function buildPrintDocument(options: {
+function printArticle(options: {
   title: string;
   sections: PrintSection[];
   omittedChapters?: number;
-}): string {
+}): { title: string; article: string } {
   const title = options.title.trim() || "静笺";
   const bookTitle =
     options.sections.length > 1
@@ -173,5 +173,35 @@ export function buildPrintDocument(options: {
       ? `<p class="print-clip">还有 ${omitted} 章没有排进这次预览，可以再选后面的章节分开打印。</p>`
       : "";
   const body = options.sections.map(sectionHtml).join("") || `<p class="print-empty">这篇是空的。</p>`;
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${PRINT_CSS}</style></head><body><article class="print-sheet md-body">${bookTitle}${body}${omittedNote}</article></body></html>`;
+  return {
+    title,
+    article: `<article class="print-sheet md-body">${bookTitle}${body}${omittedNote}</article>`,
+  };
+}
+
+export function wrapPrintHtml(title: string, articleHtml: string): string {
+  const safeTitle = title.trim() || "静笺";
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(safeTitle)}</title><style>${PRINT_CSS}</style></head><body>${articleHtml}</body></html>`;
+}
+
+/** Markup for the in-app preview. Kept out of an iframe so closing it cannot replace the app page. */
+export function printPreviewMarkup(articleHtml: string): string {
+  return `<style>:host{display:block;background:#e6e0d4;min-height:100%;}${PRINT_CSS}</style>${articleHtml}`;
+}
+
+export function buildPrintArticle(options: {
+  title: string;
+  sections: PrintSection[];
+  omittedChapters?: number;
+}): string {
+  return printArticle(options).article;
+}
+
+export function buildPrintDocument(options: {
+  title: string;
+  sections: PrintSection[];
+  omittedChapters?: number;
+}): string {
+  const built = printArticle(options);
+  return wrapPrintHtml(built.title, built.article);
 }

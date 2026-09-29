@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PRINT_SYSTEM_INTRO,
-  buildPrintDocument,
+  buildPrintArticle,
   printJobTitle,
+  printPreviewMarkup,
   selectPrintNotes,
   windowPrintNotes,
   type PrintNote,
   type PrintScope,
 } from "@/lib/notes/print-doc";
-import { preparePrintDocument, printPreparedFrame } from "@/lib/notes/print-job";
+import { preparePrintRoot, printPreparedRoot } from "@/lib/notes/print-job";
 import { cn } from "@/lib/utils";
 
 type PrintDialogProps = {
@@ -33,7 +34,7 @@ export function PrintDialog({
   const isBook = Boolean(active?.bookId);
   const [scope, setScope] = useState<PrintScope>("chapter");
   const [busy, setBusy] = useState(false);
-  const frameRef = useRef<HTMLIFrameElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const baking = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
@@ -47,7 +48,7 @@ export function PrintDialog({
     const title = printJobTitle(selected);
     return {
       title,
-      html: buildPrintDocument({
+      article: buildPrintArticle({
         title,
         sections: windowed.sections,
         omittedChapters: windowed.omittedChapters,
@@ -57,22 +58,36 @@ export function PrintDialog({
     };
   }, [open, notes, active, isBook, scope]);
 
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !prepared) return;
+    const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
+    shadow.innerHTML = printPreviewMarkup(prepared.article);
+    const root = shadow.querySelector(".print-sheet");
+    if (!(root instanceof HTMLElement)) return;
+    const fit = () => {
+      host.style.minHeight = `${Math.max(root.scrollHeight, root.offsetHeight)}px`;
+    };
+    fit();
+    const task = preparePrintRoot(root)
+      .then(fit)
+      .catch(() => undefined);
+    baking.current = task;
+  }, [prepared]);
+
   if (!open || !prepared) return null;
   const sheet = prepared;
 
-  function onPreviewLoad() {
-    const doc = frameRef.current?.contentDocument;
-    if (!doc) return;
-    baking.current = preparePrintDocument(doc).catch(() => undefined);
-  }
-
   async function handlePrint() {
-    const frame = frameRef.current;
-    if (!frame) return;
+    const root = hostRef.current?.shadowRoot?.querySelector(".print-sheet");
+    if (!(root instanceof HTMLElement)) {
+      onError("预览还没准备好");
+      return;
+    }
     setBusy(true);
     try {
       if (baking.current) await baking.current;
-      const result = await printPreparedFrame(frame, sheet.title);
+      const result = await printPreparedRoot(root, sheet.title);
       if (result === "sent") onSent();
     } catch (error) {
       onError(error instanceof Error ? error.message : "无法打印");
@@ -129,7 +144,7 @@ export function PrintDialog({
             ))}
           </div>
         ) : null}
-            {sheet.truncated ? (
+        {sheet.truncated ? (
           <p className="mt-3 text-sm leading-relaxed text-muted" role="status">
             {sheet.omittedChapters > 0
               ? `这次只排了前面的章节，还有 ${sheet.omittedChapters} 章请分开打印。`
@@ -137,12 +152,7 @@ export function PrintDialog({
           </p>
         ) : null}
         <div className="print-stage mt-3">
-          <iframe
-            ref={frameRef}
-            title="纸面预览"
-            srcDoc={sheet.html}
-            onLoad={onPreviewLoad}
-          />
+          <div ref={hostRef} className="print-preview-host" />
         </div>
         <div className="mt-4 flex shrink-0 justify-end gap-2">
           <Button variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>
