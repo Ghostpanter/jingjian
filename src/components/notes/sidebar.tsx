@@ -17,6 +17,8 @@ import {
 } from "@/lib/notes/format";
 import type { OutlineHeading } from "@/lib/notes/outline";
 import { chapterProgress, lastReadChapter } from "@/lib/notes/reader-progress";
+import { noteLinks } from "@/lib/notes/wiki-links";
+import { libraryTags, tagMatches } from "@/lib/notes/tags";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -25,8 +27,9 @@ const BOOKS_OPEN_KEY = "jingjian.books.open.v1";
 const BOOKS_SECTION_KEY = "jingjian.books.section.v1";
 const SNIPPETS_KEY = "jingjian.sidebar.snippets.v1";
 const PANE_KEY = "jingjian.sidebar.pane.v1";
+const TAGS_SECTION_KEY = "jingjian.tags.section.v1";
 
-type SidebarPane = "files" | "outline";
+type SidebarPane = "files" | "outline" | "links";
 
 function readOpenFolders(): Set<string> {
   try {
@@ -85,7 +88,9 @@ function writeFlag(key: string, value: boolean) {
 
 function readPane(): SidebarPane {
   try {
-    return localStorage.getItem(PANE_KEY) === "outline" ? "outline" : "files";
+    const raw = localStorage.getItem(PANE_KEY);
+    if (raw === "outline" || raw === "links") return raw;
+    return "files";
   } catch {
     return "files";
   }
@@ -185,6 +190,8 @@ export function Sidebar({
   const [booksSectionOpen, setBooksSectionOpen] = useState(() => readFlag(BOOKS_SECTION_KEY, true));
   const [pane, setPane] = useState<SidebarPane>(readPane);
   const [snippets, setSnippets] = useState(() => readFlag(SNIPPETS_KEY, false));
+  const [tagsOpen, setTagsOpen] = useState(() => readFlag(TAGS_SECTION_KEY, false));
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const createBtnRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLElement>(null);
   const notesRef = useRef(notes);
@@ -198,6 +205,12 @@ export function Sidebar({
     notes.length === 0 && (searching || folders.length === 0);
   const sortLabel = NOTE_SORTS.find((item) => item.id === sort)?.label ?? "标题";
   const sortShort = sort === "updated" ? "修改" : sort === "created" ? "创建" : "标题";
+  const links = useMemo(() => noteLinks(notes, activeId), [notes, activeId]);
+  const tagIndex = useMemo(() => libraryTags(notes), [notes]);
+  const activeTagLabel = tagIndex.tags.find((tag) => tag.key === activeTag)?.label ?? null;
+  const taggedNotes = activeTag
+    ? notes.filter((note) => tagMatches(tagIndex.keysByNote.get(note.id) ?? [], activeTag))
+    : null;
 
   useEffect(() => {
     if (!activeFolder) return;
@@ -232,7 +245,12 @@ export function Sidebar({
         ?.scrollIntoView({ block: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeId, view, expanded, openBooks, booksSectionOpen]);
+  }, [activeId, view, expanded, openBooks, booksSectionOpen, tagsOpen, activeTag]);
+
+  useEffect(() => {
+    if (!activeTag) return;
+    if (!tagIndex.tags.some((tag) => tag.key === activeTag)) setActiveTag(null);
+  }, [activeTag, tagIndex]);
 
   function closeCreate() {
     setCreateOpen(false);
@@ -265,7 +283,7 @@ export function Sidebar({
   }
 
   function choosePane(next: SidebarPane) {
-    if (next === "outline" && query.trim()) onQueryChange("");
+    if (next !== "files" && query.trim()) onQueryChange("");
     setPane(next);
     writePane(next);
   }
@@ -277,6 +295,9 @@ export function Sidebar({
     writeOpenFolders(foldersClosed);
     setOpenBooks(booksClosed);
     writeOpenBooks(booksClosed);
+    setTagsOpen(false);
+    writeFlag(TAGS_SECTION_KEY, false);
+    setActiveTag(null);
   }
 
   function openBook(bookId: string) {
@@ -287,6 +308,12 @@ export function Sidebar({
       writeOpenBooks(next);
       return next;
     });
+  }
+
+  function openLinked(id: string) {
+    const note = notes.find((item) => item.id === id);
+    if (note?.bookId) openBook(note.bookId);
+    selectAndExpand(id);
   }
 
   function selectAndExpand(id: string) {
@@ -326,6 +353,24 @@ export function Sidebar({
           onClick={onCloseMobile}
         >
           <X />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-8"
+          aria-label="仓库文章"
+          onClick={onOpenBlog}
+        >
+          <Newspaper />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-8"
+          aria-label="回收站"
+          onClick={onOpenTrash}
+        >
+          <Trash2 />
         </Button>
         <Button
           variant="ghost"
@@ -422,7 +467,7 @@ export function Sidebar({
               role="tab"
               aria-selected={view === "files"}
               className={cn(
-                "btn-press h-7 min-w-0 flex-1 rounded-sm px-2 text-xs",
+                "btn-press h-7 min-w-0 flex-1 rounded-sm px-1 text-xs",
                 view === "files" ? "bg-paper text-fg shadow-border" : "text-muted",
               )}
               onClick={() => choosePane("files")}
@@ -434,12 +479,24 @@ export function Sidebar({
               role="tab"
               aria-selected={view === "outline"}
               className={cn(
-                "btn-press h-7 min-w-0 flex-1 rounded-sm px-2 text-xs",
+                "btn-press h-7 min-w-0 flex-1 rounded-sm px-1 text-xs",
                 view === "outline" ? "bg-paper text-fg shadow-border" : "text-muted",
               )}
               onClick={() => choosePane("outline")}
             >
               大纲
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "links"}
+              className={cn(
+                "btn-press h-7 min-w-0 flex-1 rounded-sm px-1 text-xs",
+                view === "links" ? "bg-paper text-fg shadow-border" : "text-muted",
+              )}
+              onClick={() => choosePane("links")}
+            >
+              链接
             </button>
           </div>
           {view === "files" && !showEmpty ? (
@@ -453,6 +510,7 @@ export function Sidebar({
               <ChevronsDownUp />
             </Button>
           ) : null}
+          {view === "files" ? (
           <button
             type="button"
             className={cn(
@@ -465,6 +523,8 @@ export function Sidebar({
           >
             摘要
           </button>
+          ) : null}
+          {view === "files" ? (
           <button
             type="button"
             className="btn-press h-8 shrink-0 rounded-md px-1.5 text-xs text-muted hover:bg-overlay"
@@ -476,12 +536,7 @@ export function Sidebar({
           >
             {sortShort}
           </button>
-          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="仓库文章" onClick={onOpenBlog}>
-            <Newspaper />
-          </Button>
-          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="回收站" onClick={onOpenTrash}>
-            <Trash2 />
-          </Button>
+          ) : null}
         </div>
       </div>
 
@@ -495,6 +550,73 @@ export function Sidebar({
             </p>
           </div>
         )
+      ) : view === "links" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2" aria-label="链接">
+          {!activeId ? (
+            <p className="px-3 py-8 text-center text-xs text-muted">先打开一篇笔记</p>
+          ) : (
+            <>
+              <div className="px-2 pt-1 pb-1 text-[11px] font-medium tracking-wide text-subtle">
+                提到本文
+                <span className="ml-1 tabular-nums">{links.incoming.length}</span>
+              </div>
+              {links.incoming.length === 0 ? (
+                <p className="px-2 pb-2 text-xs leading-5 text-muted">还没有笔记用双链指向这篇。</p>
+              ) : (
+                <ul>
+                  {links.incoming.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className="note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1 text-left hover:bg-overlay"
+                        onClick={() => openLinked(item.id)}
+                      >
+                        <span className="w-full truncate text-sm text-fg">
+                          {item.title}
+                          {item.count > 1 ? <span className="ml-1 text-xs text-subtle">×{item.count}</span> : null}
+                        </span>
+                        {item.line ? (
+                          <span className="w-full truncate text-[11px] leading-4 text-muted">{item.line}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-subtle">
+                本文提到
+                <span className="ml-1 tabular-nums">{links.outgoing.length}</span>
+              </div>
+              {links.outgoing.length === 0 ? (
+                <p className="px-2 text-xs leading-5 text-muted">这篇没有 [[笔记名]] 双链。</p>
+              ) : (
+                <ul>
+                  {links.outgoing.map((item) => (
+                    <li key={item.target}>
+                      {item.id ? (
+                        <button
+                          type="button"
+                          className="note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1 text-left hover:bg-overlay"
+                          onClick={() => openLinked(item.id!)}
+                        >
+                          <span className="w-full truncate text-sm text-fg">{item.target}</span>
+                          {item.line ? (
+                            <span className="w-full truncate text-[11px] leading-4 text-muted">{item.line}</span>
+                          ) : null}
+                        </button>
+                      ) : (
+                        <div className="px-2 py-1">
+                          <span className="block truncate text-sm text-muted">{item.target}</span>
+                          <span className="text-[11px] text-subtle">还没有这篇</span>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
       ) : (
       <nav
         ref={treeRef}
@@ -526,6 +648,101 @@ export function Sidebar({
           </div>
         ) : (
           <>
+            {!searching ? (
+              <div className="mb-1">
+                <button
+                  type="button"
+                  className="flex h-7 w-full items-center gap-1 px-1 text-left text-[11px] font-medium tracking-wide text-subtle"
+                  aria-expanded={tagsOpen}
+                  aria-label={tagsOpen ? "折叠标签" : "展开标签"}
+                  onClick={() => {
+                    setTagsOpen((current) => {
+                      const next = !current;
+                      writeFlag(TAGS_SECTION_KEY, next);
+                      return next;
+                    });
+                  }}
+                >
+                  <ChevronRight
+                    className={cn("size-3.5 shrink-0 transition-transform", tagsOpen && "rotate-90")}
+                  />
+                  <span>标签</span>
+                  {activeTagLabel ? (
+                    <span className="min-w-0 truncate font-normal text-fg">#{activeTagLabel.split("/").pop()}</span>
+                  ) : null}
+                  <span className="ml-auto tabular-nums">{tagIndex.tags.length}</span>
+                </button>
+                {tagsOpen ? (
+                  tagIndex.tags.length === 0 ? (
+                    <p className="px-2 pb-2 text-xs leading-5 text-muted">
+                      正文写 #标签，井号后面紧挨文字，不要空格。点一下只显示相关笔记，再点一次恢复。
+                    </p>
+                  ) : (
+                    <ul aria-label="标签">
+                      {tagIndex.tags.slice(0, 80).map((tag) => {
+                        const selected = tag.key === activeTag;
+                        const depth = tag.key.split("/").length - 1;
+                        return (
+                          <li key={tag.key}>
+                            <button
+                              type="button"
+                              aria-pressed={selected}
+                              title={`#${tag.label}`}
+                              onClick={() => setActiveTag((current) => (current === tag.key ? null : tag.key))}
+                              className={cn(
+                                "note-item btn-press flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-sm",
+                                selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+                              )}
+                              style={{ paddingLeft: 8 + depth * 12 }}
+                            >
+                              <span className="min-w-0 flex-1 truncate text-fg">
+                                #{tag.label.split("/").pop()}
+                              </span>
+                              <span className="shrink-0 tabular-nums text-xs text-subtle">{tag.count}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                ) : null}
+              </div>
+            ) : null}
+            {taggedNotes && !searching ? (
+              taggedNotes.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-muted">没有笔记带着这个标签</p>
+              ) : (
+                <ul role="listbox" aria-label="标签笔记">
+                  {taggedNotes.map((note) => {
+                    const selected = note.id === activeId;
+                    return (
+                      <li key={note.id} role="none">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => openLinked(note.id)}
+                          className={cn(
+                            "note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left",
+                            selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+                          )}
+                        >
+                          <span className="w-full truncate font-medium text-fg">
+                            {titleFromContent(note.content)}
+                          </span>
+                          {note.bookTitle || note.folder ? (
+                            <span className="mt-0.5 w-full truncate text-xs text-muted">
+                              {note.bookTitle || note.folder}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            ) : (
+            <>
             {books.length > 0 ? (
               <div className="mb-1">
                 <button
@@ -677,6 +894,8 @@ export function Sidebar({
                   onFolderMenu={onFolderMenu}
                 />
               </div>
+            )}
+            </>
             )}
           </>
         )}
