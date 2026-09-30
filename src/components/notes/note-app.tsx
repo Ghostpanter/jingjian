@@ -14,8 +14,10 @@ import {
   Send,
   Trash2,
   Eye,
+  Focus,
+  Waypoints,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { toast, Toaster } from "sonner";
 import { ActionSheet, DeleteFolderDialog, DeleteNoteDialog, FolderDialog, ShortcutsDialog } from "@/components/notes/dialogs";
 import { EditorPane } from "@/components/notes/editor-pane";
@@ -27,6 +29,7 @@ import { PrintDialog } from "@/components/notes/print-dialog";
 import { ReaderView } from "@/components/notes/reader-view";
 import { SettingsDialog, type TabId } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
+import { GraphView } from "@/components/notes/graph-view";
 import { Button } from "@/components/ui/button";
 import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
@@ -37,6 +40,13 @@ import { foldersFromImportPaths, isImportableNoteName, isUnderFolder, notesInFol
 import { exportFolderArchive } from "@/lib/notes/export-folder";
 import { pickImportFolder, isImportCancelled, type ImportFolderFile } from "@/lib/notes/import-folder";
 import { extractHeadings, type OutlineHeading } from "@/lib/notes/outline";
+import {
+  SIDEBAR_MIN,
+  clampSidebarWidth,
+  readSidebarWidth,
+  shouldCollapseSidebar,
+  writeSidebarWidth,
+} from "@/lib/notes/sidebar-width";
 import { contentOffset, mapScroll, ratioAnchors, scrollMax } from "@/lib/notes/scroll-sync";
 import {
   indentLines,
@@ -325,6 +335,24 @@ export function NoteApp() {
   const [exportOpen, setExportOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [readerOpen, setReaderOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(() => {
+    try {
+      return localStorage.getItem("jingjian.focus.v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => readSidebarWidth());
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [wideLayout, setWideLayout] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px), (orientation: landscape)");
+    const apply = () => setWideLayout(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
   const restoredSession = useRef(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -371,9 +399,13 @@ export function NoteApp() {
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
-  const sidebarPan = useRef<{ pointerId: number; startX: number; width: number; x: number } | null>(
-    null,
-  );
+  const sidebarPan = useRef<{
+    pointerId: number;
+    startX: number;
+    width: number;
+    x: number;
+    mode: "resize" | "close";
+  } | null>(null);
 
   const syncNow = useCallback(async (silent = false) => {
     const config = readSyncConfig();
@@ -682,6 +714,10 @@ export function NoteApp() {
       const key = event.key;
 
       if (key === "Escape") {
+        if (graphOpen) {
+          setGraphOpen(false);
+          return;
+        }
         if (findOpen) {
           setFindOpen(false);
           return;
@@ -710,7 +746,27 @@ export function NoteApp() {
         event.preventDefault();
         setSidebarOpen(true);
         setDesktopCollapsed(false);
-        document.getElementById("note-search")?.focus();
+        window.dispatchEvent(new Event("jingjian-open-search"));
+        return;
+      }
+
+      if (mod && event.shiftKey && key.toLowerCase() === "g" && !readerOpen) {
+        event.preventDefault();
+        setGraphOpen((open) => !open);
+        return;
+      }
+
+      if (mod && event.shiftKey && key.toLowerCase() === "f") {
+        event.preventDefault();
+        setFocusMode((value) => {
+          const next = !value;
+          try {
+            localStorage.setItem("jingjian.focus.v1", next ? "1" : "0");
+          } catch {
+            // private mode
+          }
+          return next;
+        });
         return;
       }
 
@@ -816,7 +872,17 @@ export function NoteApp() {
       }
 
       const overlayOpen =
-        shortcutsOpen || pendingDelete || linkOpen || settingsOpen || exportOpen || printOpen || findOpen || quickOpen || trashOpen || conflicts.length > 0;
+        shortcutsOpen ||
+        pendingDelete ||
+        linkOpen ||
+        settingsOpen ||
+        exportOpen ||
+        printOpen ||
+        findOpen ||
+        quickOpen ||
+        trashOpen ||
+        graphOpen ||
+        conflicts.length > 0;
       const inEditor = target?.id === "note-editor";
       const inOtherField = typing && !inEditor;
       if (
@@ -878,6 +944,8 @@ export function NoteApp() {
     exportOpen,
     printOpen,
     findOpen,
+    graphOpen,
+    readerOpen,
     shortcutsOpen,
     selectNote,
     setSidebarOpen,
@@ -1290,6 +1358,13 @@ export function NoteApp() {
     const state = sidebarPan.current;
     const aside = sidebarRef.current;
     if (!state || state.pointerId !== event.pointerId || !aside) return;
+    if (state.mode === "resize") {
+      const raw = state.width + (event.clientX - state.startX);
+      state.x = raw;
+      const next = raw < SIDEBAR_MIN ? SIDEBAR_MIN : clampSidebarWidth(raw, window.innerWidth);
+      setSidebarWidth(next);
+      return;
+    }
     const x = Math.min(0, Math.max(-state.width, event.clientX - state.startX));
     state.x = x;
     aside.style.setProperty("--sidebar-drag", `${x}px`);
@@ -1300,8 +1375,19 @@ export function NoteApp() {
     if (!state || state.pointerId !== event.pointerId) return;
     sidebarPan.current = null;
     setSidebarDragging(false);
+    setSidebarResizing(false);
     const aside = sidebarRef.current;
     aside?.style.removeProperty("--sidebar-drag");
+    if (state.mode === "resize") {
+      if (shouldCollapseSidebar(state.x)) {
+        closeSidebar();
+        return;
+      }
+      const next = clampSidebarWidth(state.x, window.innerWidth);
+      writeSidebarWidth(next);
+      setSidebarWidth(next);
+      return;
+    }
     if (state.x < -state.width * 0.32) closeSidebar();
   }
 
@@ -1309,14 +1395,22 @@ export function NoteApp() {
     const aside = sidebarRef.current;
     if (!aside) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // already released
+    }
+    const wide = window.matchMedia("(min-width: 768px), (orientation: landscape)").matches;
+    const width = aside.getBoundingClientRect().width;
     sidebarPan.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
-      width: aside.getBoundingClientRect().width,
-      x: 0,
+      width,
+      x: wide ? width : 0,
+      mode: wide ? "resize" : "close",
     };
-    setSidebarDragging(true);
+    if (wide) setSidebarResizing(true);
+    else setSidebarDragging(true);
   }
 
   function resolveConflict(choice: "local" | "remote" | "both") {
@@ -1427,7 +1521,14 @@ export function NoteApp() {
         sidebarOpen && "is-files-open",
         desktopCollapsed && "is-sidebar-collapsed",
         sidebarDragging && "is-sidebar-dragging",
+        sidebarResizing && "is-sidebar-resizing",
+        sidebarWidth != null && "has-sidebar-width",
       )}
+      style={
+        sidebarWidth != null
+          ? ({ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties)
+          : undefined
+      }
       onDragOver={(event) => {
         if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
       }}
@@ -1456,7 +1557,7 @@ export function NoteApp() {
       <aside ref={sidebarRef} className="app-sidebar" aria-label="笔记列表">
         <div
           className="sidebar-edge-handle"
-          aria-label="向左拖动可关闭文件列表"
+          aria-label={wideLayout ? "拖动调整侧栏宽度" : "向左拖动可关闭文件列表"}
           onPointerDown={onSidebarHandleDown}
           onPointerMove={onSidebarPanMove}
           onPointerUp={onSidebarPanEnd}
@@ -1516,6 +1617,7 @@ export function NoteApp() {
             setTrashOpen(true);
           }}
           onOpenBlog={openBlogPosts}
+          onOpenGraph={() => setGraphOpen(true)}
           sort={noteSort}
           onSortChange={(next) => {
             setNoteSort(next);
@@ -1662,6 +1764,36 @@ export function NoteApp() {
             />
           </div>
 
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="关系图"
+            aria-pressed={graphOpen}
+            onClick={() => setGraphOpen((open) => !open)}
+          >
+            <Waypoints />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn(focusMode && "bg-overlay text-fg")}
+            aria-label={focusMode ? "退出专注模式" : "专注模式"}
+            aria-pressed={focusMode}
+            onClick={() => {
+              setFocusMode((value) => {
+                const next = !value;
+                try {
+                  localStorage.setItem("jingjian.focus.v1", next ? "1" : "0");
+                } catch {
+                  // private mode
+                }
+                return next;
+              });
+            }}
+          >
+            <Focus />
+          </Button>
+
           <div className="app-modes" role="radiogroup" aria-label="视图">
             {VIEW_OPTIONS.map((option) => {
               const Icon = option.icon;
@@ -1738,6 +1870,7 @@ export function NoteApp() {
                   epoch={editorEpoch}
                   content={activeNote.content}
                   centered={previewMode !== "split"}
+                  focusMode={focusMode}
                   onChange={(value) => updateNote(activeNote.id, value)}
                   onImportFiles={(files) => void handleDroppedFiles(files)}
                   onScroll={() => syncScroll("editor")}
@@ -1756,6 +1889,7 @@ export function NoteApp() {
                   content={activeNote.content}
                   format={activeNote.format}
                   centered={previewMode !== "split"}
+                  focusMode={focusMode}
                   onScroll={() => syncScroll("preview")}
                   onToggleTask={(index) => {
                     updateNote(activeNote.id, toggleTaskAt(activeNote.content, index));
@@ -2041,6 +2175,19 @@ export function NoteApp() {
           if (files.length) void handleImportFolderFiles(files);
         }}
       />
+      {graphOpen ? (
+        <GraphView
+          notes={rawNotes}
+          activeId={activeNote?.id ?? null}
+          onOpen={(id) => {
+            const note = rawNotes.find((item) => item.id === id);
+            setActiveFolder(note?.folder ?? "");
+            selectNote(id);
+            setGraphOpen(false);
+          }}
+          onClose={() => setGraphOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { layoutGraph, linkGraph } from "./link-graph.ts";
+
+test("graph keeps resolved wiki links and drops code, self links, and missing notes", () => {
+  const graph = linkGraph([
+    { id: "a", content: "# 甲\n\n见 [[乙]]，代码里的 `[[丙]]` 不算。\n```\n[[丁]]\n```" },
+    { id: "b", content: "# 乙\n\n回到 [[甲]]。" },
+    { id: "c", content: "# 丙\n\n没有链出去。" },
+    { id: "d", content: "# 丁\n\n指向 [[没有]]。" },
+  ]);
+  assert.deepEqual(
+    graph.nodes.map((node) => node.id).sort(),
+    ["a", "b"],
+  );
+  assert.equal(graph.links.length, 1);
+  assert.equal(graph.nodes.find((node) => node.id === "a")?.title, "甲");
+});
+
+test("layout stays inside the canvas and pulls linked notes together", () => {
+  const points = layoutGraph(
+    [{ id: "a" }, { id: "b" }],
+    [{ source: "a", target: "b" }],
+    640,
+    480,
+  );
+  assert.equal(points.length, 2);
+  for (const point of points) {
+    assert.ok(point.x >= 48 && point.x <= 592);
+    assert.ok(point.y >= 48 && point.y <= 432);
+  }
+  const [first, second] = points;
+  const distance = Math.hypot(first.x - second.x, first.y - second.y);
+  assert.ok(distance < 220, `expected linked notes to sit together, got ${distance}`);
+  const again = layoutGraph(
+    [{ id: "a" }, { id: "b" }],
+    [{ source: "a", target: "b" }],
+    640,
+    480,
+  );
+  assert.deepEqual(again, points);
+});

@@ -12,6 +12,7 @@ type PreviewPaneProps = {
   content: string;
   format?: NoteFormat;
   centered?: boolean;
+  focusMode?: boolean;
   reader?: boolean;
   previewId?: string;
   restoreRatio?: number;
@@ -26,6 +27,7 @@ export function PreviewPane({
   content,
   format = "md",
   centered = true,
+  focusMode = false,
   reader = false,
   previewId = "note-preview",
   restoreRatio,
@@ -132,6 +134,21 @@ export function PreviewPane({
     }
   }
 
+  function onFocusBlock(event: MouseEvent<HTMLElement>) {
+    if (!focusMode || reader) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("a, button, input, img")) return;
+    const block = (event.target as HTMLElement).closest(".md-body > *");
+    if (!(block instanceof HTMLElement) || !articleRef.current?.contains(block)) return;
+    for (const child of articleRef.current.children) child.classList.remove("is-focus-block");
+    block.classList.add("is-focus-block");
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const top = block.offsetTop - scroller.clientHeight * 0.38;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }
+
   return (
     <div
       ref={scrollRef}
@@ -160,13 +177,18 @@ export function PreviewPane({
         {empty ? (
           <p className="font-serif text-lg text-subtle">预览会显示在这里</p>
         ) : format === "txt" ? (
-          <article className="md-body plain-note font-serif">{windowed.text}</article>
+          <article className={cn("md-body plain-note font-serif", focusMode && !reader && "is-focus")}>
+            {windowed.text}
+          </article>
         ) : (
           <article
             ref={articleRef}
-            className="md-body font-serif"
+            className={cn("md-body font-serif", focusMode && !reader && "is-focus")}
             dangerouslySetInnerHTML={{ __html: html }}
-            onClick={onPreviewClick}
+            onClick={(event) => {
+              onPreviewClick(event);
+              onFocusBlock(event);
+            }}
           />
         )}
       </div>

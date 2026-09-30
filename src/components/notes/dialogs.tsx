@@ -261,6 +261,8 @@ const SHORTCUT_GROUPS = [
       ["Shift + S", "另存为"],
       ["P", "快速打开"],
       ["Shift + P", "打印"],
+      ["Shift + G", "关系图"],
+      ["Shift + F", "专注模式"],
       ["Shift + L", "显示或收起文件列表"],
       [",", "设置"],
       ["Shift + E", "导出"],

@@ -135,6 +135,7 @@ type SidebarProps = {
   onOpenSettings: () => void;
   onOpenTrash: () => void;
   onOpenBlog: () => void;
+  onOpenGraph: () => void;
   sort: NoteSort;
   onSortChange: (sort: NoteSort) => void;
   onReadBook?: (noteId: string) => void;
@@ -172,6 +173,7 @@ export function Sidebar({
   onOpenSettings,
   onOpenTrash,
   onOpenBlog,
+  onOpenGraph,
   sort,
   onSortChange,
   onReadBook,
@@ -190,6 +192,7 @@ export function Sidebar({
   const [booksSectionOpen, setBooksSectionOpen] = useState(() => readFlag(BOOKS_SECTION_KEY, true));
   const [pane, setPane] = useState<SidebarPane>(readPane);
   const [snippets, setSnippets] = useState(() => readFlag(SNIPPETS_KEY, false));
+  const [searchOpen, setSearchOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(() => readFlag(TAGS_SECTION_KEY, false));
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const createBtnRef = useRef<HTMLDivElement>(null);
@@ -200,6 +203,7 @@ export function Sidebar({
   const hasBook = Boolean(active?.bookId);
   const canMakeBook = Boolean(active) && !active?.bookId;
   const searching = Boolean(query.trim());
+  const searchShown = searchOpen || searching;
   const view: SidebarPane = searching ? "files" : pane;
   const showEmpty =
     notes.length === 0 && (searching || folders.length === 0);
@@ -211,6 +215,15 @@ export function Sidebar({
   const taggedNotes = activeTag
     ? notes.filter((note) => tagMatches(tagIndex.keysByNote.get(note.id) ?? [], activeTag))
     : null;
+
+  useEffect(() => {
+    function openSearch() {
+      setSearchOpen(true);
+      requestAnimationFrame(() => document.getElementById("note-search")?.focus());
+    }
+    window.addEventListener("jingjian-open-search", openSearch);
+    return () => window.removeEventListener("jingjian-open-search", openSearch);
+  }, []);
 
   useEffect(() => {
     if (!activeFolder) return;
@@ -283,7 +296,10 @@ export function Sidebar({
   }
 
   function choosePane(next: SidebarPane) {
-    if (next !== "files" && query.trim()) onQueryChange("");
+    if (next !== "files") {
+      if (query.trim()) onQueryChange("");
+      setSearchOpen(false);
+    }
     setPane(next);
     writePane(next);
   }
@@ -444,23 +460,54 @@ export function Sidebar({
       </div>
 
       <div className="px-2 pb-1.5">
-        <label className="relative block">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-          <Input
-            id="note-search"
-            type="search"
-            enterKeyHint="search"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder="搜索笔记"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            className="h-9 pl-8 text-sm md:text-sm"
-            aria-label="搜索笔记"
-          />
-        </label>
-        <div className="mt-1 flex items-center gap-1">
+        {searchShown ? (
+          <label className="relative mb-1 block">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
+            <Input
+              id="note-search"
+              type="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="搜索笔记"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                event.stopPropagation();
+                onQueryChange("");
+                setSearchOpen(false);
+              }}
+              onBlur={() => {
+                if (!query.trim()) setSearchOpen(false);
+              }}
+              className="h-9 pl-8 text-sm md:text-sm"
+              aria-label="搜索笔记"
+            />
+          </label>
+        ) : null}
+        <div className="flex items-center gap-1 overflow-x-auto">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn("size-8 shrink-0", searchShown && "bg-overlay")}
+            aria-label={searchShown ? "关闭搜索" : "搜索笔记"}
+            aria-expanded={searchShown}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              if (searchShown) {
+                onQueryChange("");
+                setSearchOpen(false);
+                return;
+              }
+              setSearchOpen(true);
+              requestAnimationFrame(() => document.getElementById("note-search")?.focus());
+            }}
+          >
+            <Search />
+          </Button>
           <div role="tablist" aria-label="侧栏视图" className="flex h-8 min-w-0 flex-1 rounded-md bg-overlay p-0.5">
             <button
               type="button"
@@ -552,6 +599,13 @@ export function Sidebar({
         )
       ) : view === "links" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2" aria-label="链接">
+          <button
+            type="button"
+            className="btn-press mx-1 mt-1 mb-2 flex h-8 w-[calc(100%-0.5rem)] items-center justify-center rounded-md bg-overlay text-xs text-fg"
+            onClick={onOpenGraph}
+          >
+            关系图
+          </button>
           {!activeId ? (
             <p className="px-3 py-8 text-center text-xs text-muted">先打开一篇笔记</p>
           ) : (

@@ -92,9 +92,14 @@
     cursor: pointer;
   }
 
-  #note-editor {
+  #note-editor,
+  .editor-surface {
     font-size: max(var(--editor-size, 1.125rem), 16px);
     font-family: var(--editor-font, var(--font-serif));
+    line-height: 1.75;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   kbd {
@@ -274,6 +279,138 @@
 
   .app-workspace.is-split {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .editor-focus-mirror {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .editor-focus-copy {
+    color: var(--color-fg);
+  }
+
+  .editor-focus-dim {
+    color: color-mix(in srgb, var(--color-fg) 32%, transparent);
+  }
+
+  .editor-caret-probe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  #note-editor.is-focus-input {
+    position: relative;
+    z-index: 1;
+    color: transparent;
+    caret-color: var(--color-fg);
+    background: transparent;
+  }
+
+  #note-editor.is-focus-input::selection {
+    background: var(--color-mark);
+    color: transparent;
+  }
+
+  .md-body.is-focus > * {
+    opacity: 0.32;
+    transition: opacity var(--motion-quick) var(--ease-out);
+  }
+
+  .md-body.is-focus > :hover,
+  .md-body.is-focus > .is-focus-block {
+    opacity: 1;
+  }
+
+  .graph-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    padding-top: var(--inset-top);
+    padding-bottom: var(--inset-bottom);
+  }
+
+  .graph-toolbar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 0.9rem 0.4rem;
+  }
+
+  .graph-canvas {
+    position: relative;
+    min-height: 0;
+    flex: 1 1 auto;
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .graph-canvas:active {
+    cursor: grabbing;
+  }
+
+  .graph-edge {
+    stroke: var(--color-muted);
+    stroke-width: 1.25;
+    opacity: 0.55;
+  }
+
+  .graph-node {
+    fill: var(--color-surface);
+    stroke: var(--color-accent);
+    stroke-width: 1.5;
+  }
+
+  .graph-node.is-active {
+    fill: var(--color-accent);
+    stroke: var(--color-accent);
+  }
+
+  .graph-label {
+    fill: var(--color-muted);
+    font-family: var(--font-sans);
+    font-size: 11px;
+  }
+
+  .graph-empty,
+  .graph-hint {
+    color: var(--color-muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  .graph-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 2rem;
+  }
+
+  .graph-hint {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0.35rem 1rem 0.8rem;
+  }
+
+  .app-shell.is-sidebar-resizing .app-sidebar {
+    transition: none;
   }
 
   .app-pane {
@@ -1082,7 +1219,7 @@
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
-  .app-sidebar {
+  .app-shell:not(.has-sidebar-width) .app-sidebar {
     flex-basis: var(--sidebar-width-compact);
     width: var(--sidebar-width-compact);
     min-width: var(--sidebar-width-compact);
@@ -1098,6 +1235,10 @@
 }
 
 @media (pointer: coarse) {
+  .sidebar-edge-handle {
+    width: 22px;
+  }
+
   .note-item {
     min-height: 56px;
   }
@@ -1174,4 +1315,16 @@
   .pad-only {
     display: inline-flex !important;
   }
+}
+
+#note-editor.is-focus-input {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--color-fg);
+}
+
+#note-editor.is-focus-input::selection {
+  background: var(--color-mark);
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
