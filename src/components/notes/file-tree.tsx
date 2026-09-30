@@ -21,6 +21,7 @@ type FileTreeProps = {
   activeId: string | null;
   activeFolder: string;
   expanded: Set<string>;
+  showSnippets?: boolean;
   depth?: number;
   drag?: DragState | null;
   onDragChange?: (drag: DragState | null) => void;
@@ -38,6 +39,7 @@ export function FileTree({
   activeId,
   activeFolder,
   expanded,
+  showSnippets = false,
   depth = 0,
   drag = null,
   onDragChange,
@@ -88,6 +90,7 @@ export function FileTree({
               activeId={activeId}
               activeFolder={activeFolder}
               expanded={expanded}
+              showSnippets={showSnippets}
               depth={depth}
               drag={dragState ?? null}
               onDragChange={setDrag}
@@ -105,6 +108,7 @@ export function FileTree({
               note={node.note}
               selected={node.note.id === activeId}
               depth={depth}
+              showSnippets={showSnippets}
               dragging={dragState?.id === node.note.id}
               onDragChange={setDrag}
               onSelect={onSelect}
@@ -143,6 +147,7 @@ function FolderRow({
   activeId,
   activeFolder,
   expanded,
+  showSnippets,
   depth,
   drag,
   onDragChange,
@@ -158,6 +163,7 @@ function FolderRow({
   activeId: string | null;
   activeFolder: string;
   expanded: Set<string>;
+  showSnippets: boolean;
   depth: number;
   drag: DragState | null;
   onDragChange?: (drag: DragState | null) => void;
@@ -184,11 +190,11 @@ function FolderRow({
       <div
         data-folder-drop={node.path}
         className={cn(
-          "note-item btn-press flex w-full items-center gap-1 rounded-lg py-1.5 pr-2 text-left text-sm select-none",
+          "note-item btn-press flex w-full items-center gap-0.5 rounded-md py-0.5 pr-1.5 text-left text-sm select-none",
           selected || drag?.over === node.path ? "bg-overlay" : "hover:bg-overlay",
           drag?.over === node.path && "folder-drop-active",
         )}
-        style={{ paddingLeft: 8 + depth * 14 }}
+        style={{ paddingLeft: 2 + depth * 12 }}
         onContextMenu={(event) => {
           event.preventDefault();
           if (drag) return;
@@ -271,6 +277,7 @@ function FolderRow({
           activeId={activeId}
           activeFolder={activeFolder}
           expanded={expanded}
+          showSnippets={showSnippets}
           depth={depth + 1}
           drag={drag}
           onDragChange={onDragChange}
@@ -291,6 +298,7 @@ function NoteRow({
   note,
   selected,
   depth,
+  showSnippets,
   dragging,
   onDragChange,
   onSelect,
@@ -300,6 +308,7 @@ function NoteRow({
   note: Note;
   selected: boolean;
   depth: number;
+  showSnippets: boolean;
   dragging: boolean;
   onDragChange?: (drag: DragState | null) => void;
   onSelect: (id: string) => void;
@@ -469,9 +478,10 @@ function NoteRow({
           }
           onSelect(note.id);
         }}
-        style={{ paddingLeft: 28 + depth * 14 }}
+        style={{ paddingLeft: 16 + depth * 12 }}
         className={cn(
-          "note-item btn-press flex w-full flex-col items-start rounded-lg py-2.5 pr-3 text-left select-none",
+          "note-item btn-press flex w-full items-center rounded-md py-1 pr-2 text-left select-none",
+          showSnippets ? "flex-col items-start" : "min-h-0",
           "transition-colors duration-(--motion-quick) ease-(--ease-out)",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
           selected ? "bg-paper shadow-border" : "hover:bg-overlay",
@@ -479,16 +489,18 @@ function NoteRow({
         )}
       >
         <span className="flex w-full items-baseline gap-2">
-          <span className="min-w-0 flex-1 truncate font-medium text-fg">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-fg">
             {titleFromContent(note.content)}
           </span>
           {note.format === "txt" ? (
             <span className="shrink-0 text-[10px] tracking-wide text-subtle">TXT</span>
           ) : null}
         </span>
-        <span className="mt-0.5 line-clamp-1 w-full text-xs text-muted">
-          {snippetFromContent(note.content)}
-        </span>
+        {showSnippets ? (
+          <span className="mt-px line-clamp-1 w-full text-[11px] leading-4 text-muted">
+            {snippetFromContent(note.content)}
+          </span>
+        ) : null}
       </button>
     </li>
   );

@@ -24,8 +24,10 @@ import { cn } from "@/lib/utils";
 const OPEN_KEY = "jingjian.folders.open.v1";
 const BOOKS_OPEN_KEY = "jingjian.books.open.v1";
 const OUTLINE_KEY = "jingjian.outline.height.v1";
-const OUTLINE_MIN = 88;
-const OUTLINE_MAX = 360;
+const OUTLINE_OPEN_KEY = "jingjian.outline.open.v1";
+const SNIPPETS_KEY = "jingjian.sidebar.snippets.v1";
+const OUTLINE_MIN = 72;
+const OUTLINE_MAX = 280;
 
 function readOutlineHeight(): number {
   try {
@@ -77,6 +79,24 @@ function readOpenBooks(): Set<string> {
 function writeOpenBooks(open: Set<string>) {
   try {
     localStorage.setItem(BOOKS_OPEN_KEY, JSON.stringify([...open]));
+  } catch {
+    // private mode
+  }
+}
+
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    return raw === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
   } catch {
     // private mode
   }
@@ -166,6 +186,8 @@ export function Sidebar({
   const [expanded, setExpanded] = useState<Set<string>>(readOpenFolders);
   const [openBooks, setOpenBooks] = useState<Set<string>>(readOpenBooks);
   const [outlineHeight, setOutlineHeight] = useState(readOutlineHeight);
+  const [outlineOpen, setOutlineOpen] = useState(() => readFlag(OUTLINE_OPEN_KEY, false));
+  const [snippets, setSnippets] = useState(() => readFlag(SNIPPETS_KEY, false));
   const createBtnRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<{ startY: number; startH: number } | null>(null);
   const active = notes.find((note) => note.id === activeId);
@@ -174,6 +196,8 @@ export function Sidebar({
   const searching = Boolean(query.trim());
   const showEmpty =
     notes.length === 0 && (searching || folders.length === 0);
+  const sortLabel = NOTE_SORTS.find((item) => item.id === sort)?.label ?? "标题";
+  const activeHeading = headings.find((heading) => heading.id === activeHeadingId);
 
   useEffect(() => {
     if (!activeFolder) return;
@@ -209,6 +233,22 @@ export function Sidebar({
     });
   }
 
+  function toggleOutline() {
+    setOutlineOpen((current) => {
+      const next = !current;
+      writeFlag(OUTLINE_OPEN_KEY, next);
+      return next;
+    });
+  }
+
+  function toggleSnippets() {
+    setSnippets((current) => {
+      const next = !current;
+      writeFlag(SNIPPETS_KEY, next);
+      return next;
+    });
+  }
+
   function openBook(bookId: string) {
     setOpenBooks((current) => {
       if (current.has(bookId)) return current;
@@ -234,24 +274,24 @@ export function Sidebar({
 
   return (
     <div className="app-sidebar-inner bg-surface text-fg">
-      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+      <div className="flex items-center gap-2 px-2.5 pt-3 pb-2">
         <img
           src="/favicon.svg"
           alt=""
-          width={36}
-          height={36}
-          className="size-9 shrink-0 rounded-md"
+          width={32}
+          height={32}
+          className="size-8 shrink-0 rounded-md"
         />
         <div className="min-w-0 flex-1">
-          <div className="font-serif text-lg leading-tight font-medium tracking-tight">
+          <div className="font-serif text-base leading-tight font-medium tracking-tight">
             静笺
           </div>
-          <div className="text-xs text-muted">{syncLabel}</div>
+          <div className="text-[11px] leading-4 text-muted">{syncLabel}</div>
         </div>
         <Button
           variant="ghost"
           size="icon-sm"
-          className="phone-only"
+          className="phone-only size-8"
           aria-label="关闭笔记列表"
           onClick={onCloseMobile}
         >
@@ -260,6 +300,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="size-8"
           aria-label="设置"
           onClick={onOpenSettings}
         >
@@ -269,6 +310,7 @@ export function Sidebar({
           <Button
             variant="ghost"
             size="icon-sm"
+            className="size-8"
             aria-label="新建或导入"
             aria-expanded={createOpen}
             onClick={() => setCreateOpen((open) => !open)}
@@ -326,9 +368,9 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="px-3 pb-3">
+      <div className="px-2 pb-1.5">
         <label className="relative block">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
           <Input
             id="note-search"
             type="search"
@@ -339,25 +381,38 @@ export function Sidebar({
             placeholder="搜索笔记"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            className="h-11 pl-9 text-sm md:text-sm"
+            className="h-9 pl-8 text-sm md:text-sm"
             aria-label="搜索笔记"
           />
         </label>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-1 flex items-center gap-1">
           <button
             type="button"
-            className="btn-press min-h-11 flex-1 rounded-md bg-overlay px-3 text-left text-xs text-muted"
+            className="btn-press h-8 min-w-0 flex-1 truncate rounded-md bg-overlay px-2 text-left text-xs text-muted"
+            aria-label={`排序：${sortLabel}`}
             onClick={() => {
               const index = NOTE_SORTS.findIndex((item) => item.id === sort);
               onSortChange(NOTE_SORTS[(index + 1) % NOTE_SORTS.length].id);
             }}
           >
-            排序：{NOTE_SORTS.find((item) => item.id === sort)?.label}
+            {`排序·${sortLabel}`}
           </button>
-          <Button variant="ghost" size="icon-sm" aria-label="仓库文章" onClick={onOpenBlog}>
+          <button
+            type="button"
+            className={cn(
+              "btn-press h-8 shrink-0 rounded-md px-2 text-xs",
+              snippets ? "bg-overlay text-fg" : "text-muted hover:bg-overlay",
+            )}
+            aria-pressed={snippets}
+            aria-label={snippets ? "隐藏笔记摘要" : "显示笔记摘要"}
+            onClick={toggleSnippets}
+          >
+            摘要
+          </button>
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="仓库文章" onClick={onOpenBlog}>
             <Newspaper />
           </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="回收站" onClick={onOpenTrash}>
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="回收站" onClick={onOpenTrash}>
             <Trash2 />
           </Button>
         </div>
@@ -365,7 +420,7 @@ export function Sidebar({
 
       <nav
         data-tree-root=""
-        className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+        className="min-h-0 flex-1 overflow-y-auto px-1 pb-1"
         aria-label="笔记列表"
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes("text/jingjian-note")) event.preventDefault();
@@ -393,8 +448,8 @@ export function Sidebar({
         ) : (
           <>
             {books.length > 0 ? (
-              <div className="mb-3">
-                <div className="px-3 py-1.5 text-xs font-medium tracking-wide text-subtle">
+              <div className="mb-1">
+                <div className="px-2 py-1 text-[11px] font-medium tracking-wide text-subtle">
                   书
                 </div>
                 {books.map((group) => {
@@ -405,16 +460,16 @@ export function Sidebar({
                   const open = openBooks.has(bookId);
                   const bookActive = group.notes.some((note) => note.id === activeId);
                   return (
-                    <div key={bookId} className="mb-1">
+                    <div key={bookId} className="mb-px">
                       <div
                         className={cn(
-                          "note-item flex min-h-11 w-full items-center gap-0.5 rounded-lg py-1 pr-1.5 text-left",
+                          "note-item flex w-full items-center gap-0 rounded-md py-0 pr-1 text-left",
                           bookActive ? "bg-overlay" : "hover:bg-overlay",
                         )}
                       >
                         <button
                           type="button"
-                          className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm text-subtle hover:text-fg"
+                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-subtle hover:text-fg"
                           aria-label={open ? `折叠 ${group.label}` : `展开 ${group.label}`}
                           aria-expanded={open}
                           onClick={() => toggleBook(bookId)}
@@ -458,12 +513,12 @@ export function Sidebar({
                                   aria-selected={selected}
                                   onClick={() => selectAndExpand(note.id)}
                                   className={cn(
-                                    "note-item btn-press flex min-h-11 w-full items-center gap-2 rounded-lg py-2 pr-3 text-left",
+                                    "note-item btn-press flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm",
                                     "transition-colors duration-(--motion-quick) ease-(--ease-out)",
                                     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                                     selected ? "bg-paper shadow-border" : "hover:bg-overlay",
                                   )}
-                                  style={{ paddingLeft: 28 }}
+                                  style={{ paddingLeft: 18 }}
                                 >
                                   <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
                                     {index + 1}
@@ -495,7 +550,7 @@ export function Sidebar({
                         aria-selected={selected}
                         onClick={() => selectAndExpand(note.id)}
                         className={cn(
-                          "note-item btn-press flex w-full flex-col items-start rounded-lg px-3 py-3 text-left",
+                          "note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left",
                           selected ? "bg-paper shadow-border" : "hover:bg-overlay",
                         )}
                       >
@@ -517,6 +572,7 @@ export function Sidebar({
                   activeId={activeId}
                   activeFolder={activeFolder}
                   expanded={expanded}
+                  showSnippets={snippets}
                   onSelect={selectAndExpand}
                   onToggle={toggleFolder}
                   onSelectFolder={onSelectFolder}
@@ -531,38 +587,63 @@ export function Sidebar({
         )}
       </nav>
       {headings.length > 0 ? (
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="调整大纲高度"
-          className="outline-split"
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture(event.pointerId);
-            splitRef.current = { startY: event.clientY, startH: outlineHeight };
-          }}
-          onPointerMove={(event) => {
-            if (!splitRef.current) return;
-            const next = Math.min(
-              OUTLINE_MAX,
-              Math.max(OUTLINE_MIN, splitRef.current.startH + (splitRef.current.startY - event.clientY)),
-            );
-            setOutlineHeight(next);
-          }}
-          onPointerUp={() => {
-            splitRef.current = null;
-            writeOutlineHeight(outlineHeight);
-          }}
-          onPointerCancel={() => {
-            splitRef.current = null;
-          }}
-        />
+        <div className="outline-panel shrink-0">
+          <button
+            type="button"
+            className="flex h-8 w-full items-center gap-1 px-2 text-left text-[11px] text-subtle"
+            aria-expanded={outlineOpen}
+            aria-label={outlineOpen ? "收起大纲" : "展开大纲"}
+            onClick={toggleOutline}
+          >
+            <ChevronRight
+              className={cn("size-3.5 shrink-0 transition-transform", outlineOpen && "rotate-90")}
+            />
+            <span className="shrink-0 font-medium tracking-wide">大纲</span>
+            {outlineOpen ? (
+              <span className="ml-auto tabular-nums">{headings.length}</span>
+            ) : (
+              <span className="ml-auto min-w-0 truncate text-muted">
+                {activeHeading?.text ?? headings.length}
+              </span>
+            )}
+          </button>
+          {outlineOpen ? (
+            <>
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="调整大纲高度"
+                className="outline-split"
+                onPointerDown={(event) => {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  splitRef.current = { startY: event.clientY, startH: outlineHeight };
+                }}
+                onPointerMove={(event) => {
+                  if (!splitRef.current) return;
+                  const next = Math.min(
+                    OUTLINE_MAX,
+                    Math.max(OUTLINE_MIN, splitRef.current.startH + (splitRef.current.startY - event.clientY)),
+                  );
+                  setOutlineHeight(next);
+                }}
+                onPointerUp={() => {
+                  splitRef.current = null;
+                  writeOutlineHeight(outlineHeight);
+                }}
+                onPointerCancel={() => {
+                  splitRef.current = null;
+                }}
+              />
+              <OutlineList
+                headings={headings}
+                activeId={activeHeadingId}
+                height={outlineHeight}
+                onJump={onJumpHeading}
+              />
+            </>
+          ) : null}
+        </div>
       ) : null}
-      <OutlineList
-        headings={headings}
-        activeId={activeHeadingId}
-        height={outlineHeight}
-        onJump={onJumpHeading}
-      />
     </div>
   );
 }
