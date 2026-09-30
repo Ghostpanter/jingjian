@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronRight, Newspaper, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { BookOpen, ChevronRight, ChevronsDownUp, Newspaper, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { CreateMenu } from "@/components/notes/create-menu";
 import { FileTree } from "@/components/notes/file-tree";
 import { OutlineList } from "@/components/notes/outline-list";
@@ -11,7 +11,6 @@ import {
   groupNotes,
   NOTE_SORTS,
   parseOpenIds,
-  snippetFromContent,
   titleFromContent,
   toggleOpenId,
   type NoteSort,
@@ -23,29 +22,11 @@ import { cn } from "@/lib/utils";
 
 const OPEN_KEY = "jingjian.folders.open.v1";
 const BOOKS_OPEN_KEY = "jingjian.books.open.v1";
-const OUTLINE_KEY = "jingjian.outline.height.v1";
-const OUTLINE_OPEN_KEY = "jingjian.outline.open.v1";
+const BOOKS_SECTION_KEY = "jingjian.books.section.v1";
 const SNIPPETS_KEY = "jingjian.sidebar.snippets.v1";
-const OUTLINE_MIN = 72;
-const OUTLINE_MAX = 280;
+const PANE_KEY = "jingjian.sidebar.pane.v1";
 
-function readOutlineHeight(): number {
-  try {
-    const raw = Number(localStorage.getItem(OUTLINE_KEY));
-    if (Number.isFinite(raw) && raw >= OUTLINE_MIN && raw <= OUTLINE_MAX) return raw;
-  } catch {
-    // private mode
-  }
-  return 160;
-}
-
-function writeOutlineHeight(value: number) {
-  try {
-    localStorage.setItem(OUTLINE_KEY, String(value));
-  } catch {
-    // private mode
-  }
-}
+type SidebarPane = "files" | "outline";
 
 function readOpenFolders(): Set<string> {
   try {
@@ -97,6 +78,22 @@ function readFlag(key: string, fallback: boolean): boolean {
 function writeFlag(key: string, value: boolean) {
   try {
     localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // private mode
+  }
+}
+
+function readPane(): SidebarPane {
+  try {
+    return localStorage.getItem(PANE_KEY) === "outline" ? "outline" : "files";
+  } catch {
+    return "files";
+  }
+}
+
+function writePane(pane: SidebarPane) {
+  try {
+    localStorage.setItem(PANE_KEY, pane);
   } catch {
     // private mode
   }
@@ -185,19 +182,22 @@ export function Sidebar({
   const [createOpen, setCreateOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(readOpenFolders);
   const [openBooks, setOpenBooks] = useState<Set<string>>(readOpenBooks);
-  const [outlineHeight, setOutlineHeight] = useState(readOutlineHeight);
-  const [outlineOpen, setOutlineOpen] = useState(() => readFlag(OUTLINE_OPEN_KEY, false));
+  const [booksSectionOpen, setBooksSectionOpen] = useState(() => readFlag(BOOKS_SECTION_KEY, true));
+  const [pane, setPane] = useState<SidebarPane>(readPane);
   const [snippets, setSnippets] = useState(() => readFlag(SNIPPETS_KEY, false));
   const createBtnRef = useRef<HTMLDivElement>(null);
-  const splitRef = useRef<{ startY: number; startH: number } | null>(null);
+  const treeRef = useRef<HTMLElement>(null);
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
   const active = notes.find((note) => note.id === activeId);
   const hasBook = Boolean(active?.bookId);
   const canMakeBook = Boolean(active) && !active?.bookId;
   const searching = Boolean(query.trim());
+  const view: SidebarPane = searching ? "files" : pane;
   const showEmpty =
     notes.length === 0 && (searching || folders.length === 0);
   const sortLabel = NOTE_SORTS.find((item) => item.id === sort)?.label ?? "标题";
-  const activeHeading = headings.find((heading) => heading.id === activeHeadingId);
+  const sortShort = sort === "updated" ? "修改" : sort === "created" ? "创建" : "标题";
 
   useEffect(() => {
     if (!activeFolder) return;
@@ -210,6 +210,29 @@ export function Sidebar({
       return next;
     });
   }, [activeFolder]);
+
+  useEffect(() => {
+    const note = notesRef.current.find((item) => item.id === activeId);
+    if (!note?.folder) return;
+    setExpanded((current) => {
+      const paths = ancestorFolders(note.folder ?? "");
+      if (paths.every((path) => current.has(path))) return current;
+      const next = new Set(current);
+      for (const path of paths) next.add(path);
+      writeOpenFolders(next);
+      return next;
+    });
+  }, [activeId]);
+
+  useEffect(() => {
+    if (view !== "files" || !activeId) return;
+    const frame = requestAnimationFrame(() => {
+      treeRef.current
+        ?.querySelector('[aria-selected="true"]')
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeId, view, expanded, openBooks, booksSectionOpen]);
 
   function closeCreate() {
     setCreateOpen(false);
@@ -233,20 +256,27 @@ export function Sidebar({
     });
   }
 
-  function toggleOutline() {
-    setOutlineOpen((current) => {
-      const next = !current;
-      writeFlag(OUTLINE_OPEN_KEY, next);
-      return next;
-    });
-  }
-
   function toggleSnippets() {
     setSnippets((current) => {
       const next = !current;
       writeFlag(SNIPPETS_KEY, next);
       return next;
     });
+  }
+
+  function choosePane(next: SidebarPane) {
+    if (next === "outline" && query.trim()) onQueryChange("");
+    setPane(next);
+    writePane(next);
+  }
+
+  function collapseAll() {
+    const foldersClosed = new Set<string>();
+    const booksClosed = new Set<string>();
+    setExpanded(foldersClosed);
+    writeOpenFolders(foldersClosed);
+    setOpenBooks(booksClosed);
+    writeOpenBooks(booksClosed);
   }
 
   function openBook(bookId: string) {
@@ -386,17 +416,43 @@ export function Sidebar({
           />
         </label>
         <div className="mt-1 flex items-center gap-1">
-          <button
-            type="button"
-            className="btn-press h-8 min-w-0 flex-1 truncate rounded-md bg-overlay px-2 text-left text-xs text-muted"
-            aria-label={`排序：${sortLabel}`}
-            onClick={() => {
-              const index = NOTE_SORTS.findIndex((item) => item.id === sort);
-              onSortChange(NOTE_SORTS[(index + 1) % NOTE_SORTS.length].id);
-            }}
-          >
-            {`排序·${sortLabel}`}
-          </button>
+          <div role="tablist" aria-label="侧栏视图" className="flex h-8 min-w-0 flex-1 rounded-md bg-overlay p-0.5">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "files"}
+              className={cn(
+                "btn-press h-7 min-w-0 flex-1 rounded-sm px-2 text-xs",
+                view === "files" ? "bg-paper text-fg shadow-border" : "text-muted",
+              )}
+              onClick={() => choosePane("files")}
+            >
+              目录
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "outline"}
+              className={cn(
+                "btn-press h-7 min-w-0 flex-1 rounded-sm px-2 text-xs",
+                view === "outline" ? "bg-paper text-fg shadow-border" : "text-muted",
+              )}
+              onClick={() => choosePane("outline")}
+            >
+              大纲
+            </button>
+          </div>
+          {view === "files" && !showEmpty ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-8"
+              aria-label="全部折叠"
+              onClick={collapseAll}
+            >
+              <ChevronsDownUp />
+            </Button>
+          ) : null}
           <button
             type="button"
             className={cn(
@@ -409,6 +465,17 @@ export function Sidebar({
           >
             摘要
           </button>
+          <button
+            type="button"
+            className="btn-press h-8 shrink-0 rounded-md px-1.5 text-xs text-muted hover:bg-overlay"
+            aria-label={`排序：${sortLabel}`}
+            onClick={() => {
+              const index = NOTE_SORTS.findIndex((item) => item.id === sort);
+              onSortChange(NOTE_SORTS[(index + 1) % NOTE_SORTS.length].id);
+            }}
+          >
+            {sortShort}
+          </button>
           <Button variant="ghost" size="icon-sm" className="size-8" aria-label="仓库文章" onClick={onOpenBlog}>
             <Newspaper />
           </Button>
@@ -418,7 +485,19 @@ export function Sidebar({
         </div>
       </div>
 
+      {view === "outline" ? (
+        headings.length > 0 ? (
+          <OutlineList headings={headings} activeId={activeHeadingId} onJump={onJumpHeading} />
+        ) : (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center">
+            <p className="text-xs leading-5 text-muted">
+              这篇没有标题。写一行以 # 开头的标题后，会出现在这里。
+            </p>
+          </div>
+        )
+      ) : (
       <nav
+        ref={treeRef}
         data-tree-root=""
         className="min-h-0 flex-1 overflow-y-auto px-1 pb-1"
         aria-label="笔记列表"
@@ -449,10 +528,26 @@ export function Sidebar({
           <>
             {books.length > 0 ? (
               <div className="mb-1">
-                <div className="px-2 py-1 text-[11px] font-medium tracking-wide text-subtle">
-                  书
-                </div>
-                {books.map((group) => {
+                <button
+                  type="button"
+                  className="flex h-7 w-full items-center gap-1 px-1 text-left text-[11px] font-medium tracking-wide text-subtle"
+                  aria-expanded={booksSectionOpen}
+                  aria-label={booksSectionOpen ? "折叠书" : "展开书"}
+                  onClick={() => {
+                    setBooksSectionOpen((current) => {
+                      const next = !current;
+                      writeFlag(BOOKS_SECTION_KEY, next);
+                      return next;
+                    });
+                  }}
+                >
+                  <ChevronRight
+                    className={cn("size-3.5 shrink-0 transition-transform", booksSectionOpen && "rotate-90")}
+                  />
+                  <span>书</span>
+                  <span className="ml-auto tabular-nums">{books.length}</span>
+                </button>
+                {booksSectionOpen ? books.map((group) => {
                   const bookId = group.bookId;
                   if (!bookId) return null;
                   const progress = chapterProgress(group.notes);
@@ -534,7 +629,7 @@ export function Sidebar({
                       ) : null}
                     </div>
                   );
-                })}
+                }) : null}
               </div>
             ) : null}
 
@@ -586,64 +681,7 @@ export function Sidebar({
           </>
         )}
       </nav>
-      {headings.length > 0 ? (
-        <div className="outline-panel shrink-0">
-          <button
-            type="button"
-            className="flex h-8 w-full items-center gap-1 px-2 text-left text-[11px] text-subtle"
-            aria-expanded={outlineOpen}
-            aria-label={outlineOpen ? "收起大纲" : "展开大纲"}
-            onClick={toggleOutline}
-          >
-            <ChevronRight
-              className={cn("size-3.5 shrink-0 transition-transform", outlineOpen && "rotate-90")}
-            />
-            <span className="shrink-0 font-medium tracking-wide">大纲</span>
-            {outlineOpen ? (
-              <span className="ml-auto tabular-nums">{headings.length}</span>
-            ) : (
-              <span className="ml-auto min-w-0 truncate text-muted">
-                {activeHeading?.text ?? headings.length}
-              </span>
-            )}
-          </button>
-          {outlineOpen ? (
-            <>
-              <div
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="调整大纲高度"
-                className="outline-split"
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  splitRef.current = { startY: event.clientY, startH: outlineHeight };
-                }}
-                onPointerMove={(event) => {
-                  if (!splitRef.current) return;
-                  const next = Math.min(
-                    OUTLINE_MAX,
-                    Math.max(OUTLINE_MIN, splitRef.current.startH + (splitRef.current.startY - event.clientY)),
-                  );
-                  setOutlineHeight(next);
-                }}
-                onPointerUp={() => {
-                  splitRef.current = null;
-                  writeOutlineHeight(outlineHeight);
-                }}
-                onPointerCancel={() => {
-                  splitRef.current = null;
-                }}
-              />
-              <OutlineList
-                headings={headings}
-                activeId={activeHeadingId}
-                height={outlineHeight}
-                onJump={onJumpHeading}
-              />
-            </>
-          ) : null}
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }

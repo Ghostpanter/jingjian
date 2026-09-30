@@ -1,7 +1,7 @@
 export const APP_META = {
   name: "静笺",
   tagline: "本地 Markdown 笔记",
-  version: "1.7.6",
+  version: "1.7.7",
   releasedAt: "2026-09-30",
   license: "MIT",
   copyrightYear: 2026,

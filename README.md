@@ -10,11 +10,11 @@
 - 新建文件夹会在系统文档 `jingjian` 目录落盘
 - 手动保存 / 另存为；切到其他应用时，正文有改动才自动保存
 - 当前文档查找与替换，支持正则、区分大小写、全词匹配
-- 侧栏右缘向左拖可关掉文件列表。大纲默认收起，点底部「大纲」再展开，展开后可拖高度。目录默认只显示标题，点「摘要」才展开预览，行距和左右边距更紧，书名和笔记能多露出几个字
+- 侧栏右缘向左拖可关掉文件列表。目录和大纲分成两页切换，大纲占满侧栏而不是垫在底下。书整组可折叠，文件夹和章节可一键全部折叠。打开笔记会滚到它所在的那一行。目录默认只显示标题，点「摘要」才展开预览
 - Markdown 源码、分栏、预览；`Ctrl + /` 或 `Ctrl + E` 循环切换；分栏时两边按标题对齐同步滚动
 - 公式 `$...$` / `$$...$$`，任务列表可在预览勾选，代码块可复制，支持 Callout、脚注、`[[笔记名]]` 双链
 - `Ctrl + P` 按标题快速打开；删除进回收站；侧栏可按修改时间、创建时间、标题排序
-- 当前笔记的标题大纲收在侧栏底部，需要时再展开；点一下跳到源码和预览对应位置
+- 当前笔记的标题大纲在侧栏「大纲」一页，点一下跳到源码和预览对应位置，并跟着当前标题高亮
 - 代码高亮与 Mermaid 流程图
 - 插入外链：Ctrl + K，或把网址粘到选中文字上
 - 粘贴 / 拖入图片，可上传到图床
@@ -145,7 +145,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.6.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.7.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -155,9 +155,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.6-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.6-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
-- `jingjian-v1.7.6-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.7-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.7-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
+- `jingjian-v1.7.7-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` / `.mobi` / `.azw3` / `.fb2` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 
