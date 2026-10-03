@@ -1,6 +1,7 @@
 package com.ghostpanter.jingjian;
 
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -51,6 +52,15 @@ public class MainActivity extends BridgeActivity {
             window.setNavigationBarContrastEnforced(false);
         }
         new Handler(Looper.getMainLooper()).postDelayed(this::releaseSplash, 2500);
+        requestLocalNetworkIfNeeded();
+    }
+
+    private static final String ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK";
+
+    private void requestLocalNetworkIfNeeded() {
+        if (Build.VERSION.SDK_INT < 37) return;
+        if (checkSelfPermission(ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED) return;
+        requestPermissions(new String[]{ACCESS_LOCAL_NETWORK}, 1700);
     }
 
     void releaseSplash() {

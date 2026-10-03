@@ -7,7 +7,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.1'
+        classpath 'com.android.tools.build:gradle:9.4.1'
         classpath 'com.google.gms:google-services:4.4.0'
 
         // NOTE: Do not place your application dependencies here; they belong
@@ -16,6 +16,17 @@ buildscript {
 }
 
 apply from: "variables.gradle"
+
+subprojects { sub ->
+    sub.buildscript {
+        configurations.classpath.resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == "com.android.tools.build" && details.requested.name == "gradle") {
+                details.useVersion "9.4.1"
+                details.because "Android 17 / API 37"
+            }
+        }
+    }
+}
 
 allprojects {
     repositories {
