@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { NOTE_TEMPLATES } from "@/lib/notes/templates";
+import { menuTemplates } from "@/lib/notes/templates";
 import { cn } from "@/lib/utils";
 
 type CreateMenuProps = {
@@ -95,7 +95,9 @@ export function CreateMenu({
       </button>
       <div className="my-2 h-px bg-border" />
       <div className="px-1 py-1 text-xs text-subtle">模板</div>
-      {NOTE_TEMPLATES.filter((item) => item.id !== "blank").map((item) => (
+      {menuTemplates()
+        .filter((item) => item.id !== "blank")
+        .map((item) => (
         <button
           key={item.id}
           type="button"

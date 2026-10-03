@@ -26,6 +26,7 @@ import { FindBar } from "@/components/notes/find-bar";
 import { LinkDialog, type LinkDraft } from "@/components/notes/link-dialog";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { PrintDialog } from "@/components/notes/print-dialog";
+import { PublishDialog } from "@/components/notes/publish-dialog";
 import { ReaderView } from "@/components/notes/reader-view";
 import { SettingsDialog, type TabId } from "@/components/notes/settings-dialog";
 import { Sidebar } from "@/components/notes/sidebar";
@@ -109,7 +110,9 @@ import {
   saveNoteToLibrary,
 } from "@/lib/notes/library-fs";
 import { BLOG_FOLDER, isBlogConfigured, readBlogConfig, rememberPublished } from "@/lib/notes/blog-config";
-import { blogNoteId, localIdForBlogPost, publishNoteToBlog, type BlogPostFile } from "@/lib/notes/blog-publish";
+import { publishPlan, readPlatformPrefs, writePlatformPrefs, type PlatformId } from "@/lib/notes/blog-platforms";
+import { publishPlatforms } from "@/lib/notes/blog-platform-publish";
+import { blogNoteId, localIdForBlogPost, type BlogPostFile } from "@/lib/notes/blog-publish";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -391,6 +394,9 @@ export function NoteApp() {
   const [replaceMode, setReplaceMode] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [blogBusy, setBlogBusy] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishIds, setPublishIds] = useState<PlatformId[]>([]);
+  const [publishPick, setPublishPick] = useState<PlatformId[]>([]);
   const [quickOpen, setQuickOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashItems, setTrashItems] = useState<TrashedNote[]>([]);
@@ -623,6 +629,40 @@ export function NoteApp() {
     }
   }
 
+  async function runPublish(ids: PlatformId[]) {
+    const state = useNotesStore.getState();
+    const note = state.notes.find((item) => item.id === state.activeId) ?? null;
+    if (!note) {
+      toast.message("先打开一篇笔记");
+      return;
+    }
+    if (blogBusy || ids.length === 0) return;
+    setBlogBusy(true);
+    try {
+      const result = await publishPlatforms(note, ids, readPlatformPrefs(), readBlogConfig());
+      const parts = [
+        ...result.ok.map((item) => (item.updated ? `已更新${item.label}` : `已发到${item.label}`)),
+        ...result.failed.map((item) => `${item.label}：${item.message}`),
+      ];
+      toast.message(parts.join("；") || "没有发布");
+      if (result.ok.length) setPublishOpen(false);
+    } catch (error) {
+      toast.message(error instanceof Error ? error.message : "发布失败");
+    } finally {
+      setBlogBusy(false);
+    }
+  }
+
+  function openBlogSettings(id?: PlatformId) {
+    if (id) {
+      const prefs = readPlatformPrefs();
+      writePlatformPrefs({ ...prefs, selected: id });
+    }
+    setPublishOpen(false);
+    setSettingsTab("blog");
+    setSettingsOpen(true);
+  }
+
   async function handlePublishBlog() {
     const state = useNotesStore.getState();
     const note = state.notes.find((item) => item.id === state.activeId) ?? null;
@@ -630,22 +670,19 @@ export function NoteApp() {
       toast.message("先打开一篇笔记");
       return;
     }
-    if (!isBlogConfigured(readBlogConfig())) {
-      toast.message("先在设置里填写博客仓库");
-      setSettingsTab("blog");
-      setSettingsOpen(true);
+    const plan = publishPlan(readPlatformPrefs(), readBlogConfig());
+    if (plan.mode === "settings") {
+      toast.message("先在设置里打开一个博客平台");
+      openBlogSettings();
       return;
     }
-    if (blogBusy) return;
-    setBlogBusy(true);
-    try {
-      const result = await publishNoteToBlog(note);
-      toast.message(result.updated ? `已更新 ${result.path}` : `已发布 ${result.path}`);
-    } catch (error) {
-      toast.message(error instanceof Error ? error.message : "发布失败");
-    } finally {
-      setBlogBusy(false);
+    if (plan.mode === "choose") {
+      setPublishIds(plan.ids);
+      setPublishPick([]);
+      setPublishOpen(true);
+      return;
     }
+    await runPublish(plan.ids);
   }
 
   function openBlogPosts() {
@@ -716,6 +753,10 @@ export function NoteApp() {
       if (key === "Escape") {
         if (graphOpen) {
           setGraphOpen(false);
+          return;
+        }
+        if (publishOpen) {
+          setPublishOpen(false);
           return;
         }
         if (findOpen) {
@@ -882,6 +923,7 @@ export function NoteApp() {
         quickOpen ||
         trashOpen ||
         graphOpen ||
+        publishOpen ||
         conflicts.length > 0;
       const inEditor = target?.id === "note-editor";
       const inOtherField = typing && !inEditor;
@@ -945,6 +987,7 @@ export function NoteApp() {
     printOpen,
     findOpen,
     graphOpen,
+    publishOpen,
     readerOpen,
     shortcutsOpen,
     selectNote,
@@ -2188,6 +2231,18 @@ export function NoteApp() {
           onClose={() => setGraphOpen(false)}
         />
       ) : null}
+      <PublishDialog
+        open={publishOpen}
+        prefs={readPlatformPrefs()}
+        blog={readBlogConfig()}
+        ids={publishIds}
+        picked={publishPick}
+        busy={blogBusy}
+        onPicked={setPublishPick}
+        onConfirm={() => void runPublish(publishPick)}
+        onOpenChange={setPublishOpen}
+        onConfigure={openBlogSettings}
+      />
     </div>
   );
 }

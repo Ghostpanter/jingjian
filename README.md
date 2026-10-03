@@ -28,7 +28,7 @@
 - 主题：宣纸、墨夜、GitHub、GitHub 夜间，自定义浅色 / 深色。代码高亮用独立配色，宣纸浅底也能看清
 - 关于：齿轮 → 关于，可看版本、更新日期、MIT 协议、检查更新、源代码、问题反馈和捐赠
 - 同步：静笺服务器、WebDAV、本机目录、对象存储（阿里云 OSS / 腾讯云 COS / 华为 OBS / 七牛 Kodo / 火山 TOS / Amazon S3 / MinIO）
-- 博客：齿轮 → 博客，选 GitHub 或 Gitee。侧栏报纸图标列出仓库文章，点开可读、可拉进本地再改；工具栏纸飞机发回去。新建可用日记 / 会议 / 博客文章模板
+- 博客：齿轮 → 博客，下拉选择静态博客、WordPress、Typecho、Halo、Ghost 或语雀，可分别启用。默认一起发布可多选；不勾默认时，点纸飞机再选这一次发去哪。新建里会带上已启用平台的模板
 - 安卓：系统「用其他应用打开」可选静笺，直接打开 Markdown、TXT、EPUB、Kindle、FB2；分享文字或图片也会收入笔记
 - 手机竖屏：文件列表从左侧滑出，点遮罩关闭；横屏即使宽度不够也按平板显示侧栏
 - 打开数兆的 TXT / Markdown 不会卡死：预览只渲染开头，超大正文写入独立缓存
@@ -84,11 +84,15 @@ Markdown 和纯文本按笔记排版。电子书可以打本章，或按章节�
 
 ## 博客
 
-齿轮 → 博客。填写 GitHub Token（需要仓库 contents 写入）、仓库 `owner/repo`、分支、Hugo 或 Hexo、文章目录。
+齿轮 → 博客。上面的下拉菜单切换平台：静态博客（Hugo / Hexo，GitHub 或 Gitee）、WordPress、Typecho、Halo、Ghost、语雀。每个平台单独勾选启用，再填站点、账号或令牌。
 
-填好后，侧栏报纸图标（或设置里「查看仓库文章」）会列出文章目录里已有的 Markdown。点开可读；没有本地副本就拉进「博客」文件夹，已有的可以打开或用仓库覆盖。YAML 会原样留下，改完用工具栏纸飞机发回同一个文件。
+「默认一起发布」可勾多个。保存后，纸飞机会按这些默认一次发出去。一项都不勾，点纸飞机时再选这一次要发的平台。还没启用任何平台时，会先打开设置。
 
-工具栏纸飞机把当前笔记写成一篇 Markdown 提交到仓库：Hugo 默认 `content/posts`，Hexo 默认 `source/_posts`。文件名是日期加标题。同一篇再发会覆盖上次那个文件。分类用笔记所在文件夹名。网站仍由仓库里的 GitHub Actions 构建。
+静态博客仍用原来的仓库文章列表：侧栏报纸图标，或设置里「查看仓库文章」。点开可读；没有本地副本就拉进「博客」文件夹。YAML 会原样留下，再发会覆盖上次那个文件。WordPress 和 Ghost 以网页正文发出，Typecho、Halo、语雀以 Markdown 发出。同一篇再发会更新上次那一篇。
+
+网页里如果被浏览器拦住跨站请求，用安卓或电脑应用发布。
+
+新建菜单里，日记、会议、博客文章一直都在。WordPress、Typecho、Halo、Ghost、语雀的模板只在对应平台启用后出现。
 
 ## 同步与同时编辑
 
@@ -146,7 +150,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.9.apk`。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.10.apk`。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -156,9 +160,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.9-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.9-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
-- `jingjian-v1.7.9-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.10-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.10-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
+- `jingjian-v1.7.10-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` / `.mobi` / `.azw3` / `.fb2` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 

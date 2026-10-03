@@ -51,7 +51,18 @@ import {
   writeEditorPrefs,
   type EditorPrefs,
 } from "@/lib/notes/editor-prefs";
-import { testBlogConfig } from "@/lib/notes/blog-publish";
+import { testSelectedPlatform } from "@/lib/notes/blog-platform-publish";
+import {
+  BLOG_PLATFORMS,
+  canTestPlatform,
+  platformEnabled,
+  platformLabel,
+  platformReady,
+  readPlatformPrefs,
+  writePlatformPrefs,
+  type PlatformId,
+  type PlatformPrefs,
+} from "@/lib/notes/blog-platforms";
 import { testImageUploader } from "@/lib/notes/image-upload";
 import {
   DEFAULT_TTS_PREFS,
@@ -140,6 +151,7 @@ export function SettingsDialog({
   const [savedTheme, setSavedTheme] = useState<ThemeConfig>(DEFAULT_THEME);
   const [image, setImage] = useState<ImageConfig>(DEFAULT_IMAGE_CONFIG);
   const [blog, setBlog] = useState<BlogConfig>(DEFAULT_BLOG_CONFIG);
+  const [platforms, setPlatforms] = useState<PlatformPrefs>(readPlatformPrefs);
   const [editor, setEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
   const [savedEditor, setSavedEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
   const [tts, setTts] = useState<TtsPrefs>(DEFAULT_TTS_PREFS);
@@ -157,6 +169,10 @@ export function SettingsDialog({
       setSavedTheme(currentTheme);
       setImage(readImageConfig());
       setBlog(readBlogConfig());
+      const loaded = readPlatformPrefs();
+      const blogNow = readBlogConfig();
+      if (!loaded.defaultsSet && isBlogConfigured(blogNow)) loaded.defaults = ["git"];
+      setPlatforms(loaded);
       setEditor(readEditorPrefs());
       setSavedEditor(readEditorPrefs());
       setTts(readTtsPrefs());
@@ -200,7 +216,7 @@ export function SettingsDialog({
         tab === "image"
           ? await testImageUploader(image)
           : tab === "blog"
-            ? await testBlogConfig(blog)
+            ? await testSelectedPlatform(platforms, blog)
             : await testSync(draft);
       setTestError(false);
       setTestMessage(message);
@@ -245,6 +261,7 @@ export function SettingsDialog({
 
   function handleOpenBlogPosts() {
     writeBlogConfig(blog);
+    writePlatformPrefs({ ...platforms, defaultsSet: true });
     applyTheme(savedTheme);
     applyEditorPrefs(savedEditor);
     stopTtsPreview();
@@ -256,6 +273,7 @@ export function SettingsDialog({
     writeThemeConfig(theme);
     writeImageConfig(image);
     writeBlogConfig(blog);
+    writePlatformPrefs({ ...platforms, defaultsSet: true });
     writeEditorPrefs(editor);
     applyEditorPrefs(editor);
     writeTtsPrefs(tts);
@@ -319,7 +337,12 @@ export function SettingsDialog({
           <ImagePanel image={image} onChange={patchImage} />
         ) : null}
         {tab === "blog" ? (
-          <BlogPanel blog={blog} onChange={patchBlog} />
+          <BlogPanel
+            blog={blog}
+            prefs={platforms}
+            onChange={patchBlog}
+            onPrefs={(partial) => setPlatforms((current) => ({ ...current, ...partial }))}
+          />
         ) : null}
         {tab === "tts" ? <TtsPanel prefs={tts} onChange={setTts} /> : null}
         {tab === "about" ? <AboutPanel native={native} desktop={desktop} /> : null}
@@ -341,12 +364,12 @@ export function SettingsDialog({
               </Button>
               {(tab === "sync" && draft.provider !== "off") ||
               (tab === "image" && image.uploader !== "none") ||
-              (tab === "blog" && isBlogConfigured(blog)) ? (
+              (tab === "blog" && (canTestPlatform(platforms, blog) || isBlogConfigured(blog))) ? (
                 <Button variant="subtle" disabled={busy} onClick={() => void handleTest()}>
                   测试连接
                 </Button>
               ) : null}
-              {tab === "blog" && isBlogConfigured(blog) && onOpenBlogPosts ? (
+              {tab === "blog" && platforms.selected === "git" && isBlogConfigured(blog) && onOpenBlogPosts ? (
                 <Button variant="subtle" onClick={handleOpenBlogPosts}>
                   查看仓库文章
                 </Button>
@@ -1024,6 +1047,237 @@ function ImagePanel({
 
 function BlogPanel({
   blog,
+  prefs,
+  onChange,
+  onPrefs,
+}: {
+  blog: BlogConfig;
+  prefs: PlatformPrefs;
+  onChange: (partial: Partial<BlogConfig>) => void;
+  onPrefs: (partial: Partial<PlatformPrefs>) => void;
+}) {
+  const selected = prefs.selected;
+  const enabled = platformEnabled(prefs, selected, isBlogConfigured(blog));
+
+  function setEnabled(value: boolean) {
+    if (selected === "git") onPrefs({ gitEnabled: value });
+    else onPrefs({ [selected]: { ...prefs[selected], enabled: value } } as Partial<PlatformPrefs>);
+  }
+
+  function toggleDefault(id: PlatformId) {
+    const has = prefs.defaults.includes(id);
+    onPrefs({ defaults: has ? prefs.defaults.filter((item) => item !== id) : [...prefs.defaults, id] });
+  }
+
+  return (
+    <>
+      <p className="mt-3 text-sm text-muted">
+        选一个平台填写。打开的平台可以一起发布。默认都不勾时，点纸飞机再选这一次发去哪。
+      </p>
+      <label className="mt-4 block">
+        <span className="mb-1 block text-xs text-muted">平台</span>
+        <select
+          aria-label="博客平台"
+          className="h-11 w-full rounded-md bg-overlay px-3 text-sm text-fg outline-none"
+          value={selected}
+          onChange={(event) => onPrefs({ selected: event.target.value as PlatformId })}
+        >
+          {BLOG_PLATFORMS.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-1 text-xs text-subtle">{BLOG_PLATFORMS.find((item) => item.id === selected)?.hint}</p>
+      <label className="mt-3 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+        启用 {platformLabel(selected)}
+      </label>
+      {selected === "git" ? <GitBlogFields blog={blog} onChange={onChange} /> : null}
+      {selected === "wordpress" ? (
+        <>
+          <Field label="站点地址">
+            <Input
+              value={prefs.wordpress.site}
+              onChange={(event) => onPrefs({ wordpress: { ...prefs.wordpress, site: event.target.value } })}
+              placeholder="https://example.com"
+              autoCapitalize="off"
+            />
+          </Field>
+          <Field label="用户名">
+            <Input
+              value={prefs.wordpress.username}
+              onChange={(event) => onPrefs({ wordpress: { ...prefs.wordpress, username: event.target.value } })}
+              autoCapitalize="off"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="应用密码">
+            <Input
+              type="password"
+              value={prefs.wordpress.password}
+              onChange={(event) => onPrefs({ wordpress: { ...prefs.wordpress, password: event.target.value } })}
+              placeholder="xxxx xxxx xxxx xxxx"
+              autoComplete="off"
+            />
+          </Field>
+          <StatusSelect
+            label="发布状态"
+            value={prefs.wordpress.status}
+            publishValue="publish"
+            draftValue="draft"
+            onChange={(status) => onPrefs({ wordpress: { ...prefs.wordpress, status: status as "publish" | "draft" } })}
+          />
+        </>
+      ) : null}
+      {selected === "typecho" ? (
+        <>
+          <Field label="站点地址">
+            <Input
+              value={prefs.typecho.site}
+              onChange={(event) => onPrefs({ typecho: { ...prefs.typecho, site: event.target.value } })}
+              placeholder="https://example.com"
+              autoCapitalize="off"
+            />
+          </Field>
+          <Field label="用户名">
+            <Input
+              value={prefs.typecho.username}
+              onChange={(event) => onPrefs({ typecho: { ...prefs.typecho, username: event.target.value } })}
+              autoCapitalize="off"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="密码">
+            <Input
+              type="password"
+              value={prefs.typecho.password}
+              onChange={(event) => onPrefs({ typecho: { ...prefs.typecho, password: event.target.value } })}
+              autoComplete="off"
+            />
+          </Field>
+          <StatusSelect
+            label="发布状态"
+            value={prefs.typecho.publish ? "publish" : "draft"}
+            publishValue="publish"
+            draftValue="draft"
+            onChange={(status) => onPrefs({ typecho: { ...prefs.typecho, publish: status === "publish" } })}
+          />
+        </>
+      ) : null}
+      {selected === "halo" ? (
+        <>
+          <Field label="站点地址">
+            <Input
+              value={prefs.halo.site}
+              onChange={(event) => onPrefs({ halo: { ...prefs.halo, site: event.target.value } })}
+              placeholder="https://example.com"
+              autoCapitalize="off"
+            />
+          </Field>
+          <Field label="个人令牌">
+            <Input
+              type="password"
+              value={prefs.halo.token}
+              onChange={(event) => onPrefs({ halo: { ...prefs.halo, token: event.target.value } })}
+              autoComplete="off"
+            />
+          </Field>
+          <StatusSelect
+            label="发布状态"
+            value={prefs.halo.publish ? "publish" : "draft"}
+            publishValue="publish"
+            draftValue="draft"
+            onChange={(status) => onPrefs({ halo: { ...prefs.halo, publish: status === "publish" } })}
+          />
+        </>
+      ) : null}
+      {selected === "ghost" ? (
+        <>
+          <Field label="站点地址">
+            <Input
+              value={prefs.ghost.site}
+              onChange={(event) => onPrefs({ ghost: { ...prefs.ghost, site: event.target.value } })}
+              placeholder="https://example.com"
+              autoCapitalize="off"
+            />
+          </Field>
+          <Field label="Admin API 密钥">
+            <Input
+              type="password"
+              value={prefs.ghost.adminKey}
+              onChange={(event) => onPrefs({ ghost: { ...prefs.ghost, adminKey: event.target.value } })}
+              placeholder="id:secret"
+              autoComplete="off"
+              autoCapitalize="off"
+            />
+          </Field>
+          <StatusSelect
+            label="发布状态"
+            value={prefs.ghost.status}
+            publishValue="published"
+            draftValue="draft"
+            onChange={(status) => onPrefs({ ghost: { ...prefs.ghost, status: status as "published" | "draft" } })}
+          />
+        </>
+      ) : null}
+      {selected === "yuque" ? (
+        <>
+          <Field label="令牌">
+            <Input
+              type="password"
+              value={prefs.yuque.token}
+              onChange={(event) => onPrefs({ yuque: { ...prefs.yuque, token: event.target.value } })}
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="知识库">
+            <Input
+              value={prefs.yuque.repo}
+              onChange={(event) => onPrefs({ yuque: { ...prefs.yuque, repo: event.target.value } })}
+              placeholder="用户名/知识库"
+              autoCapitalize="off"
+            />
+          </Field>
+          <StatusSelect
+            label="可见性"
+            value={prefs.yuque.public ? "publish" : "draft"}
+            publishValue="publish"
+            draftValue="draft"
+            publishLabel="公开"
+            draftLabel="私密"
+            onChange={(status) => onPrefs({ yuque: { ...prefs.yuque, public: status === "publish" } })}
+          />
+        </>
+      ) : null}
+      <div className="mt-5 text-xs text-muted">默认一起发布</div>
+      <ul className="mt-1">
+        {BLOG_PLATFORMS.map((item) => {
+          const on = platformEnabled(prefs, item.id, isBlogConfigured(blog));
+          const ready = platformReady(prefs, item.id, blog);
+          const checked = prefs.defaults.includes(item.id);
+          return (
+            <li key={item.id}>
+              <label className="flex items-center gap-2 py-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={!on || !ready}
+                  onChange={() => toggleDefault(item.id)}
+                />
+                <span className={!on || !ready ? "text-muted" : "text-fg"}>{item.label}</span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+function GitBlogFields({
+  blog,
   onChange,
 }: {
   blog: BlogConfig;
@@ -1126,6 +1380,39 @@ function BlogPanel({
         />
       </Field>
     </>
+  );
+}
+
+function StatusSelect({
+  label,
+  value,
+  publishValue,
+  draftValue,
+  publishLabel = "公开",
+  draftLabel = "草稿",
+  onChange,
+}: {
+  label: string;
+  value: string;
+  publishValue: string;
+  draftValue: string;
+  publishLabel?: string;
+  draftLabel?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="mt-3 block">
+      <span className="mb-1 block text-xs text-muted">{label}</span>
+      <select
+        aria-label={label}
+        className="h-11 w-full rounded-md bg-overlay px-3 text-sm text-fg outline-none"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value={publishValue}>{publishLabel}</option>
+        <option value={draftValue}>{draftLabel}</option>
+      </select>
+    </label>
   );
 }
 
