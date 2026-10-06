@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { isNativeApp } from "@/lib/notes/native-folder";
+import { isNativeApp, requestLocalNetwork } from "@/lib/notes/native-folder";
 import { isDesktopApp } from "@/lib/notes/desktop";
 import { pickSyncFolder } from "@/lib/notes/sync-folder";
 import { type SyncConfig, type SyncProvider } from "@/lib/notes/sync-types";
@@ -64,6 +64,7 @@ import {
   type PlatformPrefs,
 } from "@/lib/notes/blog-platforms";
 import { testImageUploader } from "@/lib/notes/image-upload";
+import { isPrivateNetworkHost, readLanAsked, writeLanAsked } from "@/lib/notes/private-net";
 import {
   DEFAULT_TTS_PREFS,
   TTS_LANG_MODES,
@@ -156,6 +157,7 @@ export function SettingsDialog({
   const [savedEditor, setSavedEditor] = useState<EditorPrefs>(DEFAULT_EDITOR_PREFS);
   const [tts, setTts] = useState<TtsPrefs>(DEFAULT_TTS_PREFS);
   const [busy, setBusy] = useState(false);
+  const [lanOpen, setLanOpen] = useState(false);
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState(false);
   const native = isNativeApp();
@@ -270,6 +272,30 @@ export function SettingsDialog({
   }
 
   function handleSave() {
+    const urls = [
+      draft.serverUrl,
+      draft.webdavUrl,
+      draft.ossEndpoint,
+      platforms.wordpress.site,
+      platforms.typecho.site,
+      platforms.halo.site,
+      platforms.ghost.site,
+    ];
+    if (native && !readLanAsked() && urls.some((value) => isPrivateNetworkHost(value))) {
+      setLanOpen(true);
+      return;
+    }
+    finishSave();
+  }
+
+  async function confirmLan() {
+    writeLanAsked();
+    setLanOpen(false);
+    finishSave();
+    await requestLocalNetwork();
+  }
+
+  function finishSave() {
     writeThemeConfig(theme);
     writeImageConfig(image);
     writeBlogConfig(blog);
@@ -379,6 +405,37 @@ export function SettingsDialog({
           )}
         </div>
       </div>
+      {lanOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 p-4 sm:items-center"
+          onClick={(event) => {
+            event.stopPropagation();
+            setLanOpen(false);
+          }}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="lan-title"
+            className="w-full max-w-sm rounded-xl bg-bg p-5 text-fg shadow-raised"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="lan-title" className="font-serif text-lg font-medium">
+              本地网络
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              你填了局域网地址。安卓 17 要先允许本地网络，才能连上家里的同步或博客。接下来系统会询问一次。
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setLanOpen(false)}>
+                返回
+              </Button>
+              <Button onClick={() => void confirmLan()}>继续</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1045,6 +1102,44 @@ function ImagePanel({
   );
 }
 
+function PostMetaFields({
+  category,
+  tags,
+  cover,
+  hint,
+  onChange,
+}: {
+  category: string;
+  tags: string;
+  cover: string;
+  hint?: string;
+  onChange: (partial: { category?: string; tags?: string; cover?: string }) => void;
+}) {
+  return (
+    <>
+      <Field label="分类">
+        <Input value={category} onChange={(event) => onChange({ category: event.target.value })} placeholder="留空则不改" />
+      </Field>
+      <Field label="标签">
+        <Input
+          value={tags}
+          onChange={(event) => onChange({ tags: event.target.value })}
+          placeholder="多个用逗号分开，留空则不改"
+        />
+      </Field>
+      <Field label="封面">
+        <Input
+          value={cover}
+          onChange={(event) => onChange({ cover: event.target.value })}
+          placeholder="https:// 图片地址，留空则不改"
+          autoCapitalize="off"
+        />
+      </Field>
+      {hint ? <p className="mt-2 text-xs text-subtle">{hint}</p> : null}
+    </>
+  );
+}
+
 function BlogPanel({
   blog,
   prefs,
@@ -1094,6 +1189,28 @@ function BlogPanel({
         <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
         启用 {platformLabel(selected)}
       </label>
+      <div className="mt-4 text-xs text-muted">默认一起发布</div>
+      <ul className="mt-1">
+        {BLOG_PLATFORMS.map((item) => {
+          const on = platformEnabled(prefs, item.id, isBlogConfigured(blog));
+          const ready = platformReady(prefs, item.id, blog);
+          const checked = prefs.defaults.includes(item.id);
+          return (
+            <li key={item.id}>
+              <label className="flex items-center gap-2 py-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={!on || !ready}
+                  onChange={() => toggleDefault(item.id)}
+                />
+                <span className={!on || !ready ? "text-muted" : "text-fg"}>{item.label}</span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-xs text-subtle">勾上的平台，点纸飞机会一起发。没勾时再选这一次。</p>
       {selected === "git" ? <GitBlogFields blog={blog} onChange={onChange} /> : null}
       {selected === "wordpress" ? (
         <>
@@ -1128,6 +1245,12 @@ function BlogPanel({
             publishValue="publish"
             draftValue="draft"
             onChange={(status) => onPrefs({ wordpress: { ...prefs.wordpress, status: status as "publish" | "draft" } })}
+          />
+          <PostMetaFields
+            category={prefs.wordpress.category}
+            tags={prefs.wordpress.tags}
+            cover={prefs.wordpress.cover}
+            onChange={(partial) => onPrefs({ wordpress: { ...prefs.wordpress, ...partial } })}
           />
         </>
       ) : null}
@@ -1164,6 +1287,12 @@ function BlogPanel({
             draftValue="draft"
             onChange={(status) => onPrefs({ typecho: { ...prefs.typecho, publish: status === "publish" } })}
           />
+          <PostMetaFields
+            category={prefs.typecho.category}
+            tags={prefs.typecho.tags}
+            cover={prefs.typecho.cover}
+            onChange={(partial) => onPrefs({ typecho: { ...prefs.typecho, ...partial } })}
+          />
         </>
       ) : null}
       {selected === "halo" ? (
@@ -1190,6 +1319,12 @@ function BlogPanel({
             publishValue="publish"
             draftValue="draft"
             onChange={(status) => onPrefs({ halo: { ...prefs.halo, publish: status === "publish" } })}
+          />
+          <PostMetaFields
+            category={prefs.halo.category}
+            tags={prefs.halo.tags}
+            cover={prefs.halo.cover}
+            onChange={(partial) => onPrefs({ halo: { ...prefs.halo, ...partial } })}
           />
         </>
       ) : null}
@@ -1220,6 +1355,13 @@ function BlogPanel({
             draftValue="draft"
             onChange={(status) => onPrefs({ ghost: { ...prefs.ghost, status: status as "published" | "draft" } })}
           />
+          <PostMetaFields
+            category={prefs.ghost.category}
+            tags={prefs.ghost.tags}
+            cover={prefs.ghost.cover}
+            hint="Ghost 没有分类，这里的分类会当成一个标签。封面用图片地址。"
+            onChange={(partial) => onPrefs({ ghost: { ...prefs.ghost, ...partial } })}
+          />
         </>
       ) : null}
       {selected === "yuque" ? (
@@ -1249,29 +1391,15 @@ function BlogPanel({
             draftLabel="私密"
             onChange={(status) => onPrefs({ yuque: { ...prefs.yuque, public: status === "publish" } })}
           />
+          <PostMetaFields
+            category={prefs.yuque.category}
+            tags={prefs.yuque.tags}
+            cover={prefs.yuque.cover}
+            hint="语雀会把封面放进正文开头。分类和标签先记在这里，语雀接口收不了。"
+            onChange={(partial) => onPrefs({ yuque: { ...prefs.yuque, ...partial } })}
+          />
         </>
       ) : null}
-      <div className="mt-5 text-xs text-muted">默认一起发布</div>
-      <ul className="mt-1">
-        {BLOG_PLATFORMS.map((item) => {
-          const on = platformEnabled(prefs, item.id, isBlogConfigured(blog));
-          const ready = platformReady(prefs, item.id, blog);
-          const checked = prefs.defaults.includes(item.id);
-          return (
-            <li key={item.id}>
-              <label className="flex items-center gap-2 py-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={!on || !ready}
-                  onChange={() => toggleDefault(item.id)}
-                />
-                <span className={!on || !ready ? "text-muted" : "text-fg"}>{item.label}</span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
     </>
   );
 }

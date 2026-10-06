@@ -11,13 +11,16 @@ import {
   groupNotes,
   NOTE_SORTS,
   parseOpenIds,
+  readOpened,
+  readStars,
   titleFromContent,
   toggleOpenId,
+  toggleStar,
   type NoteSort,
 } from "@/lib/notes/format";
 import type { OutlineHeading } from "@/lib/notes/outline";
 import { chapterProgress, lastReadChapter } from "@/lib/notes/reader-progress";
-import { noteLinks } from "@/lib/notes/wiki-links";
+import { noteLinks, unlinkedMentions } from "@/lib/notes/wiki-links";
 import { libraryTags, tagMatches } from "@/lib/notes/tags";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
@@ -138,6 +141,7 @@ type SidebarProps = {
   onOpenGraph: () => void;
   sort: NoteSort;
   onSortChange: (sort: NoteSort) => void;
+  onOpenToday?: () => void;
   onReadBook?: (noteId: string) => void;
   syncLabel: string;
 };
@@ -176,16 +180,13 @@ export function Sidebar({
   onOpenGraph,
   sort,
   onSortChange,
+  onOpenToday,
   onReadBook,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
   const books = groups.filter((group) => group.book);
   const treeNotes = notes.filter((note) => !note.bookId);
-  const tree = useMemo(
-    () => buildFileTree(treeNotes, folders, sort),
-    [treeNotes, folders, sort],
-  );
   const [createOpen, setCreateOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(readOpenFolders);
   const [openBooks, setOpenBooks] = useState<Set<string>>(readOpenBooks);
@@ -195,6 +196,12 @@ export function Sidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(() => readFlag(TAGS_SECTION_KEY, false));
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [stars, setStars] = useState<Set<string>>(() => new Set());
+  const [opened, setOpened] = useState<Record<string, number>>({});
+  const tree = useMemo(
+    () => buildFileTree(treeNotes, folders, sort, { opened, stars }),
+    [treeNotes, folders, sort, opened, stars],
+  );
   const createBtnRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLElement>(null);
   const notesRef = useRef(notes);
@@ -208,13 +215,31 @@ export function Sidebar({
   const showEmpty =
     notes.length === 0 && (searching || folders.length === 0);
   const sortLabel = NOTE_SORTS.find((item) => item.id === sort)?.label ?? "标题";
-  const sortShort = sort === "updated" ? "修改" : sort === "created" ? "创建" : "标题";
+  const sortShort =
+    sort === "updated" ? "修改" : sort === "created" ? "创建" : sort === "opened" ? "打开" : "标题";
   const links = useMemo(() => noteLinks(notes, activeId), [notes, activeId]);
+  const mentions = useMemo(
+    () => (view === "links" ? unlinkedMentions(notes, activeId) : []),
+    [view, notes, activeId],
+  );
   const tagIndex = useMemo(() => libraryTags(notes), [notes]);
   const activeTagLabel = tagIndex.tags.find((tag) => tag.key === activeTag)?.label ?? null;
   const taggedNotes = activeTag
     ? notes.filter((note) => tagMatches(tagIndex.keysByNote.get(note.id) ?? [], activeTag))
     : null;
+
+  useEffect(() => {
+    setStars(readStars());
+    setOpened(readOpened());
+    const refreshStars = () => setStars(readStars());
+    const refreshOpened = () => setOpened(readOpened());
+    window.addEventListener("jingjian-stars", refreshStars);
+    window.addEventListener("jingjian-opened", refreshOpened);
+    return () => {
+      window.removeEventListener("jingjian-stars", refreshStars);
+      window.removeEventListener("jingjian-opened", refreshOpened);
+    };
+  }, []);
 
   useEffect(() => {
     function openSearch() {
@@ -571,6 +596,15 @@ export function Sidebar({
             摘要
           </button>
           ) : null}
+          {view === "files" && onOpenToday ? (
+          <button
+            type="button"
+            className="btn-press h-8 shrink-0 rounded-md px-1.5 text-xs text-muted hover:bg-overlay"
+            onClick={onOpenToday}
+          >
+            今天
+          </button>
+          ) : null}
           {view === "files" ? (
           <button
             type="button"
@@ -664,6 +698,33 @@ export function Sidebar({
                           <span className="text-[11px] text-subtle">还没有这篇</span>
                         </div>
                       )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="px-2 pt-3 pb-1 text-[11px] font-medium tracking-wide text-subtle">
+                未写成双链
+                <span className="ml-1 tabular-nums">{mentions.length}</span>
+              </div>
+              {mentions.length === 0 ? (
+                <p className="px-2 text-xs leading-5 text-muted">正文里直接写了别的笔记标题时，会出现在这里。</p>
+              ) : (
+                <ul>
+                  {mentions.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className="note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1 text-left hover:bg-overlay"
+                        onClick={() => openLinked(item.id)}
+                      >
+                        <span className="w-full truncate text-sm text-fg">
+                          {item.title}
+                          {item.count > 1 ? <span className="ml-1 text-xs text-subtle">×{item.count}</span> : null}
+                        </span>
+                        {item.line ? (
+                          <span className="w-full truncate text-[11px] leading-4 text-muted">{item.line}</span>
+                        ) : null}
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -946,6 +1007,11 @@ export function Sidebar({
                   onMoveNote={onMoveNote}
                   onNoteMenu={onNoteMenu}
                   onFolderMenu={onFolderMenu}
+                  starred={stars}
+                  onToggleStar={(id) => {
+                    toggleStar(id);
+                    setStars(readStars());
+                  }}
                 />
               </div>
             )}

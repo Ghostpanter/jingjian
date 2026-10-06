@@ -82,6 +82,39 @@ export function firstLineTitle(content: string): string {
   return stripped || "未命名笔记";
 }
 
+/** Obsidian-style YAML `aliases` / `alias`, list or inline array. */
+export function noteAliases(content: string): string[] {
+  const block = frontMatterBlock(content);
+  if (!block) return [];
+  const lines = block.yaml.split("\n");
+  const aliases: string[] = [];
+  const push = (raw: string) => {
+    const value = yamlScalar(raw).trim();
+    if (value && value !== "未命名笔记") aliases.push(value);
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(?:aliases|alias)\s*:\s*(.*)$/i.exec(lines[index].trim());
+    if (!match) continue;
+    const rest = match[1].trim();
+    if (!rest) {
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const item = /^\s*-\s+(.*)$/.exec(lines[next]);
+        if (!item) break;
+        push(item[1]);
+        index = next;
+      }
+      continue;
+    }
+    if (rest.startsWith("[")) {
+      const inner = rest.replace(/^\[/, "").replace(/\]$/, "");
+      for (const part of inner.split(",")) push(part);
+      continue;
+    }
+    push(rest);
+  }
+  return aliases;
+}
+
 export function titleFromContent(content: string): string {
   const stripped = firstLineTitle(content);
   if (stripped === "未命名笔记") return stripped;
@@ -114,16 +147,36 @@ export function countChars(content: string): number {
   return content.replace(/\s/g, "").length;
 }
 
-export type NoteSort = "updated" | "created" | "title";
+/** Visible slice when a note is too large for one textarea. */
+export const EDITOR_SLICE_CHARS = 48_000;
+
+export function editorSlice(
+  content: string,
+  anchor: number,
+  size = EDITOR_SLICE_CHARS,
+): { start: number; end: number } {
+  const from = Math.max(0, Math.min(anchor, content.length));
+  let end = Math.min(content.length, from + size);
+  if (end < content.length) {
+    const nl = content.indexOf("\n", end);
+    if (nl !== -1 && nl - from < size + 800) end = nl;
+  }
+  return { start: from, end };
+}
+
+export type NoteSort = "updated" | "created" | "title" | "opened";
 
 export const NOTE_SORTS: { id: NoteSort; label: string }[] = [
   { id: "updated", label: "修改时间" },
   { id: "created", label: "创建时间" },
   { id: "title", label: "标题" },
+  { id: "opened", label: "最近打开" },
 ];
 
-const SORTS: NoteSort[] = ["updated", "created", "title"];
+const SORTS: NoteSort[] = ["updated", "created", "title", "opened"];
 const SORT_KEY = "jingjian.sort.v1";
+const STAR_KEY = "jingjian.stars.v1";
+const OPENED_KEY = "jingjian.opened.v1";
 
 export function readNoteSort(): NoteSort {
   try {
@@ -143,12 +196,79 @@ export function writeNoteSort(sort: NoteSort) {
   }
 }
 
-export function compareNotes(a: Note, b: Note, sort: NoteSort = "updated"): number {
+export function compareNotes(
+  a: Note,
+  b: Note,
+  sort: NoteSort = "updated",
+  opened?: Record<string, number>,
+): number {
   if (sort === "created") return b.createdAt - a.createdAt;
   if (sort === "title") {
     return firstLineTitle(a.content).localeCompare(firstLineTitle(b.content), "zh-CN");
   }
+  if (sort === "opened") {
+    const left = opened?.[a.id] ?? 0;
+    const right = opened?.[b.id] ?? 0;
+    if (left !== right) return right - left;
+    return b.updatedAt - a.updatedAt;
+  }
   return b.updatedAt - a.updatedAt;
+}
+
+export function readStars(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STAR_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function toggleStar(id: string): boolean {
+  const stars = readStars();
+  const on = !stars.has(id);
+  if (on) stars.add(id);
+  else stars.delete(id);
+  try {
+    localStorage.setItem(STAR_KEY, JSON.stringify([...stars]));
+  } catch {
+    // private mode
+  }
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("jingjian-stars"));
+  return on;
+}
+
+export function readOpened(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(OPENED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    if (!parsed || typeof parsed !== "object") return out;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function markOpened(id: string) {
+  if (!id) return;
+  try {
+    const map = readOpened();
+    map[id] = Date.now();
+    const entries = Object.entries(map)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 400);
+    localStorage.setItem(OPENED_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // private mode
+  }
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("jingjian-opened"));
 }
 
 export function formatCharCount(content: string): string {

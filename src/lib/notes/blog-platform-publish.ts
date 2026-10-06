@@ -1,11 +1,15 @@
 import { desktopRequest, isDesktopApp } from "./desktop.ts";
+import { escapeHtml } from "./escape-html.ts";
 import { firstLineTitle } from "./format.ts";
+import { htmlToMarkdown } from "./html-to-markdown.ts";
+import { ensureKatex, extractMath } from "./markdown-extra.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { postSlug, publishNoteToBlog, stripMatchingHeading, testBlogConfig } from "./blog-publish.ts";
 import type { BlogConfig } from "./blog-config.ts";
 import type { Note } from "./types.ts";
 import {
   ghostAdminToken,
+  metaList,
   platformLabel,
   rememberTarget,
   siteBase,
@@ -14,6 +18,7 @@ import {
   xmlRpcCall,
   xmlRpcFault,
   xmlRpcString,
+  xmlRpcStructs,
   xmlString,
   yuqueParts,
   type GhostSite,
@@ -73,18 +78,37 @@ function httpError(name: string, status: number, message: string): Error {
   return new Error(message ? `${name}：${message}` : `${name} 失败（${status}）`);
 }
 
-export function articleFromNote(content: string): { title: string; markdown: string; html: string } {
+export async function articleFromNote(content: string): Promise<{ title: string; markdown: string; html: string }> {
   const source = stripFrontMatterBlock(content);
   const title = firstLineTitle(source);
   const markdown = stripMatchingHeading(source, title).replace(/^\s+/, "");
-  const html = renderMarkdown(markdown || source);
+  const body = markdown || source;
+  if (extractMath(body).slots.length) await ensureKatex();
+  const html = renderMarkdown(body);
   return { title, markdown, html };
 }
 
-function assertArticle(content: string): { title: string; markdown: string; html: string } {
-  const article = articleFromNote(content);
-  if (article.title === "未命名笔记" && !content.trim()) throw new Error("这篇还没有内容");
-  return article;
+function assertArticle(content: string): Promise<{ title: string; markdown: string; html: string }> {
+  return articleFromNote(content).then((article) => {
+    if (article.title === "未命名笔记" && !content.trim()) throw new Error("这篇还没有内容");
+    return article;
+  });
+}
+
+function withCoverMarkdown(markdown: string, cover: string | undefined): string {
+  const url = cover?.trim() ?? "";
+  if (!url || markdown.includes(url)) return markdown;
+  return `![](${url})\n\n${markdown}`;
+}
+
+function withCoverHtml(html: string, cover: string | undefined): string {
+  const url = cover?.trim() ?? "";
+  if (!url || html.includes(url)) return html;
+  return `<p><img src="${escapeHtml(url)}" alt="" /></p>\n${html}`;
+}
+
+function xmlArray(values: string[]): string {
+  return `<array><data>${values.map((value) => `<value>${xmlString(value)}</value>`).join("")}</data></array>`;
 }
 
 export async function testWordPress(site: WordPressSite): Promise<string> {
@@ -97,25 +121,34 @@ export async function testWordPress(site: WordPressSite): Promise<string> {
 }
 
 export async function publishWordPress(noteId: string, content: string, site: WordPressSite): Promise<PlatformPublishResult> {
-  const article = assertArticle(content);
+  const article = await assertArticle(content);
   const base = siteBase(site.site);
   const previous = targetFor(noteId, "wordpress");
+  const categories = metaList(site.category);
+  const tags = metaList(site.tags);
+  const categoryIds = [];
+  for (const name of categories) categoryIds.push(await wpTermId(base, site, "categories", name));
+  const tagIds = [];
+  for (const name of tags) tagIds.push(await wpTermId(base, site, "tags", name));
   const path = previous
     ? `${base}/wp-json/wp/v2/posts/${encodeURIComponent(previous.remoteId)}`
     : `${base}/wp-json/wp/v2/posts`;
+  const body: Record<string, unknown> = {
+    title: article.title,
+    content: withCoverHtml(article.html, site.cover),
+    status: site.status,
+    slug: postSlug(article.title),
+  };
+  if (categoryIds.length) body.categories = categoryIds;
+  if (tagIds.length) body.tags = tagIds;
   const response = await platformFetch(path, {
-    method: previous ? "POST" : "POST",
+    method: "POST",
     headers: {
       Authorization: basicAuth(site.username, site.password),
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({
-      title: article.title,
-      content: article.html,
-      status: site.status,
-      slug: postSlug(article.title),
-    }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw httpError("WordPress", response.status, await errorText(response));
   const payload = (await response.json()) as { id?: number; link?: string };
@@ -128,6 +161,37 @@ export async function publishWordPress(noteId: string, content: string, site: Wo
 function basicAuth(username: string, password: string): string {
   const token = utf8ToB64(`${username.trim()}:${password.replace(/\s+/g, "")}`);
   return `Basic ${token}`;
+}
+
+async function wpTermId(
+  base: string,
+  site: WordPressSite,
+  kind: "categories" | "tags",
+  name: string,
+): Promise<number> {
+  const headers = {
+    Authorization: basicAuth(site.username, site.password),
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  const search = await platformFetch(
+    `${base}/wp-json/wp/v2/${kind}?search=${encodeURIComponent(name)}&per_page=20`,
+    { headers },
+  );
+  if (search.ok) {
+    const list = (await search.json()) as { id?: number; name?: string }[];
+    const found = list.find((item) => item.name?.toLowerCase() === name.toLowerCase());
+    if (found?.id != null) return found.id;
+  }
+  const created = await platformFetch(`${base}/wp-json/wp/v2/${kind}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ name }),
+  });
+  if (!created.ok) throw httpError("WordPress", created.status, await errorText(created));
+  const payload = (await created.json()) as { id?: number };
+  if (payload.id == null) throw new Error(`WordPress：没有建成${kind === "tags" ? "标签" : "分类"}`);
+  return payload.id;
 }
 
 function utf8ToB64(value: string): string {
@@ -151,9 +215,21 @@ export async function testTypecho(site: TypechoSite): Promise<string> {
 }
 
 export async function publishTypecho(noteId: string, content: string, site: TypechoSite): Promise<PlatformPublishResult> {
-  const article = assertArticle(content);
-  const body = article.markdown || article.title;
-  const struct = `<struct><member><name>title</name><value>${xmlString(article.title)}</value></member><member><name>description</name><value>${xmlString(body)}</value></member></struct>`;
+  const article = await assertArticle(content);
+  const markdown = withCoverMarkdown(article.markdown || article.title, site.cover);
+  const members = [
+    `<member><name>title</name><value>${xmlString(article.title)}</value></member>`,
+    `<member><name>description</name><value>${xmlString(markdown)}</value></member>`,
+  ];
+  const categories = metaList(site.category);
+  const tags = metaList(site.tags);
+  if (categories.length) {
+    members.push(`<member><name>categories</name><value>${xmlArray(categories)}</value></member>`);
+  }
+  if (tags.length) {
+    members.push(`<member><name>mt_keywords</name><value>${xmlString(tags.join(","))}</value></member>`);
+  }
+  const struct = `<struct>${members.join("")}</struct>`;
   const previous = targetFor(noteId, "typecho");
   const xml = previous
     ? await typechoCall(
@@ -220,10 +296,13 @@ export async function testHalo(site: HaloSite): Promise<string> {
 }
 
 export async function publishHalo(noteId: string, content: string, site: HaloSite): Promise<PlatformPublishResult> {
-  const article = assertArticle(content);
+  const article = await assertArticle(content);
   const base = siteBase(site.site);
   const previous = targetFor(noteId, "halo");
   const markdown = `# ${article.title}\n\n${article.markdown}`.trim();
+  const tags = await haloNames(base, site.token, "tags", metaList(site.tags));
+  const categories = await haloNames(base, site.token, "categories", metaList(site.category));
+  const cover = site.cover.trim();
   if (previous) {
     const response = await platformFetch(
       `${base}/apis/api.console.halo.run/v1alpha1/posts/${encodeURIComponent(previous.remoteId)}/content`,
@@ -234,6 +313,10 @@ export async function publishHalo(noteId: string, content: string, site: HaloSit
       },
     );
     if (!response.ok) throw httpError("Halo", response.status, await errorText(response));
+    await haloSetVisibility(base, site, previous.remoteId);
+    if (cover || tags.length || categories.length) {
+      await haloPatchSpec(base, site.token, previous.remoteId, { cover, tags, categories });
+    }
     return { id: "halo", label: "Halo", detail: previous.url, updated: true };
   }
   const response = await platformFetch(`${base}/apis/api.console.halo.run/v1alpha1/posts`, {
@@ -248,7 +331,7 @@ export async function publishHalo(noteId: string, content: string, site: HaloSit
           title: article.title,
           slug: postSlug(article.title),
           template: "",
-          cover: "",
+          cover,
           deleted: false,
           publish: site.publish,
           pinned: false,
@@ -256,8 +339,8 @@ export async function publishHalo(noteId: string, content: string, site: HaloSit
           visible: "PUBLIC",
           priority: 0,
           excerpt: { autoGenerate: true, raw: "" },
-          categories: [],
-          tags: [],
+          categories,
+          tags,
           htmlMetas: [],
         },
       },
@@ -276,6 +359,79 @@ export async function publishHalo(noteId: string, content: string, site: HaloSit
   return { id: "halo", label: "Halo", detail: url, updated: false };
 }
 
+async function haloSetVisibility(base: string, site: HaloSite, name: string) {
+  const action = site.publish ? "publish" : "unpublish";
+  const response = await platformFetch(
+    `${base}/apis/api.console.halo.run/v1alpha1/posts/${encodeURIComponent(name)}/${action}`,
+    { method: "POST", headers: haloHeaders(site.token) },
+  );
+  if (response.ok || response.status === 400) return;
+  throw httpError("Halo", response.status, await errorText(response));
+}
+
+async function haloNames(
+  base: string,
+  token: string,
+  kind: "tags" | "categories",
+  names: string[],
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const displayName of names) out.push(await haloEnsure(base, token, kind, displayName));
+  return out;
+}
+
+async function haloEnsure(
+  base: string,
+  token: string,
+  kind: "tags" | "categories",
+  displayName: string,
+): Promise<string> {
+  const headers = { ...haloHeaders(token), "Content-Type": "application/json" };
+  const list = await platformFetch(`${base}/apis/content.halo.run/v1alpha1/${kind}?page=0&size=200`, {
+    headers,
+  });
+  if (!list.ok) throw httpError("Halo", list.status, await errorText(list));
+  const data = (await list.json()) as {
+    items?: { metadata?: { name?: string }; spec?: { displayName?: string } }[];
+  };
+  const found = data.items?.find((item) => item.spec?.displayName === displayName);
+  if (found?.metadata?.name) return found.metadata.name;
+  const created = await platformFetch(`${base}/apis/content.halo.run/v1alpha1/${kind}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      apiVersion: "content.halo.run/v1alpha1",
+      kind: kind === "tags" ? "Tag" : "Category",
+      metadata: { generateName: kind === "tags" ? "tag-" : "category-" },
+      spec: { displayName, slug: postSlug(displayName) || "item", cover: "" },
+    }),
+  });
+  if (!created.ok) throw httpError("Halo", created.status, await errorText(created));
+  const payload = (await created.json()) as { metadata?: { name?: string } };
+  if (!payload.metadata?.name) throw new Error(kind === "tags" ? "Halo：标签没有建成" : "Halo：分类没有建成");
+  return payload.metadata.name;
+}
+
+async function haloPatchSpec(
+  base: string,
+  token: string,
+  name: string,
+  meta: { cover: string; tags: string[]; categories: string[] },
+) {
+  const url = `${base}/apis/content.halo.run/v1alpha1/posts/${encodeURIComponent(name)}`;
+  const headers = { ...haloHeaders(token), "Content-Type": "application/json" };
+  const current = await platformFetch(url, { headers });
+  if (!current.ok) throw httpError("Halo", current.status, await errorText(current));
+  const post = (await current.json()) as { spec?: Record<string, unknown> };
+  const spec = { ...(post.spec ?? {}) };
+  if (meta.cover) spec.cover = meta.cover;
+  if (meta.tags.length) spec.tags = meta.tags;
+  if (meta.categories.length) spec.categories = meta.categories;
+  post.spec = spec;
+  const saved = await platformFetch(url, { method: "PUT", headers, body: JSON.stringify(post) });
+  if (!saved.ok) throw httpError("Halo", saved.status, await errorText(saved));
+}
+
 function haloHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token.trim()}`, Accept: "application/json" };
 }
@@ -291,7 +447,7 @@ export async function testGhost(site: GhostSite): Promise<string> {
 }
 
 export async function publishGhost(noteId: string, content: string, site: GhostSite): Promise<PlatformPublishResult> {
-  const article = assertArticle(content);
+  const article = await assertArticle(content);
   const base = siteBase(site.site);
   const token = await ghostAdminToken(site.adminKey);
   const headers = {
@@ -312,11 +468,16 @@ export async function publishGhost(noteId: string, content: string, site: GhostS
   const path = previous
     ? `${base}/ghost/api/admin/posts/${encodeURIComponent(previous.remoteId)}/?source=html`
     : `${base}/ghost/api/admin/posts/?source=html`;
-  const post: Record<string, string> = {
+  const names = [...metaList(site.tags)];
+  const category = site.category.trim();
+  if (category && !names.some((item) => item.toLowerCase() === category.toLowerCase())) names.push(category);
+  const post: Record<string, unknown> = {
     title: article.title,
     html: article.html || `<p>${article.title}</p>`,
     status: site.status,
   };
+  if (names.length) post.tags = names.map((name) => ({ name }));
+  if (site.cover.trim()) post.feature_image = site.cover.trim();
   if (updatedAt) post.updated_at = updatedAt;
   const response = await platformFetch(path, {
     method: previous ? "PUT" : "POST",
@@ -342,7 +503,7 @@ export async function testYuque(site: YuqueSite): Promise<string> {
 }
 
 export async function publishYuque(noteId: string, content: string, site: YuqueSite): Promise<PlatformPublishResult> {
-  const article = assertArticle(content);
+  const article = await assertArticle(content);
   const { login, book } = yuqueParts(site.repo);
   const previous = targetFor(noteId, "yuque");
   const path = previous
@@ -360,7 +521,7 @@ export async function publishYuque(noteId: string, content: string, site: YuqueS
       slug: postSlug(article.title),
       public: site.public ? 1 : 0,
       format: "markdown",
-      body: article.markdown || article.title,
+      body: withCoverMarkdown(article.markdown || article.title, site.cover),
     }),
   });
   if (!response.ok) throw httpError("语雀", response.status, await errorText(response));
@@ -414,4 +575,244 @@ export async function publishPlatforms(
     }
   }
   return { ok, failed };
+}
+
+export type RemotePost = {
+  remoteId: string;
+  title: string;
+  url: string;
+  hint: string;
+};
+
+export type RemotePostFile = RemotePost & { content: string };
+
+function plainTitle(value: string): string {
+  return value.replace(/<[^>]+>/g, "").replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">").trim();
+}
+
+function asMarkdown(title: string, body: string): string {
+  const text = body.replace(/^\uFEFF/, "").trim();
+  if (!text) return `# ${title}\n\n`;
+  if (text.startsWith("#")) return text.endsWith("\n") ? text : `${text}\n`;
+  return `# ${title}\n\n${text}\n`;
+}
+
+export async function listRemotePosts(id: PlatformId, prefs: PlatformPrefs): Promise<RemotePost[]> {
+  if (id === "wordpress") return listWordPress(prefs.wordpress);
+  if (id === "typecho") return listTypecho(prefs.typecho);
+  if (id === "halo") return listHalo(prefs.halo);
+  if (id === "ghost") return listGhost(prefs.ghost);
+  if (id === "yuque") return listYuque(prefs.yuque);
+  return [];
+}
+
+export async function readRemotePost(
+  id: PlatformId,
+  prefs: PlatformPrefs,
+  remoteId: string,
+): Promise<RemotePostFile> {
+  if (id === "wordpress") return readWordPress(prefs.wordpress, remoteId);
+  if (id === "typecho") return readTypecho(prefs.typecho, remoteId);
+  if (id === "halo") return readHalo(prefs.halo, remoteId);
+  if (id === "ghost") return readGhost(prefs.ghost, remoteId);
+  if (id === "yuque") return readYuque(prefs.yuque, remoteId);
+  throw new Error("这个平台不能拉回");
+}
+
+async function listWordPress(site: WordPressSite): Promise<RemotePost[]> {
+  const base = siteBase(site.site);
+  const response = await platformFetch(
+    `${base}/wp-json/wp/v2/posts?per_page=30&context=edit&status=publish,future,draft,pending,private&_fields=id,title,link,status`,
+    { headers: { Authorization: basicAuth(site.username, site.password), Accept: "application/json" } },
+  );
+  if (!response.ok) throw httpError("WordPress", response.status, await errorText(response));
+  const posts = (await response.json()) as {
+    id?: number;
+    link?: string;
+    status?: string;
+    title?: { raw?: string; rendered?: string };
+  }[];
+  return posts.map((post) => ({
+    remoteId: String(post.id ?? ""),
+    title: plainTitle(post.title?.raw || post.title?.rendered || "未命名"),
+    url: post.link || base,
+    hint: post.status === "draft" ? "草稿" : "WordPress",
+  })).filter((post) => post.remoteId);
+}
+
+async function readWordPress(site: WordPressSite, remoteId: string): Promise<RemotePostFile> {
+  const base = siteBase(site.site);
+  const response = await platformFetch(`${base}/wp-json/wp/v2/posts/${encodeURIComponent(remoteId)}?context=edit`, {
+    headers: { Authorization: basicAuth(site.username, site.password), Accept: "application/json" },
+  });
+  if (!response.ok) throw httpError("WordPress", response.status, await errorText(response));
+  const post = (await response.json()) as {
+    id?: number;
+    link?: string;
+    title?: { raw?: string; rendered?: string };
+    content?: { raw?: string; rendered?: string };
+  };
+  const title = plainTitle(post.title?.raw || post.title?.rendered || "未命名");
+  const raw = post.content?.raw?.trim();
+  const body = raw || htmlToMarkdown(post.content?.rendered || "");
+  return { remoteId: String(post.id ?? remoteId), title, url: post.link || base, hint: "WordPress", content: asMarkdown(title, body) };
+}
+
+async function listTypecho(site: TypechoSite): Promise<RemotePost[]> {
+  const xml = await typechoCall(
+    site,
+    xmlRpcCall("metaWeblog.getRecentPosts", [
+      xmlString(""),
+      xmlString(site.username.trim()),
+      xmlString(site.password),
+      "<int>30</int>",
+    ]),
+  );
+  return xmlRpcStructs(xml)
+    .map((item) => ({
+      remoteId: item.postid || item.postId || "",
+      title: item.title || "未命名",
+      url: item.link || item.permaLink || siteBase(site.site),
+      hint: "Typecho",
+    }))
+    .filter((item) => item.remoteId);
+}
+
+async function readTypecho(site: TypechoSite, remoteId: string): Promise<RemotePostFile> {
+  const xml = await typechoCall(
+    site,
+    xmlRpcCall("metaWeblog.getPost", [
+      xmlString(remoteId),
+      xmlString(site.username.trim()),
+      xmlString(site.password),
+    ]),
+  );
+  const item = xmlRpcStructs(xml)[0];
+  if (!item) throw new Error("Typecho 没有这篇文章");
+  const title = item.title || "未命名";
+  return {
+    remoteId,
+    title,
+    url: item.link || item.permaLink || siteBase(site.site),
+    hint: "Typecho",
+    content: asMarkdown(title, item.description || ""),
+  };
+}
+
+async function listHalo(site: HaloSite): Promise<RemotePost[]> {
+  const base = siteBase(site.site);
+  const response = await platformFetch(`${base}/apis/api.console.halo.run/v1alpha1/posts?page=1&size=30`, {
+    headers: haloHeaders(site.token),
+  });
+  if (!response.ok) throw httpError("Halo", response.status, await errorText(response));
+  const data = (await response.json()) as {
+    items?: {
+      post?: { metadata?: { name?: string }; spec?: { title?: string; publish?: boolean }; status?: { permalink?: string } };
+      metadata?: { name?: string };
+      spec?: { title?: string; publish?: boolean };
+      status?: { permalink?: string };
+    }[];
+  };
+  return (data.items ?? [])
+    .map((item) => {
+      const post = item.post ?? item;
+      const remoteId = post.metadata?.name || "";
+      return {
+        remoteId,
+        title: post.spec?.title || remoteId || "未命名",
+        url: post.status?.permalink || base,
+        hint: post.spec?.publish === false ? "草稿" : "Halo",
+      };
+    })
+    .filter((item) => item.remoteId);
+}
+
+async function readHalo(site: HaloSite, remoteId: string): Promise<RemotePostFile> {
+  const base = siteBase(site.site);
+  const response = await platformFetch(
+    `${base}/apis/api.console.halo.run/v1alpha1/posts/${encodeURIComponent(remoteId)}/content`,
+    { headers: haloHeaders(site.token) },
+  );
+  if (!response.ok) throw httpError("Halo", response.status, await errorText(response));
+  const data = (await response.json()) as { raw?: string; content?: string };
+  const body = data.raw || data.content || "";
+  const title = firstLineTitle(body);
+  return { remoteId, title, url: base, hint: "Halo", content: asMarkdown(title === "未命名笔记" ? remoteId : title, body) };
+}
+
+async function listGhost(site: GhostSite): Promise<RemotePost[]> {
+  const base = siteBase(site.site);
+  const token = await ghostAdminToken(site.adminKey);
+  const response = await platformFetch(`${base}/ghost/api/admin/posts/?limit=30`, {
+    headers: { Authorization: `Ghost ${token}`, Accept: "application/json" },
+  });
+  if (!response.ok) throw httpError("Ghost", response.status, await errorText(response));
+  const data = (await response.json()) as { posts?: { id?: string; title?: string; url?: string; status?: string }[] };
+  return (data.posts ?? [])
+    .map((post) => ({
+      remoteId: post.id || "",
+      title: post.title || "未命名",
+      url: post.url || base,
+      hint: post.status === "draft" ? "草稿" : "Ghost",
+    }))
+    .filter((post) => post.remoteId);
+}
+
+async function readGhost(site: GhostSite, remoteId: string): Promise<RemotePostFile> {
+  const base = siteBase(site.site);
+  const token = await ghostAdminToken(site.adminKey);
+  const response = await platformFetch(
+    `${base}/ghost/api/admin/posts/${encodeURIComponent(remoteId)}/?formats=html`,
+    { headers: { Authorization: `Ghost ${token}`, Accept: "application/json" } },
+  );
+  if (!response.ok) throw httpError("Ghost", response.status, await errorText(response));
+  const data = (await response.json()) as { posts?: { id?: string; title?: string; url?: string; html?: string }[] };
+  const post = data.posts?.[0];
+  if (!post) throw new Error("Ghost 没有这篇文章");
+  const title = post.title || "未命名";
+  return {
+    remoteId: post.id || remoteId,
+    title,
+    url: post.url || base,
+    hint: "Ghost",
+    content: asMarkdown(title, htmlToMarkdown(post.html || "")),
+  };
+}
+
+async function listYuque(site: YuqueSite): Promise<RemotePost[]> {
+  const { login, book } = yuqueParts(site.repo);
+  const response = await platformFetch(
+    `https://www.yuque.com/api/v2/repos/${encodeURIComponent(login)}/${encodeURIComponent(book)}/docs`,
+    { headers: { "X-Auth-Token": site.token.trim(), Accept: "application/json" } },
+  );
+  if (!response.ok) throw httpError("语雀", response.status, await errorText(response));
+  const data = (await response.json()) as { data?: { id?: number; title?: string; slug?: string }[] };
+  return (data.data ?? [])
+    .map((doc) => ({
+      remoteId: doc.id != null ? String(doc.id) : "",
+      title: doc.title || "未命名",
+      url: `https://www.yuque.com/${login}/${book}/${doc.slug || ""}`,
+      hint: "语雀",
+    }))
+    .filter((doc) => doc.remoteId);
+}
+
+async function readYuque(site: YuqueSite, remoteId: string): Promise<RemotePostFile> {
+  const { login, book } = yuqueParts(site.repo);
+  const response = await platformFetch(
+    `https://www.yuque.com/api/v2/repos/${encodeURIComponent(login)}/${encodeURIComponent(book)}/docs/${encodeURIComponent(remoteId)}`,
+    { headers: { "X-Auth-Token": site.token.trim(), Accept: "application/json" } },
+  );
+  if (!response.ok) throw httpError("语雀", response.status, await errorText(response));
+  const data = (await response.json()) as { data?: { id?: number; title?: string; slug?: string; body?: string } };
+  const doc = data.data;
+  if (!doc) throw new Error("语雀没有这篇文章");
+  const title = doc.title || "未命名";
+  return {
+    remoteId: doc.id != null ? String(doc.id) : remoteId,
+    title,
+    url: `https://www.yuque.com/${login}/${book}/${doc.slug || ""}`,
+    hint: "语雀",
+    content: asMarkdown(title, doc.body || ""),
+  };
 }

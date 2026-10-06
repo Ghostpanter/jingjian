@@ -1,6 +1,6 @@
-import katex from "katex";
 import { escapeHtml } from "./escape-html.ts";
-import { firstLineTitle } from "./format.ts";
+import { bodyAfterFrontMatter, firstLineTitle, noteAliases } from "./format.ts";
+import { titleIndex } from "./wiki-links.ts";
 import type { Note } from "./types.ts";
 
 export type MathSlot = { id: string; display: boolean; tex: string };
@@ -108,9 +108,25 @@ export function extractMath(source: string): { source: string; slots: MathSlot[]
   return { source: next, slots };
 }
 
-export function renderMathSlot(slot: MathSlot): string {
+type KatexModule = typeof import("katex");
+let katexMod: KatexModule | null = null;
+
+export function katexReady(): boolean {
+  return katexMod != null;
+}
+
+export async function ensureKatex(): Promise<void> {
+  if (katexMod) return;
+  katexMod = await import("katex");
+}
+
+function katexHtml(slot: MathSlot): string {
+  if (!katexMod) {
+    const shown = slot.display ? `$$${slot.tex}$$` : `$${slot.tex}$`;
+    return `<span class="math-pending" data-display="${slot.display ? "1" : "0"}">${escapeHtml(shown)}</span>`;
+  }
   try {
-    const html = katex.renderToString(slot.tex, {
+    const html = katexMod.renderToString(slot.tex, {
       displayMode: slot.display,
       throwOnError: false,
       output: "html",
@@ -118,6 +134,24 @@ export function renderMathSlot(slot: MathSlot): string {
     return slot.display ? `<div class="math-block">${html}</div>` : html;
   } catch {
     return escapeHtml(slot.display ? `$$${slot.tex}$$` : `$${slot.tex}$`);
+  }
+}
+
+export function renderMathSlot(slot: MathSlot): string {
+  return katexHtml(slot);
+}
+
+export function upgradeMath(root: ParentNode): void {
+  if (!katexMod) return;
+  for (const node of root.querySelectorAll(".math-pending")) {
+    const shown = (node.textContent ?? "").trim();
+    const display = node.getAttribute("data-display") === "1";
+    const tex = display ? shown.replace(/^\$\$/, "").replace(/\$\$$/, "") : shown.replace(/^\$/, "").replace(/\$$/, "");
+    const html = katexHtml({ id: "", display, tex });
+    const doc = node.ownerDocument ?? document;
+    const wrap = doc.createElement("span");
+    wrap.innerHTML = html;
+    node.replaceWith(...wrap.childNodes);
   }
 }
 
@@ -131,11 +165,39 @@ export function restoreMath(html: string, slots: MathSlot[]): string {
 
 export function expandWikiLinks(source: string): string {
   return mapProse(source, (chunk) =>
-    chunk.replace(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_all, target: string, alias?: string) => {
+    chunk.replace(/(?<!!)\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_all, target: string, alias?: string) => {
       const title = target.trim();
       if (!title) return _all;
       const label = (alias ?? title).trim() || title;
       return `[${label}](jingjian-wiki://${encodeURIComponent(title)})`;
+    }),
+  );
+}
+
+const EMBED = /!\[\[([^\]|#]+?)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
+
+/** Inline `![[笔记]]` as a quote. Nested embeds become ordinary links. */
+export function expandNoteEmbeds(
+  source: string,
+  notes: { id: string; content: string }[],
+): string {
+  if (!source.includes("![[")) return source;
+  const index = titleIndex(notes);
+  const byId = new Map(notes.map((note) => [note.id, note.content]));
+  return mapProse(source, (chunk) =>
+    chunk.replace(EMBED, (all, raw: string) => {
+      const title = String(raw).trim();
+      if (!title) return all;
+      const id = index.get(title.toLowerCase());
+      if (!id) return `「没有 ${title}」`;
+      const body = bodyAfterFrontMatter(byId.get(id) ?? "")
+        .trim()
+        .replace(EMBED, (_match, inner: string) => `[[${String(inner).trim()}]]`);
+      const quoted = (body || title)
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      return `\n\n> **${title}**\n>\n${quoted}\n\n`;
     }),
   );
 }
@@ -214,9 +276,11 @@ export function findNoteByTitle(notes: Note[], title: string): Note | null {
   if (!key) return null;
   const exact = notes.find((note) => firstLineTitle(note.content).toLowerCase() === key);
   if (exact) return exact;
-  return (
-    notes.find((note) => firstLineTitle(note.content).toLowerCase().includes(key)) ?? null
+  const alias = notes.find((note) =>
+    noteAliases(note.content).some((item) => item.trim().toLowerCase() === key),
   );
+  if (alias) return alias;
+  return notes.find((note) => firstLineTitle(note.content).toLowerCase().includes(key)) ?? null;
 }
 
 const CALLOUT_TITLE: Record<string, string> = {

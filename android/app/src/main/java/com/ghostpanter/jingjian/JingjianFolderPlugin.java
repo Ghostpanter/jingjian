@@ -20,6 +20,9 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+import com.getcapacitor.PermissionState;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -32,7 +35,12 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
-@CapacitorPlugin(name = "JingjianFolder")
+@CapacitorPlugin(
+    name = "JingjianFolder",
+    permissions = {
+        @Permission(strings = { "android.permission.ACCESS_LOCAL_NETWORK" }, alias = "localNetwork")
+    }
+)
 public class JingjianFolderPlugin extends Plugin {
     private static final String PREFS = "jingjian_folder";
     private static final String KEY_URI = "tree_uri";
@@ -858,5 +866,29 @@ public class JingjianFolderPlugin extends Plugin {
             in.close();
         }
         return out.toByteArray();
+    }
+
+    @PluginMethod
+    public void requestLocalNetwork(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 37) {
+            JSObject granted = new JSObject();
+            granted.put("granted", true);
+            call.resolve(granted);
+            return;
+        }
+        if (getPermissionState("localNetwork") == PermissionState.GRANTED) {
+            JSObject granted = new JSObject();
+            granted.put("granted", true);
+            call.resolve(granted);
+            return;
+        }
+        requestPermissionForAlias("localNetwork", call, "localNetworkCallback");
+    }
+
+    @PermissionCallback
+    private void localNetworkCallback(PluginCall call) {
+        JSObject granted = new JSObject();
+        granted.put("granted", getPermissionState("localNetwork") == PermissionState.GRANTED);
+        call.resolve(granted);
     }
 }

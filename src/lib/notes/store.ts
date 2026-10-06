@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
   isBlankContent,
   isLargeNote,
+  markOpened,
   matchesQuery,
   NOTE_HEAD_SCAN,
   titleFromContent,
@@ -215,7 +216,10 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       ),
     });
   },
-  selectNote: (id) => set({ activeId: id, sidebarOpen: false }),
+  selectNote: (id) => {
+    markOpened(id);
+    set({ activeId: id, sidebarOpen: false });
+  },
   setQuery: (query) => set({ query }),
   setPreviewMode: (previewMode) => set({ previewMode }),
   cyclePreviewMode: () => {

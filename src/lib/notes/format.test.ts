@@ -3,12 +3,14 @@ import { test } from "node:test";
 import {
   compareNotes,
   countChars,
+  editorSlice,
   firstLineTitle,
   formatCharCount,
   isBlankContent,
   isLargeNote,
   LARGE_NOTE_CHARS,
   matchesQuery,
+  noteAliases,
   previewWindow,
   snippetFromContent,
   groupNotes,
@@ -83,6 +85,16 @@ test("compareNotes sorts by updated, created, or title", () => {
   assert.ok(compareNotes(a, b, "created") > 0);
   assert.notEqual(compareNotes(a, b, "title"), 0);
   assert.equal(compareNotes(a, b, "title"), -compareNotes(b, a, "title"));
+  assert.ok(compareNotes(a, b, "opened", { a: 1, b: 5 }) > 0);
+});
+
+test("aliases and editor slices stay on line boundaries", () => {
+  const content = "---\naliases:\n  - 窗边\n---\n# 标题\n";
+  assert.deepEqual(noteAliases(content), ["窗边"]);
+  const text = "甲乙丙丁\n戊己庚辛";
+  const slice = editorSlice(text, 0, 4);
+  assert.equal(slice.start, 0);
+  assert.equal(text[slice.end] === "\n" || slice.end === text.length, true);
 });
 
 test("books group by bookId and stay collapsed until opened", () => {

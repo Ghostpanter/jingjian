@@ -36,7 +36,17 @@ import { exportNotes, type ExportFormat } from "@/lib/notes/export";
 import { isCancelled } from "@/lib/notes/export-save";
 import { notesFromEpub } from "@/lib/notes/epub";
 import { decodeEbookBytes, parseEbook, parseTxtEbook, titleFromFilename } from "@/lib/notes/ebook-parse";
-import { formatCharCount, isLargeNote, readNoteSort, titleFromContent, writeNoteSort, type NoteSort } from "@/lib/notes/format";
+import {
+  firstLineTitle,
+  formatCharCount,
+  isLargeNote,
+  readNoteSort,
+  readStars,
+  titleFromContent,
+  toggleStar,
+  writeNoteSort,
+  type NoteSort,
+} from "@/lib/notes/format";
 import { foldersFromImportPaths, isImportableNoteName, isUnderFolder, notesInFolder, relativeDir } from "@/lib/notes/folder-tree";
 import { exportFolderArchive } from "@/lib/notes/export-folder";
 import { pickImportFolder, isImportCancelled, type ImportFolderFile } from "@/lib/notes/import-folder";
@@ -109,10 +119,21 @@ import {
   saveNoteAs,
   saveNoteToLibrary,
 } from "@/lib/notes/library-fs";
-import { BLOG_FOLDER, isBlogConfigured, readBlogConfig, rememberPublished } from "@/lib/notes/blog-config";
-import { publishPlan, readPlatformPrefs, writePlatformPrefs, type PlatformId } from "@/lib/notes/blog-platforms";
-import { publishPlatforms } from "@/lib/notes/blog-platform-publish";
-import { blogNoteId, localIdForBlogPost, type BlogPostFile } from "@/lib/notes/blog-publish";
+import { BLOG_FOLDER, readBlogConfig, rememberPublished } from "@/lib/notes/blog-config";
+import {
+  BLOG_PLATFORM_IDS,
+  gitReady,
+  noteIdForTarget,
+  platformEnabled,
+  platformReady,
+  publishPlan,
+  readPlatformPrefs,
+  rememberTarget,
+  writePlatformPrefs,
+  type PlatformId,
+} from "@/lib/notes/blog-platforms";
+import { publishPlatforms, type RemotePostFile } from "@/lib/notes/blog-platform-publish";
+import { blogNoteId, localDateStamp, localIdForBlogPost, type BlogPostFile } from "@/lib/notes/blog-publish";
 import type { Note, PreviewMode } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -645,7 +666,14 @@ export function NoteApp() {
         ...result.failed.map((item) => `${item.label}：${item.message}`),
       ];
       toast.message(parts.join("；") || "没有发布");
-      if (result.ok.length) setPublishOpen(false);
+      if (result.failed.length === 0) {
+        setPublishOpen(false);
+      } else {
+        const failedIds = ids.filter((id) => !result.ok.some((item) => item.id === id));
+        setPublishIds(failedIds.length ? failedIds : ids);
+        setPublishPick(failedIds);
+        setPublishOpen(true);
+      }
     } catch (error) {
       toast.message(error instanceof Error ? error.message : "发布失败");
     } finally {
@@ -686,8 +714,13 @@ export function NoteApp() {
   }
 
   function openBlogPosts() {
-    if (!isBlogConfigured()) {
-      toast.message("先在设置里填写博客仓库");
+    const prefs = readPlatformPrefs();
+    const config = readBlogConfig();
+    const ready = BLOG_PLATFORM_IDS.some(
+      (id) => platformEnabled(prefs, id, gitReady(config)) && platformReady(prefs, id, config),
+    );
+    if (!ready) {
+      toast.message("先在设置里打开一个博客平台");
       setSettingsTab("blog");
       setSettingsOpen(true);
       return;
@@ -717,6 +750,45 @@ export function NoteApp() {
     setPreviewMode("edit");
     void saveNoteToLibrary(note).catch(() => undefined);
     toast.message(previous ? "已用仓库覆盖，改完可用纸飞机发回去" : "已拉进本地，改完可用纸飞机发回去");
+  }
+
+  async function handlePullRemote(file: RemotePostFile & { platform: Exclude<PlatformId, "git"> }) {
+    const state = useNotesStore.getState();
+    const existingId = noteIdForTarget(file.platform, file.remoteId);
+    const id = existingId || `remote-${file.platform}-${file.remoteId}`;
+    const previous = state.notes.find((item) => item.id === id);
+    const folder = previous?.folder || BLOG_FOLDER;
+    const now = Date.now();
+    const note: Note = {
+      id,
+      content: file.content.replace(/^\uFEFF/, ""),
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+      folder,
+    };
+    createFolder(folder);
+    await ensureFolderOnDisk(folder).catch(() => undefined);
+    importNotes([note]);
+    rememberTarget(id, file.platform, file.remoteId, file.url);
+    setActiveFolder(folder);
+    setPreviewMode("edit");
+    void saveNoteToLibrary(note).catch(() => undefined);
+    toast.message(previous ? "已用站点覆盖，改完可用纸飞机发回去" : "已拉进本地，改完可用纸飞机发回去");
+  }
+
+  function openToday() {
+    const stamp = localDateStamp();
+    const state = useNotesStore.getState();
+    const found = state.notes.find(
+      (note) => !note.bookId && firstLineTitle(note.content) === stamp,
+    );
+    if (found) {
+      setActiveFolder(found.folder ?? "");
+      selectNote(found.id);
+      setPreviewMode(state.previewMode === "preview" ? "edit" : state.previewMode);
+      return;
+    }
+    handleCreate("md", activeFolder, templateById("daily")?.content() ?? `# ${stamp}\n\n`);
   }
 
   function handleMoveNote(id: string, folder: string | null) {
@@ -1666,6 +1738,7 @@ export function NoteApp() {
             setNoteSort(next);
             writeNoteSort(next);
           }}
+          onOpenToday={openToday}
           onMoveNote={handleMoveNote}
           onNoteMenu={(note) => setItemMenu({ kind: "note", note })}
           onFolderMenu={(path) => setItemMenu({ kind: "folder", path })}
@@ -1930,6 +2003,7 @@ export function NoteApp() {
               {activeNote ? (
                 <PreviewPane
                   content={activeNote.content}
+                  notes={rawNotes}
                   format={activeNote.format}
                   centered={previewMode !== "split"}
                   focusMode={focusMode}
@@ -2025,6 +2099,7 @@ export function NoteApp() {
                   ...(itemMenu.note.folder
                     ? [{ id: "unfile", label: "移到根目录" }]
                     : []),
+                  { id: "star", label: readStars().has(itemMenu.note.id) ? "取消星标" : "星标" },
                   { id: "delete", label: "删除笔记", destructive: true },
                 ]
               : []
@@ -2044,6 +2119,11 @@ export function NoteApp() {
           }
           if (itemMenu.kind === "note" && id === "unfile") {
             handleMoveNote(itemMenu.note.id, null);
+            return;
+          }
+          if (itemMenu.kind === "note" && id === "star") {
+            const on = toggleStar(itemMenu.note.id);
+            toast.message(on ? "已加星标" : "已取消星标");
             return;
           }
           if (itemMenu.kind === "note" && id === "delete") {
@@ -2108,6 +2188,7 @@ export function NoteApp() {
           selectNote(id);
         }}
         onPull={handlePullBlogPost}
+        onPullRemote={handlePullRemote}
       />
       <ConflictDialog
         conflict={conflicts[0] ?? null}

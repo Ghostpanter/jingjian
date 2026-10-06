@@ -1,6 +1,7 @@
 import { cssVarsFromPalette, paletteFor, readThemeConfig } from "./theme";
 import { firstLineTitle } from "./markdown-file";
 import { renderMarkdown } from "./markdown";
+import { ensureKatex } from "./markdown-extra";
 import { escapeHtml } from "./escape-html";
 import { getImage } from "./image-store";
 import {
@@ -103,6 +104,12 @@ export async function exportNotes(options: {
   const theme = readThemeConfig();
   const palette = paletteFor(theme);
   const markdown = await embedLocalImages(options.note.content);
+  if (
+    markdown.includes("$") ||
+    options.notes.some((item) => item.content.includes("$") || item.content.includes("![["))
+  ) {
+    await ensureKatex();
+  }
 
   if (options.format === "html" || options.format === "html-plain") {
     const body = articleHtml(options.note, markdown);

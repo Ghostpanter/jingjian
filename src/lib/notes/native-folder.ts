@@ -45,6 +45,7 @@ type NativeFolderPlugin = {
   consumeLaunchFile(): Promise<LaunchFile>;
   readOpenUri(options: { uri: string; name?: string }): Promise<OpenUriFile>;
   setChrome(options: { bg: string; dark: boolean }): Promise<void>;
+  requestLocalNetwork(): Promise<{ granted: boolean }>;
   addListener(
     event: "openFile",
     callback: (data: LaunchFile) => void,
@@ -58,3 +59,13 @@ export function isNativeApp(): boolean {
 }
 
 export const nativeFolder = plugin;
+
+export async function requestLocalNetwork(): Promise<boolean> {
+  if (!isNativeApp()) return true;
+  try {
+    const result = await plugin.requestLocalNetwork();
+    return Boolean(result?.granted);
+  } catch {
+    return false;
+  }
+}

@@ -11,6 +11,7 @@ import {
   type PrintScope,
 } from "@/lib/notes/print-doc";
 import { preparePrintRoot, printPreparedRoot } from "@/lib/notes/print-job";
+import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { cn } from "@/lib/utils";
 
 type PrintDialogProps = {
@@ -63,6 +64,13 @@ export function PrintDialog({
     if (!host || !prepared) return;
     const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
     shadow.innerHTML = printPreviewMarkup(prepared.article);
+    if (shadow.innerHTML.includes("math-pending")) {
+      void import("katex/dist/katex.min.css");
+      void ensureKatex().then(() => {
+        const sheet = shadow.querySelector(".print-sheet");
+        if (sheet) upgradeMath(sheet);
+      });
+    }
     const root = shadow.querySelector(".print-sheet");
     if (!(root instanceof HTMLElement)) return;
     const fit = () => {

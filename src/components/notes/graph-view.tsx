@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { layoutGraph, linkGraph, type GraphPoint } from "@/lib/notes/link-graph";
+import { GRAPH_PAGE, layoutGraph, linkGraph, type GraphPoint } from "@/lib/notes/link-graph";
 
 type GraphViewProps = {
   notes: { id: string; content: string }[];
@@ -21,18 +21,67 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
   const frameRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, k: 1 });
+  const [page, setPage] = useState(GRAPH_PAGE);
+  const [laidOut, setLaidOut] = useState<GraphPoint[]>([]);
+  const [layingOut, setLayingOut] = useState(false);
   const pointers = useRef(
     new Map<number, { x: number; y: number; ox: number; oy: number; nodeId: string | null }>(),
   );
   const pinch = useRef<{ dist: number; k: number } | null>(null);
   const moved = useRef(false);
 
-  const graph = useMemo(() => linkGraph(notes), [notes]);
+  const graph = useMemo(() => linkGraph(notes, page), [notes, page]);
+  const syncLayout = graph.nodes.length > 0 && graph.nodes.length <= 48;
   const points = useMemo(() => {
-    if (size.width < 40 || graph.nodes.length === 0) return [] as GraphPoint[];
+    if (!syncLayout || size.width < 40) return [] as GraphPoint[];
     return layoutGraph(graph.nodes, graph.links, size.width, size.height);
-  }, [graph, size.width, size.height]);
-  const at = useMemo(() => new Map(points.map((point) => [point.id, point])), [points]);
+  }, [graph, size.width, size.height, syncLayout]);
+  const shown = syncLayout ? points : laidOut;
+  const at = useMemo(() => new Map(shown.map((point) => [point.id, point])), [shown]);
+
+  useEffect(() => {
+    if (syncLayout || size.width < 40 || graph.nodes.length === 0) {
+      setLaidOut([]);
+      setLayingOut(false);
+      return;
+    }
+    const requestId = Date.now();
+    let worker: Worker | null = null;
+    let cancelled = false;
+    setLayingOut(true);
+    const finish = (next: GraphPoint[]) => {
+      if (cancelled) return;
+      setLaidOut(next);
+      setLayingOut(false);
+    };
+    try {
+      worker = new Worker(new URL("../../lib/notes/graph-layout.worker.ts", import.meta.url), {
+        type: "module",
+      });
+      worker.onmessage = (event: MessageEvent<{ requestId: number; points: GraphPoint[] }>) => {
+        if (event.data.requestId !== requestId) return;
+        finish(event.data.points);
+        worker?.terminate();
+      };
+      worker.onerror = () => {
+        finish(layoutGraph(graph.nodes, graph.links, size.width, size.height));
+        worker?.terminate();
+      };
+      worker.postMessage({
+        requestId,
+        nodes: graph.nodes.map((node) => ({ id: node.id })),
+        links: graph.links,
+        width: size.width,
+        height: size.height,
+      });
+    } catch {
+      finish(layoutGraph(graph.nodes, graph.links, size.width, size.height));
+    }
+    return () => {
+      cancelled = true;
+      worker?.terminate();
+    };
+  }, [graph, size.width, size.height, syncLayout]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -149,7 +198,11 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
           <div className="text-[11px] text-muted">
             {graph.nodes.length === 0
               ? "还没有连起来的笔记"
-              : `${graph.nodes.length} 篇 · ${graph.links.length} 条双链`}
+              : layingOut
+                ? "正在排版…"
+                : graph.truncated
+                  ? `${graph.nodes.length} / ${graph.total} 篇 · ${graph.links.length} 条双链`
+                  : `${graph.nodes.length} 篇 · ${graph.links.length} 条双链`}
           </div>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label="关闭关系图" onClick={onClose}>
@@ -204,7 +257,18 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
           </svg>
         )}
       </div>
-      <p className="graph-hint">拖动空白处移动，双指缩放。点一篇打开。</p>
+      <p className="graph-hint flex flex-wrap items-center justify-center gap-2">
+        <span>拖动空白处移动，双指缩放。点一篇打开。</span>
+        {graph.truncated ? (
+          <button
+            type="button"
+            className="btn-press rounded-md bg-overlay px-2 py-1 text-fg"
+            onClick={() => setPage((current) => (current >= graph.total ? current : current + GRAPH_PAGE))}
+          >
+            继续展开
+          </button>
+        ) : null}
+      </p>
     </div>
   );
 }

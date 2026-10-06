@@ -116,10 +116,16 @@ export function foldersFromImportPaths(relativePaths: string[]): string[] {
   return collectFolders([], extra);
 }
 
+export type TreeOrder = {
+  opened?: Record<string, number>;
+  stars?: ReadonlySet<string>;
+};
+
 export function buildFileTree(
   notes: Note[],
   extraFolders: string[] = [],
   sort: NoteSort = "updated",
+  order: TreeOrder = {},
 ): TreeNode[] {
   const folders = collectFolders(notes, extraFolders);
   const folderNodes = new Map<string, FolderNode>();
@@ -146,7 +152,12 @@ export function buildFileTree(
 
   const loose = notes
     .filter((note) => !note.bookId)
-    .sort((a, b) => compareNotes(a, b, sort));
+    .sort((a, b) => {
+      const starA = order.stars?.has(a.id) ? 1 : 0;
+      const starB = order.stars?.has(b.id) ? 1 : 0;
+      if (starA !== starB) return starB - starA;
+      return compareNotes(a, b, sort, order.opened);
+    });
 
   for (const note of loose) {
     const folder = normalizeFolder(note.folder ?? "");

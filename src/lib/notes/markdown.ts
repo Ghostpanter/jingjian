@@ -2,6 +2,7 @@ import { Marked } from "marked";
 import { escapeHtml } from "./escape-html.ts";
 import { displayLang, highlightCode } from "./highlight.ts";
 import {
+  expandNoteEmbeds,
   expandWikiLinks,
   extractFootnotes,
   extractMath,
@@ -116,10 +117,14 @@ export function sanitizeHref(href: string | null | undefined): string | null {
   return null;
 }
 
-export function renderMarkdown(source: string): string {
+export function renderMarkdown(
+  source: string,
+  library?: { id: string; content: string }[],
+): string {
   headingSeen.clear();
   taskIndex = 0;
-  const math = extractMath(source || "");
+  const prepared = library?.length ? expandNoteEmbeds(source || "", library) : source || "";
+  const math = extractMath(prepared);
   const wiki = expandWikiLinks(math.source);
   const footnotes = extractFootnotes(wiki);
   const html = marked.parse(footnotes.source || "", { async: false }) as string;

@@ -17,6 +17,20 @@ test("graph keeps resolved wiki links and drops code, self links, and missing no
   assert.equal(graph.nodes.find((node) => node.id === "a")?.title, "甲");
 });
 
+test("aliases connect notes and the page cap can grow", () => {
+  const notes = [
+    { id: "a", content: "---\naliases: [甲乙]\n---\n# 甲\n" },
+    { id: "b", content: "# 乙\n\n[[甲乙]]" },
+  ];
+  const graph = linkGraph(notes, 1);
+  assert.equal(graph.total, 2);
+  assert.equal(graph.truncated, true);
+  assert.equal(graph.nodes.length, 1);
+  const full = linkGraph(notes, Number.POSITIVE_INFINITY);
+  assert.equal(full.truncated, false);
+  assert.equal(full.links.length, 1);
+});
+
 test("layout stays inside the canvas and pulls linked notes together", () => {
   const points = layoutGraph(
     [{ id: "a" }, { id: "b" }],

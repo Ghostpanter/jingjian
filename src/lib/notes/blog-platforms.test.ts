@@ -54,7 +54,7 @@ test("empty defaults ask at publish time, checked defaults go out together", () 
     defaultsSet: true,
     defaults: [],
     gitEnabled: false,
-    wordpress: { enabled: true, site: "https://blog.example.com", username: "me", password: "app", status: "publish" },
+    wordpress: { enabled: true, site: "https://blog.example.com", username: "me", password: "app", status: "publish", category: "", tags: "", cover: "" },
   };
   assert.equal(platformReady(prefs, "wordpress", { token: "", repo: "" }), true);
   assert.deepEqual(publishPlan(prefs, { token: "", repo: "" }), { mode: "choose", ids: ["wordpress"] });

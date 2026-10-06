@@ -20,6 +20,9 @@ export type WordPressSite = {
   username: string;
   password: string;
   status: "publish" | "draft";
+  category: string;
+  tags: string;
+  cover: string;
 };
 
 export type TypechoSite = {
@@ -28,6 +31,9 @@ export type TypechoSite = {
   username: string;
   password: string;
   publish: boolean;
+  category: string;
+  tags: string;
+  cover: string;
 };
 
 export type HaloSite = {
@@ -35,6 +41,9 @@ export type HaloSite = {
   site: string;
   token: string;
   publish: boolean;
+  category: string;
+  tags: string;
+  cover: string;
 };
 
 export type GhostSite = {
@@ -42,6 +51,9 @@ export type GhostSite = {
   site: string;
   adminKey: string;
   status: "published" | "draft";
+  category: string;
+  tags: string;
+  cover: string;
 };
 
 export type YuqueSite = {
@@ -49,6 +61,9 @@ export type YuqueSite = {
   token: string;
   repo: string;
   public: boolean;
+  category: string;
+  tags: string;
+  cover: string;
 };
 
 export type PlatformPrefs = {
@@ -74,6 +89,9 @@ export const EMPTY_WORDPRESS: WordPressSite = {
   username: "",
   password: "",
   status: "publish",
+  category: "",
+  tags: "",
+  cover: "",
 };
 
 export const EMPTY_TYPECHO: TypechoSite = {
@@ -82,6 +100,9 @@ export const EMPTY_TYPECHO: TypechoSite = {
   username: "",
   password: "",
   publish: true,
+  category: "",
+  tags: "",
+  cover: "",
 };
 
 export const EMPTY_HALO: HaloSite = {
@@ -89,6 +110,9 @@ export const EMPTY_HALO: HaloSite = {
   site: "",
   token: "",
   publish: true,
+  category: "",
+  tags: "",
+  cover: "",
 };
 
 export const EMPTY_GHOST: GhostSite = {
@@ -96,6 +120,9 @@ export const EMPTY_GHOST: GhostSite = {
   site: "",
   adminKey: "",
   status: "published",
+  category: "",
+  tags: "",
+  cover: "",
 };
 
 export const EMPTY_YUQUE: YuqueSite = {
@@ -103,6 +130,9 @@ export const EMPTY_YUQUE: YuqueSite = {
   token: "",
   repo: "",
   public: true,
+  category: "",
+  tags: "",
+  cover: "",
 };
 
 function emptyPrefs(): PlatformPrefs {
@@ -193,6 +223,9 @@ export function normalizePlatformPrefs(value: unknown): PlatformPrefs {
       username: str(wordpress?.username),
       password: str(wordpress?.password),
       status: wordpress?.status === "draft" ? "draft" : "publish",
+      category: str(wordpress?.category),
+      tags: str(wordpress?.tags),
+      cover: str(wordpress?.cover),
     },
     typecho: {
       enabled: flag(typecho?.enabled, false),
@@ -200,24 +233,36 @@ export function normalizePlatformPrefs(value: unknown): PlatformPrefs {
       username: str(typecho?.username),
       password: str(typecho?.password),
       publish: flag(typecho?.publish, true),
+      category: str(typecho?.category),
+      tags: str(typecho?.tags),
+      cover: str(typecho?.cover),
     },
     halo: {
       enabled: flag(halo?.enabled, false),
       site: str(halo?.site),
       token: str(halo?.token),
       publish: flag(halo?.publish, true),
+      category: str(halo?.category),
+      tags: str(halo?.tags),
+      cover: str(halo?.cover),
     },
     ghost: {
       enabled: flag(ghost?.enabled, false),
       site: str(ghost?.site),
       adminKey: str(ghost?.adminKey),
       status: ghost?.status === "draft" ? "draft" : "published",
+      category: str(ghost?.category),
+      tags: str(ghost?.tags),
+      cover: str(ghost?.cover),
     },
     yuque: {
       enabled: flag(yuque?.enabled, false),
       token: str(yuque?.token),
       repo: str(yuque?.repo),
       public: flag(yuque?.public, true),
+      category: str(yuque?.category),
+      tags: str(yuque?.tags),
+      cover: str(yuque?.cover),
     },
   };
 }
@@ -323,6 +368,32 @@ export function xmlRpcFault(xml: string): string | null {
   return decodeXml(match?.[1]?.trim() || "站点拒绝了这次发布");
 }
 
+export function metaList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function xmlRpcStructs(xml: string): Record<string, string>[] {
+  const structs: Record<string, string>[] = [];
+  const structRe = /<struct>([\s\S]*?)<\/struct>/g;
+  let match: RegExpExecArray | null;
+  while ((match = structRe.exec(xml))) {
+    const record: Record<string, string> = {};
+    const memberRe = /<name>([\s\S]*?)<\/name>\s*<value>([\s\S]*?)<\/value>/g;
+    let member: RegExpExecArray | null;
+    while ((member = memberRe.exec(match[1]))) {
+      const name = decodeXml(member[1].trim());
+      const inner = member[2].replace(/<\/?(?:string|int|i4|boolean|double|dateTime\.iso8601|base64)>/g, "");
+      record[name] = decodeXml(inner.trim());
+    }
+    if (Object.keys(record).length) structs.push(record);
+  }
+  return structs;
+}
+
 export function xmlRpcString(xml: string): string | null {
   const match = /<string>([\s\S]*?)<\/string>/.exec(xml);
   return match ? decodeXml(match[1].trim()) : null;
@@ -394,6 +465,15 @@ export function targetFor(noteId: string, platform: PlatformId): TargetRecord | 
   const record = readTargetMap()[noteId]?.[platform];
   if (!record || typeof record.remoteId !== "string" || !record.remoteId) return null;
   return record;
+}
+
+export function noteIdForTarget(platform: PlatformId, remoteId: string): string | null {
+  if (!remoteId) return null;
+  const map = readTargetMap();
+  for (const [noteId, record] of Object.entries(map)) {
+    if (record?.[platform]?.remoteId === remoteId) return noteId;
+  }
+  return null;
 }
 
 export function rememberTarget(noteId: string, platform: PlatformId, remoteId: string, url: string) {

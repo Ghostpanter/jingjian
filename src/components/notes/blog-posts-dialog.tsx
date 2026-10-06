@@ -11,6 +11,22 @@ import {
   type BlogPostFile,
   type BlogPostItem,
 } from "@/lib/notes/blog-publish";
+import {
+  listRemotePosts,
+  readRemotePost,
+  type RemotePost,
+  type RemotePostFile,
+} from "@/lib/notes/blog-platform-publish";
+import {
+  BLOG_PLATFORMS,
+  gitReady,
+  noteIdForTarget,
+  platformEnabled,
+  platformLabel,
+  platformReady,
+  readPlatformPrefs,
+  type PlatformId,
+} from "@/lib/notes/blog-platforms";
 import { bodyAfterFrontMatter } from "@/lib/notes/format";
 
 type BlogPostsDialogProps = {
@@ -19,6 +35,7 @@ type BlogPostsDialogProps = {
   localIdForPath: (path: string) => string | null;
   onOpenLocal: (id: string) => void;
   onPull: (file: BlogPostFile, existingId: string | null) => void | Promise<void>;
+  onPullRemote?: (file: RemotePostFile & { platform: Exclude<PlatformId, "git"> }) => void | Promise<void>;
 };
 
 function relativePostPath(path: string, postsDir: string): string {
@@ -35,8 +52,12 @@ export function BlogPostsDialog({
   localIdForPath,
   onOpenLocal,
   onPull,
+  onPullRemote,
 }: BlogPostsDialogProps) {
+  const [platform, setPlatform] = useState<PlatformId>("git");
+  const [ready, setReady] = useState<PlatformId[]>([]);
   const [posts, setPosts] = useState<BlogPostItem[]>([]);
+  const [remote, setRemote] = useState<RemotePost[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [reading, setReading] = useState(false);
@@ -44,31 +65,49 @@ export function BlogPostsDialog({
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<BlogPostItem | null>(null);
   const [file, setFile] = useState<BlogPostFile | null>(null);
+  const [remoteFile, setRemoteFile] = useState<(RemotePostFile & { platform: Exclude<PlatformId, "git"> }) | null>(null);
   const [postsDir, setPostsDir] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const prefs = readPlatformPrefs();
+    const config = readBlogConfig();
+    const ids = BLOG_PLATFORMS.map((item) => item.id).filter(
+      (id) => platformEnabled(prefs, id, gitReady(config)) && platformReady(prefs, id, config),
+    );
+    setReady(ids);
+    setPlatform((current) => (ids.includes(current) ? current : ids[0] ?? "git"));
+    setPostsDir(config.postsDir.trim());
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setSelected(null);
     setFile(null);
+    setRemoteFile(null);
     setError("");
+    setPosts([]);
+    setRemote([]);
+    const prefs = readPlatformPrefs();
     const config = readBlogConfig();
-    setPostsDir(config.postsDir.trim());
-    if (!isBlogConfigured(config)) {
-      setPosts([]);
+    if (platform === "git" && !isBlogConfigured(config)) {
       setError("先在设置里填写博客仓库");
       return;
     }
     let cancelled = false;
     setLoading(true);
-    void listBlogPosts(config)
-      .then((items) => {
-        if (cancelled) return;
-        setPosts(items);
-      })
+    const task =
+      platform === "git"
+        ? listBlogPosts(config).then((items) => {
+            if (!cancelled) setPosts(items);
+          })
+        : listRemotePosts(platform, prefs).then((items) => {
+            if (!cancelled) setRemote(items);
+          });
+    void task
       .catch((caught) => {
         if (cancelled) return;
-        setPosts([]);
         setError(caught instanceof Error ? caught.message : "无法列出文章");
       })
       .finally(() => {
@@ -77,29 +116,36 @@ export function BlogPostsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, platform]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    if (platform !== "git") {
+      if (!needle) return remote;
+      return remote.filter((item) => item.title.toLowerCase().includes(needle) || item.url.toLowerCase().includes(needle));
+    }
     if (!needle) return posts;
     return posts.filter((item) => {
       const title = titleFromPostName(item.path).toLowerCase();
       return title.includes(needle) || item.path.toLowerCase().includes(needle);
     });
-  }, [posts, query]);
+  }, [platform, posts, remote, query]);
 
   if (!open) return null;
 
-  const localId = selected ? localIdForPath(selected.path) : null;
-  const title = file
-    ? titleFromPostContent(file.content, titleFromPostName(file.path))
-    : selected
-      ? titleFromPostName(selected.path)
-      : "";
+  const localId = selected ? localIdForPath(selected.path) : remoteFile ? noteIdForTarget(remoteFile.platform, remoteFile.remoteId) : null;
+  const title = remoteFile
+    ? remoteFile.title
+    : file
+      ? titleFromPostContent(file.content, titleFromPostName(file.path))
+      : selected
+        ? titleFromPostName(selected.path)
+        : "";
 
   async function openPost(item: BlogPostItem) {
     setSelected(item);
     setFile(null);
+    setRemoteFile(null);
     setError("");
     setReading(true);
     try {
@@ -112,12 +158,31 @@ export function BlogPostsDialog({
     }
   }
 
+  async function openRemote(item: RemotePost) {
+    if (platform === "git") return;
+    setSelected(null);
+    setFile(null);
+    setRemoteFile(null);
+    setError("");
+    setReading(true);
+    try {
+      const next = await readRemotePost(platform, readPlatformPrefs(), item.remoteId);
+      setRemoteFile({ ...next, platform });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法打开文章");
+    } finally {
+      setReading(false);
+    }
+  }
+
   async function pull(existingId: string | null) {
-    if (!file || pulling) return;
+    if (pulling) return;
+    if (!file && !remoteFile) return;
     setPulling(true);
     setError("");
     try {
-      await onPull(file, existingId);
+      if (remoteFile) await onPullRemote?.(remoteFile);
+      else if (file) await onPull(file, existingId);
       onOpenChange(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法拉进本地");
@@ -140,13 +205,14 @@ export function BlogPostsDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-2">
-          {selected ? (
+          {selected || remoteFile ? (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
                 setSelected(null);
                 setFile(null);
+                setRemoteFile(null);
                 setError("");
               }}
             >
@@ -154,7 +220,7 @@ export function BlogPostsDialog({
             </Button>
           ) : null}
           <h2 id="blog-posts-title" className="min-w-0 flex-1 truncate font-serif text-lg font-medium">
-            {selected ? title : "仓库文章"}
+            {selected ? title : remoteFile ? title : "已发文章"}
           </h2>
         </div>
 
@@ -162,19 +228,38 @@ export function BlogPostsDialog({
           <p className="mt-1 truncate text-xs text-muted">
             {relativePostPath(selected.path, postsDir)}
           </p>
+        ) : remoteFile ? (
+          <p className="mt-1 truncate text-xs text-muted">{remoteFile.url}</p>
+        ) : ready.length > 1 ? (
+          <div className="mt-3 flex gap-1 overflow-x-auto">
+            {ready.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={
+                  id === platform
+                    ? "btn-press shrink-0 rounded-md bg-paper px-2 py-1 text-xs text-fg shadow-border"
+                    : "btn-press shrink-0 rounded-md px-2 py-1 text-xs text-muted"
+                }
+                onClick={() => setPlatform(id)}
+              >
+                {platformLabel(id)}
+              </button>
+            ))}
+          </div>
         ) : null}
 
         {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
 
-        {selected ? (
+        {selected || remoteFile || (reading && !selected) ? (
           <>
             <div className="mt-3 min-h-64 flex-1 overflow-hidden rounded-md bg-paper shadow-border">
-              {reading && !file ? (
+              {reading && !file && !remoteFile ? (
                 <p className="px-4 py-10 text-center text-sm text-muted">正在打开…</p>
-              ) : file ? (
+              ) : file || remoteFile ? (
                 <PreviewPane
                   previewId="blog-post-preview"
-                  content={bodyAfterFrontMatter(file.content)}
+                  content={bodyAfterFrontMatter(file?.content || remoteFile?.content || "")}
                 />
               ) : null}
             </div>
@@ -183,7 +268,7 @@ export function BlogPostsDialog({
                 <>
                   <Button
                     variant="subtle"
-                    disabled={pulling || !file}
+                    disabled={pulling || (!file && !remoteFile)}
                     onClick={() => {
                       onOpenLocal(localId);
                       onOpenChange(false);
@@ -191,12 +276,12 @@ export function BlogPostsDialog({
                   >
                     打开本地
                   </Button>
-                  <Button disabled={pulling || !file} onClick={() => void pull(localId)}>
+                  <Button disabled={pulling || (!file && !remoteFile)} onClick={() => void pull(localId)}>
                     {pulling ? "正在覆盖…" : "用仓库覆盖"}
                   </Button>
                 </>
               ) : (
-                <Button disabled={pulling || !file} onClick={() => void pull(null)}>
+                <Button disabled={pulling || (!file && !remoteFile)} onClick={() => void pull(null)}>
                   {pulling ? "正在拉取…" : "拉进本地"}
                 </Button>
               )}
@@ -207,7 +292,7 @@ export function BlogPostsDialog({
           </>
         ) : (
           <>
-            {posts.length >= 8 ? (
+            {(platform === "git" ? posts.length : remote.length) >= 8 ? (
               <div className="mt-3">
                 <Input
                   type="search"
@@ -226,8 +311,15 @@ export function BlogPostsDialog({
                 <li className="py-6 text-center text-sm text-muted">
                   {query.trim() ? "没有匹配的文章" : error ? "" : "文章目录是空的"}
                 </li>
-              ) : (
-                filtered.map((item) => {
+              ) : platform === "git" ? (
+                posts
+                  .filter((item) => {
+                    const needle = query.trim().toLowerCase();
+                    if (!needle) return true;
+                    const title = titleFromPostName(item.path).toLowerCase();
+                    return title.includes(needle) || item.path.toLowerCase().includes(needle);
+                  })
+                  .map((item) => {
                   const local = localIdForPath(item.path);
                   return (
                     <li key={item.path} className="border-b border-border last:border-0">
@@ -240,15 +332,38 @@ export function BlogPostsDialog({
                           {titleFromPostName(item.path)}
                         </span>
                         <span className="w-full truncate text-xs text-muted">
-                          {local
-                            ? "已在本地 · "
-                            : ""}
+                          {local ? "已在本地 · " : ""}
                           {relativePostPath(item.path, postsDir)}
                         </span>
                       </button>
                     </li>
                   );
                 })
+              ) : (
+                remote
+                  .filter((item) => {
+                    const needle = query.trim().toLowerCase();
+                    if (!needle) return true;
+                    return item.title.toLowerCase().includes(needle) || item.url.toLowerCase().includes(needle);
+                  })
+                  .map((item) => {
+                    const local = noteIdForTarget(platform, item.remoteId);
+                    return (
+                      <li key={item.remoteId} className="border-b border-border last:border-0">
+                        <button
+                          type="button"
+                          className="btn-press flex min-h-11 w-full flex-col items-start py-2 text-left"
+                          onClick={() => void openRemote(item)}
+                        >
+                          <span className="w-full truncate font-serif text-sm">{item.title}</span>
+                          <span className="w-full truncate text-xs text-muted">
+                            {local ? "已在本地 · " : ""}
+                            {item.hint}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })
               )}
             </ul>
             <div className="mt-4 flex justify-end gap-2">

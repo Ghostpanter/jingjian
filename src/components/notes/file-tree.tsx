@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, Star } from "lucide-react";
 import { snippetFromContent, titleFromContent } from "@/lib/notes/format";
 import type { TreeNode } from "@/lib/notes/folder-tree";
 import type { Note } from "@/lib/notes/types";
@@ -32,6 +32,8 @@ type FileTreeProps = {
   onMoveNote: (id: string, folder: string | null) => void;
   onNoteMenu: (note: Note) => void;
   onFolderMenu: (path: string) => void;
+  starred?: ReadonlySet<string>;
+  onToggleStar?: (id: string) => void;
 };
 
 export function FileTree({
@@ -50,6 +52,8 @@ export function FileTree({
   onMoveNote,
   onNoteMenu,
   onFolderMenu,
+  starred,
+  onToggleStar,
 }: FileTreeProps) {
   const [localDrag, setLocalDrag] = useState<DragState | null>(null);
   const dragState = depth === 0 ? (drag ?? localDrag) : drag;
@@ -101,6 +105,8 @@ export function FileTree({
               onMoveNote={onMoveNote}
               onNoteMenu={onNoteMenu}
               onFolderMenu={onFolderMenu}
+              starred={starred}
+              onToggleStar={onToggleStar}
             />
           ) : (
             <NoteRow
@@ -114,6 +120,8 @@ export function FileTree({
               onSelect={onSelect}
               onMoveNote={onMoveNote}
               onNoteMenu={onNoteMenu}
+              starred={starred?.has(node.note.id) ?? false}
+              onToggleStar={onToggleStar}
             />
           ),
         )}
@@ -158,6 +166,8 @@ function FolderRow({
   onMoveNote,
   onNoteMenu,
   onFolderMenu,
+  starred,
+  onToggleStar,
 }: {
   node: Extract<TreeNode, { kind: "folder" }>;
   activeId: string | null;
@@ -174,6 +184,8 @@ function FolderRow({
   onMoveNote: (id: string, folder: string | null) => void;
   onNoteMenu: (note: Note) => void;
   onFolderMenu: (path: string) => void;
+  starred?: ReadonlySet<string>;
+  onToggleStar?: (id: string) => void;
 }) {
   const open = expanded.has(node.path);
   const selected = activeFolder === node.path;
@@ -288,6 +300,8 @@ function FolderRow({
           onMoveNote={onMoveNote}
           onNoteMenu={onNoteMenu}
           onFolderMenu={onFolderMenu}
+          starred={starred}
+          onToggleStar={onToggleStar}
         />
       ) : null}
     </li>
@@ -304,6 +318,8 @@ function NoteRow({
   onSelect,
   onMoveNote,
   onNoteMenu,
+  starred = false,
+  onToggleStar,
 }: {
   note: Note;
   selected: boolean;
@@ -314,6 +330,8 @@ function NoteRow({
   onSelect: (id: string) => void;
   onMoveNote: (id: string, folder: string | null) => void;
   onNoteMenu: (note: Note) => void;
+  starred?: boolean;
+  onToggleStar?: (id: string) => void;
 }) {
   const press = useRef<{
     timer: number;
@@ -391,7 +409,7 @@ function NoteRow({
   }
 
   return (
-    <li role="none">
+    <li role="none" className="flex items-stretch">
       <button
         type="button"
         role="option"
@@ -480,7 +498,7 @@ function NoteRow({
         }}
         style={{ paddingLeft: 16 + depth * 12 }}
         className={cn(
-          "note-item btn-press flex w-full items-center rounded-md py-1 pr-2 text-left select-none",
+          "note-item btn-press flex min-w-0 flex-1 items-center rounded-md py-1 pr-1 text-left select-none",
           showSnippets ? "flex-col items-start" : "min-h-0",
           "transition-colors duration-(--motion-quick) ease-(--ease-out)",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
@@ -502,6 +520,20 @@ function NoteRow({
           </span>
         ) : null}
       </button>
+      {onToggleStar ? (
+        <button
+          type="button"
+          aria-label={starred ? "取消星标" : "星标"}
+          aria-pressed={starred}
+          className={cn(
+            "btn-press my-0.5 mr-1 flex size-8 shrink-0 items-center justify-center rounded-md",
+            starred ? "text-fg" : "text-subtle",
+          )}
+          onClick={() => onToggleStar(note.id)}
+        >
+          <Star className={cn("size-3.5", starred && "fill-current")} />
+        </button>
+      ) : null}
     </li>
   );
 }

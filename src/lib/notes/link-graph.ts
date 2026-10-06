@@ -1,21 +1,27 @@
 import { firstLineTitle } from "./format.ts";
-import { wikiHits } from "./wiki-links.ts";
+import { titleIndex, wikiHits } from "./wiki-links.ts";
 
 export type GraphNode = { id: string; title: string; degree: number };
 export type GraphLink = { source: string; target: string };
-export type LinkGraph = { nodes: GraphNode[]; links: GraphLink[] };
+export type LinkGraph = {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  truncated: boolean;
+  total: number;
+};
 export type GraphPoint = { id: string; x: number; y: number };
 
-const MAX_NODES = 160;
+export const GRAPH_PAGE = 160;
 
-export function linkGraph(notes: { id: string; content: string }[]): LinkGraph {
+export function linkGraph(
+  notes: { id: string; content: string }[],
+  maxNodes = GRAPH_PAGE,
+): LinkGraph {
   const titleOf = new Map<string, string>();
-  const idByTitle = new Map<string, string>();
+  const idByTitle = titleIndex(notes);
   for (const note of notes) {
     const title = firstLineTitle(note.content).trim();
     titleOf.set(note.id, title || "未命名笔记");
-    const key = title.toLowerCase();
-    if (key && key !== "未命名笔记" && !idByTitle.has(key)) idByTitle.set(key, note.id);
   }
 
   const degree = new Map<string, number>();
@@ -36,12 +42,12 @@ export function linkGraph(notes: { id: string; content: string }[]): LinkGraph {
     }
   }
 
-  let ids = [...degree.keys()];
-  if (ids.length > MAX_NODES) {
-    ids = ids
-      .sort((a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a.localeCompare(b))
-      .slice(0, MAX_NODES);
-  }
+  const ranked = [...degree.keys()].sort(
+    (a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a.localeCompare(b),
+  );
+  const total = ranked.length;
+  const cap = Number.isFinite(maxNodes) ? Math.max(0, maxNodes) : total;
+  const ids = ranked.slice(0, cap);
   const keep = new Set(ids);
   return {
     nodes: ids.map((id) => ({
@@ -50,6 +56,8 @@ export function linkGraph(notes: { id: string; content: string }[]): LinkGraph {
       degree: degree.get(id) ?? 0,
     })),
     links: links.filter((link) => keep.has(link.source) && keep.has(link.target)),
+    truncated: ids.length < total,
+    total,
   };
 }
 

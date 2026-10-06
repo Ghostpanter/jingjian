@@ -3,9 +3,11 @@ import { test } from "node:test";
 import { renderMarkdown } from "./markdown.ts";
 import {
   countTasks,
+  ensureKatex,
   extractFootnotes,
   extractMath,
   findNoteByTitle,
+  katexReady,
   parseCalloutOpen,
   toggleTaskAt,
 } from "./markdown-extra.ts";
@@ -29,15 +31,28 @@ test("math and wiki stay literal inside inline code", () => {
   assert.match(html, /<code>\[\[跳过\]\]<\/code>/);
 });
 
-test("renders katex and callouts and footnotes", () => {
-  const html = renderMarkdown(
-    "公式 $E=mc^2$\n\n> [!warning] 小心\n> 别删库\n\n见脚注[^1]\n\n[^1]: 说明文字\n",
-  );
+test("renders math, callouts and footnotes", async () => {
+  const source = "公式 $E=mc^2$\n\n> [!warning] 小心\n> 别删库\n\n见脚注[^1]\n\n[^1]: 说明文字\n";
+  const first = renderMarkdown(source);
+  if (!katexReady()) {
+    assert.match(first, /math-pending/);
+    assert.doesNotMatch(first, /class="katex/);
+  }
+  assert.match(first, /callout-warning/);
+  assert.match(first, /小心/);
+  assert.match(first, /fn-ref/);
+  assert.match(first, /说明文字/);
+  await ensureKatex();
+  const html = renderMarkdown(source);
   assert.match(html, /katex/);
-  assert.match(html, /callout-warning/);
-  assert.match(html, /小心/);
-  assert.match(html, /fn-ref/);
-  assert.match(html, /说明文字/);
+});
+
+test("embeds another note instead of an image", () => {
+  const html = renderMarkdown("见 ![[乙]]\n", [
+    { id: "b", content: "# 乙\n\n嵌进来的句子" },
+  ]);
+  assert.match(html, /嵌进来的句子/);
+  assert.doesNotMatch(html, /<img/);
 });
 
 test("wiki links and task checkboxes", () => {

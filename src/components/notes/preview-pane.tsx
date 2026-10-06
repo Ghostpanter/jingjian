@@ -1,15 +1,16 @@
 import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isBlankContent, previewWindow } from "@/lib/notes/format";
+import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
 import type { NoteFormat } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
-import "katex/dist/katex.min.css";
 
 type PreviewPaneProps = {
   content: string;
+  notes?: { id: string; content: string }[];
   format?: NoteFormat;
   centered?: boolean;
   focusMode?: boolean;
@@ -25,6 +26,7 @@ type PreviewPaneProps = {
 
 export function PreviewPane({
   content,
+  notes,
   format = "md",
   centered = true,
   focusMode = false,
@@ -39,8 +41,8 @@ export function PreviewPane({
 }: PreviewPaneProps) {
   const windowed = useMemo(() => previewWindow(content), [content]);
   const html = useMemo(
-    () => (format === "txt" ? "" : renderMarkdown(windowed.text)),
-    [windowed.text, format],
+    () => (format === "txt" ? "" : renderMarkdown(windowed.text, notes)),
+    [windowed.text, format, notes],
   );
   const empty = isBlankContent(content);
   const articleRef = useRef<HTMLElement>(null);
@@ -55,6 +57,13 @@ export function PreviewPane({
   useLayoutEffect(() => {
     const root = articleRef.current;
     if (!root || format === "txt") return;
+    let cancelled = false;
+    if (root.querySelector(".math-pending")) {
+      void import("katex/dist/katex.min.css");
+      void ensureKatex().then(() => {
+        if (!cancelled && articleRef.current) upgradeMath(articleRef.current);
+      });
+    }
     void renderMermaidBlocks(root, { palette: paletteFor(readThemeConfig()) });
     void resolvePreviewImages(root);
     if (typeof speakIndex === "number") {
@@ -62,6 +71,9 @@ export function PreviewPane({
         node.classList.toggle("is-speaking", index === speakIndex);
       });
     }
+    return () => {
+      cancelled = true;
+    };
   });
 
   useLayoutEffect(() => {
