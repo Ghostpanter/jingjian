@@ -333,6 +333,7 @@ export function NoteApp() {
   const createNote = useNotesStore((state) => state.createNote);
   const deleteNote = useNotesStore((state) => state.deleteNote);
   const updateNote = useNotesStore((state) => state.updateNote);
+  const removeTag = useNotesStore((state) => state.removeTag);
   const selectNote = useNotesStore((state) => state.selectNote);
   const setQuery = useNotesStore((state) => state.setQuery);
   const setPreviewMode = useNotesStore((state) => state.setPreviewMode);
@@ -1746,6 +1747,10 @@ export function NoteApp() {
           onReadBook={(id) => {
             selectNote(id);
             setReaderOpen(true);
+          }}
+          onRemoveTag={(key, label) => {
+            const count = removeTag(key);
+            toast.message(count ? `已去掉 #${label}` : "没有笔记带着这个标签");
           }}
           syncLabel={
             syncConfig.provider === "off"

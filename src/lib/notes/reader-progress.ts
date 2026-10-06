@@ -33,6 +33,31 @@ export function chapterProgress(notes: Note[]): { current: number; total: number
   return { current: Math.max(1, index + 1), total };
 }
 
+/** Chapters past this count fold into ranges so a long book does not flood the list. */
+export const CHAPTER_FOLD = 40;
+
+export type ChapterSpan<T> = {
+  start: number;
+  label: string;
+  notes: T[];
+};
+
+export function foldChapters<T>(notes: T[], size = CHAPTER_FOLD): ChapterSpan<T>[] | null {
+  if (notes.length <= size) return null;
+  const spans: ChapterSpan<T>[] = [];
+  for (let start = 0; start < notes.length; start += size) {
+    const slice = notes.slice(start, start + size);
+    const from = start + 1;
+    const to = start + slice.length;
+    spans.push({
+      start,
+      label: from === to ? `第${from}章` : `第${from}–${to}章`,
+      notes: slice,
+    });
+  }
+  return spans;
+}
+
 export function withLatestProgress(base: Note, a: Note, b: Note): Note {
   const src = (a.readAt ?? 0) >= (b.readAt ?? 0) ? a : b;
   if (!src.readAt) return base;

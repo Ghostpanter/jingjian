@@ -19,7 +19,7 @@ import {
   type NoteSort,
 } from "@/lib/notes/format";
 import type { OutlineHeading } from "@/lib/notes/outline";
-import { chapterProgress, lastReadChapter } from "@/lib/notes/reader-progress";
+import { chapterProgress, CHAPTER_FOLD, foldChapters, lastReadChapter } from "@/lib/notes/reader-progress";
 import { noteLinks, unlinkedMentions } from "@/lib/notes/wiki-links";
 import { libraryTags, tagMatches } from "@/lib/notes/tags";
 import type { Note } from "@/lib/notes/types";
@@ -143,6 +143,7 @@ type SidebarProps = {
   onSortChange: (sort: NoteSort) => void;
   onOpenToday?: () => void;
   onReadBook?: (noteId: string) => void;
+  onRemoveTag?: (key: string, label: string) => void;
   syncLabel: string;
 };
 
@@ -182,6 +183,7 @@ export function Sidebar({
   onSortChange,
   onOpenToday,
   onReadBook,
+  onRemoveTag,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
@@ -196,6 +198,8 @@ export function Sidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(() => readFlag(TAGS_SECTION_KEY, false));
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagPending, setTagPending] = useState<string | null>(null);
+  const [openSpans, setOpenSpans] = useState<Set<string>>(() => new Set());
   const [stars, setStars] = useState<Set<string>>(() => new Set());
   const [opened, setOpened] = useState<Record<string, number>>({});
   const tree = useMemo(
@@ -289,6 +293,20 @@ export function Sidebar({
     if (!activeTag) return;
     if (!tagIndex.tags.some((tag) => tag.key === activeTag)) setActiveTag(null);
   }, [activeTag, tagIndex]);
+
+  useEffect(() => {
+    const note = notes.find((item) => item.id === activeId);
+    if (!note?.bookId) return;
+    const siblings = notes
+      .filter((item) => item.bookId === note.bookId)
+      .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0));
+    if (siblings.length <= CHAPTER_FOLD) return;
+    const index = siblings.findIndex((item) => item.id === note.id);
+    if (index < 0) return;
+    const start = Math.floor(index / CHAPTER_FOLD) * CHAPTER_FOLD;
+    const id = `${note.bookId}:${start}`;
+    setOpenSpans((current) => (current.has(id) ? current : new Set(current).add(id)));
+  }, [activeId, notes]);
 
   function closeCreate() {
     setCreateOpen(false);
@@ -797,24 +815,61 @@ export function Sidebar({
                       {tagIndex.tags.slice(0, 80).map((tag) => {
                         const selected = tag.key === activeTag;
                         const depth = tag.key.split("/").length - 1;
+                        const short = tag.label.split("/").pop() ?? tag.label;
                         return (
                           <li key={tag.key}>
-                            <button
-                              type="button"
-                              aria-pressed={selected}
-                              title={`#${tag.label}`}
-                              onClick={() => setActiveTag((current) => (current === tag.key ? null : tag.key))}
-                              className={cn(
-                                "note-item btn-press flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-sm",
-                                selected ? "bg-paper shadow-border" : "hover:bg-overlay",
-                              )}
-                              style={{ paddingLeft: 8 + depth * 12 }}
-                            >
-                              <span className="min-w-0 flex-1 truncate text-fg">
-                                #{tag.label.split("/").pop()}
-                              </span>
-                              <span className="shrink-0 tabular-nums text-xs text-subtle">{tag.count}</span>
-                            </button>
+                            {tagPending === tag.key ? (
+                              <div className="px-2 py-1.5" style={{ paddingLeft: 8 + depth * 12 }}>
+                                <p className="text-xs leading-5 text-muted">去掉 #{tag.label}？笔记里的这个标签会一起删掉。</p>
+                                <div className="mt-1 flex gap-2">
+                                  <button
+                                    type="button"
+                                    className="btn-press rounded-md bg-paper px-2 py-1 text-xs text-fg"
+                                    onClick={() => {
+                                      onRemoveTag?.(tag.key, tag.label);
+                                      setTagPending(null);
+                                      if (activeTag === tag.key) setActiveTag(null);
+                                    }}
+                                  >
+                                    去掉
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-press rounded-md px-2 py-1 text-xs text-muted"
+                                    onClick={() => setTagPending(null)}
+                                  >
+                                    取消
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center">
+                                <button
+                                  type="button"
+                                  aria-pressed={selected}
+                                  title={`#${tag.label}`}
+                                  onClick={() => setActiveTag((current) => (current === tag.key ? null : tag.key))}
+                                  className={cn(
+                                    "note-item btn-press flex min-w-0 flex-1 items-center gap-1 rounded-md py-1 text-left text-sm",
+                                    selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+                                  )}
+                                  style={{ paddingLeft: 8 + depth * 12 }}
+                                >
+                                  <span className="min-w-0 flex-1 truncate text-fg">#{short}</span>
+                                  <span className="shrink-0 tabular-nums text-xs text-subtle">{tag.count}</span>
+                                </button>
+                                {onRemoveTag ? (
+                                  <button
+                                    type="button"
+                                    aria-label={`删除标签 #${tag.label}`}
+                                    className="btn-press mr-1 shrink-0 rounded-md px-1.5 py-1 text-xs text-subtle hover:text-fg"
+                                    onClick={() => setTagPending(tag.key)}
+                                  >
+                                    删除
+                                  </button>
+                                ) : null}
+                              </div>
+                            )}
                           </li>
                         );
                       })}
@@ -886,49 +941,116 @@ export function Sidebar({
                   const resume = lastReadChapter(group.notes) ?? group.notes[0];
                   const open = openBooks.has(bookId);
                   const bookActive = group.notes.some((note) => note.id === activeId);
+                  const spans = foldChapters(group.notes);
                   return (
                     <div key={bookId} className="mb-px">
                       <div
                         className={cn(
-                          "note-item flex w-full items-center gap-0 rounded-md py-0 pr-1 text-left",
-                          bookActive ? "bg-overlay" : "hover:bg-overlay",
+                          "sticky top-0 z-10 bg-surface",
+                          bookActive ? "bg-overlay" : "",
                         )}
                       >
-                        <button
-                          type="button"
-                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-subtle hover:text-fg"
-                          aria-label={open ? `折叠 ${group.label}` : `展开 ${group.label}`}
-                          aria-expanded={open}
-                          onClick={() => toggleBook(bookId)}
-                        >
-                          <ChevronRight
-                            className={cn("size-3.5 transition-transform", open && "rotate-90")}
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          className="flex min-w-0 flex-1 items-center gap-1.5 py-1"
-                          onClick={() => toggleBook(bookId)}
-                        >
-                          <BookOpen className="size-3.5 shrink-0 text-muted" />
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
-                            {group.label}
-                          </span>
+                        <div className="flex items-center pr-1">
+                          <button
+                            type="button"
+                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm text-subtle hover:text-fg"
+                            aria-label={open ? `折叠 ${group.label}` : `展开 ${group.label}`}
+                            aria-expanded={open}
+                            onClick={() => toggleBook(bookId)}
+                          >
+                            <ChevronRight
+                              className={cn("size-3.5 transition-transform", open && "rotate-90")}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
+                            onClick={() => toggleBook(bookId)}
+                          >
+                            <BookOpen className="size-3.5 shrink-0 text-muted" />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                              {group.label}
+                            </span>
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 pr-1 pb-1 pl-7">
                           <span className="shrink-0 tabular-nums text-xs text-subtle">
                             {progress.current}/{progress.total}
                           </span>
-                        </button>
-                        {onReadBook && resume ? (
-                          <button
-                            type="button"
-                            className="btn-press shrink-0 rounded-sm px-1.5 py-1 text-xs text-muted hover:text-fg"
-                            onClick={() => onReadBook(resume.id)}
-                          >
-                            阅读
-                          </button>
-                        ) : null}
+                          {onReadBook && resume ? (
+                            <button
+                              type="button"
+                              className="btn-press shrink-0 rounded-sm px-1.5 py-0.5 text-xs text-muted hover:text-fg"
+                              onClick={() => onReadBook(resume.id)}
+                            >
+                              阅读
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                       {open ? (
+                        spans ? (
+                          <div>
+                            {spans.map((span) => {
+                              const spanId = `${bookId}:${span.start}`;
+                              const spanOpen = openSpans.has(spanId);
+                              return (
+                                <div key={spanId}>
+                                  <button
+                                    type="button"
+                                    className="note-item flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-sm text-muted hover:bg-overlay"
+                                    style={{ paddingLeft: 18 }}
+                                    aria-expanded={spanOpen}
+                                    aria-label={spanOpen ? `折叠 ${span.label}` : `展开 ${span.label}`}
+                                    onClick={() =>
+                                      setOpenSpans((current) => toggleOpenId(current, spanId))
+                                    }
+                                  >
+                                    <ChevronRight
+                                      className={cn(
+                                        "size-3.5 shrink-0 transition-transform",
+                                        spanOpen && "rotate-90",
+                                      )}
+                                    />
+                                    <span>{span.label}</span>
+                                  </button>
+                                  {spanOpen ? (
+                                    <ul role="listbox" aria-label={span.label}>
+                                      {span.notes.map((note, index) => {
+                                        const selected = note.id === activeId;
+                                        const number = span.start + index + 1;
+                                        return (
+                                          <li key={note.id} role="none">
+                                            <button
+                                              type="button"
+                                              role="option"
+                                              aria-selected={selected}
+                                              onClick={() => selectAndExpand(note.id)}
+                                              className={cn(
+                                                "note-item btn-press flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm",
+                                                "transition-colors duration-(--motion-quick) ease-(--ease-out)",
+                                                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                                                selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+                                              )}
+                                              style={{ paddingLeft: 28 }}
+                                            >
+                                              <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">
+                                                {number}
+                                              </span>
+                                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                                                {titleFromContent(note.content)}
+                                              </span>
+                                            </button>
+                                          </li>
+                                        );
+                                      })}
+                                    </ul>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
                         <ul role="listbox" aria-label={group.label}>
                           {group.notes.map((note, index) => {
                             const selected = note.id === activeId;
@@ -947,7 +1069,7 @@ export function Sidebar({
                                   )}
                                   style={{ paddingLeft: 18 }}
                                 >
-                                  <span className="w-4 shrink-0 text-xs tabular-nums text-subtle">
+                                  <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">
                                     {index + 1}
                                   </span>
                                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
@@ -958,6 +1080,7 @@ export function Sidebar({
                             );
                           })}
                         </ul>
+                        )
                       ) : null}
                     </div>
                   );

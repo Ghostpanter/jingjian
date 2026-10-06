@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { libraryTags, tagMatches, tagsInContent } from "./tags.ts";
+import { libraryTags, stripTag, tagMatches, tagsInContent } from "./tags.ts";
 
 test("inline tags skip headings, code, urls, and bare numbers", () => {
   const tags = tagsInContent(
@@ -25,4 +25,19 @@ test("library counts notes and a parent tag includes children", () => {
   assert.equal(tagMatches(index.keysByNote.get("b") ?? [], "写作"), true);
   assert.equal(tagMatches(index.keysByNote.get("a") ?? [], "写作"), false);
   assert.equal(tagMatches(index.keysByNote.get("c") ?? [], "读书"), false);
+});
+
+test("stripTag removes that tag from prose and front matter", () => {
+  const source = "---\ntags:\n  - 读书\n  - 旅行\n---\n\n见 #读书 与 `#读书`\n```\n#读书\n```\n还有 #读书";
+  const next = stripTag(source, "读书");
+  assert.match(next, /见 与 `#读书`/);
+  assert.match(next, /```\n#读书\n```/);
+  assert.match(next, /- 旅行/);
+  assert.doesNotMatch(next, /- 读书/);
+  assert.doesNotMatch(next, /还有 #读书/);
+  assert.equal(stripTag("见 #写作 和 #写作/草稿", "写作"), "见 和 #写作/草稿");
+  assert.equal(stripTag("---\ntags: [读书, 旅行]\n---\n\n正文", "读书"), "---\ntags: [旅行]\n---\n正文");
+  assert.equal(stripTag("---\ntags: [读书]\n---\n\n正文 #读书", "读书"), "正文");
+  const kept = "见 #旅行";
+  assert.equal(stripTag(kept, "读书"), kept);
 });

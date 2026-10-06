@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   chapterProgress,
   excerptNoteContent,
+  foldChapters,
   lastReadChapter,
   withLatestProgress,
 } from "./reader-progress.ts";
@@ -23,6 +24,16 @@ test("last read chapter prefers the newest readAt", () => {
   ];
   assert.equal(lastReadChapter(chapters)?.id, "b");
   assert.deepEqual(chapterProgress(chapters), { current: 2, total: 3 });
+});
+
+test("long books fold into chapter ranges and short books stay flat", () => {
+  assert.equal(foldChapters([1, 2, 3]), null);
+  const spans = foldChapters(Array.from({ length: 41 }, (_, index) => index));
+  assert.equal(spans?.length, 2);
+  assert.equal(spans?.[0]?.label, "第1–40章");
+  assert.equal(spans?.[0]?.notes.length, 40);
+  assert.equal(spans?.[1]?.label, "第41章");
+  assert.deepEqual(spans?.[1]?.notes, [40]);
 });
 
 test("progress merge keeps the later read position without touching content", () => {

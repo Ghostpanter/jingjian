@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { EditorPane } from "@/components/notes/editor-pane";
 import { PreviewPane } from "@/components/notes/preview-pane";
 import { titleFromContent } from "@/lib/notes/format";
-import { writeReaderSession } from "@/lib/notes/reader-progress";
+import { foldChapters, writeReaderSession } from "@/lib/notes/reader-progress";
 import {
   createTtsController,
   readTtsPrefs,
@@ -58,6 +58,8 @@ export function ReaderView({
   const nextNote = current ? notes[chapterIndex + 1] : undefined;
   const [editing, setEditing] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
+  const [chaptersOpen, setChaptersOpen] = useState(true);
+  const [openSpans, setOpenSpans] = useState<Set<number>>(() => new Set());
   const [fontScale, setFontScale] = useState(() => {
     if (typeof localStorage === "undefined") return 1;
     const raw = Number(localStorage.getItem(FONT_KEY));
@@ -83,6 +85,15 @@ export function ReaderView({
   onSelectRef.current = onSelect;
   onProgressRef.current = onProgress;
 
+  useEffect(() => {
+    const spans = foldChapters(notes);
+    if (!spans) return;
+    const span = spans.find(
+      (item) => chapterIndex >= item.start && chapterIndex < item.start + item.notes.length,
+    );
+    if (!span) return;
+    setOpenSpans((current) => (current.has(span.start) ? current : new Set(current).add(span.start)));
+  }, [chapterIndex, notes]);
 
   useEffect(() => {
     localStorage.setItem(FONT_KEY, String(fontScale));
@@ -351,31 +362,83 @@ export function ReaderView({
       <div className="relative min-h-0 flex-1">
         {tocOpen ? (
           <nav className="reader-toc" aria-label="章节目录">
-            {notes.map((note, chapterIndex) => {
-              const selected = note.id === current.id;
-              return (
-                <button
-                  key={note.id}
-                  type="button"
-                  onClick={() => {
-                    continueForIdRef.current = null;
-                    onSelect(note.id);
-                    setTocOpen(false);
-                  }}
-                  className={cn(
-                    "btn-press flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left",
-                    selected ? "bg-paper text-fg shadow-border" : "hover:bg-overlay",
-                  )}
-                >
-                  <span className="w-6 shrink-0 text-xs tabular-nums text-subtle">
-                    {chapterIndex + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm">
-                    {titleFromContent(note.content)}
-                  </span>
-                </button>
-              );
-            })}
+            <div className="sticky top-0 z-10 bg-surface pb-1">
+              <button
+                type="button"
+                className="btn-press flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left"
+                aria-expanded={chaptersOpen}
+                aria-label={chaptersOpen ? `折叠 ${bookTitle}` : `展开 ${bookTitle}`}
+                onClick={() => setChaptersOpen((open) => !open)}
+              >
+                <ChevronRight
+                  className={cn("size-4 shrink-0 text-subtle transition-transform", chaptersOpen && "rotate-90")}
+                />
+                <span className="min-w-0 flex-1 truncate font-medium text-fg">{bookTitle}</span>
+                <span className="shrink-0 tabular-nums text-xs text-subtle">
+                  {index + 1}/{notes.length}
+                </span>
+              </button>
+            </div>
+            {chaptersOpen
+              ? (foldChapters(notes) ?? [{ start: 0, label: "", notes }]).map((span) => {
+                  const grouped = Boolean(span.label);
+                  const spanOpen = !grouped || openSpans.has(span.start);
+                  return (
+                    <div key={span.start}>
+                      {grouped ? (
+                        <button
+                          type="button"
+                          className="btn-press flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-muted hover:bg-overlay"
+                          aria-expanded={spanOpen}
+                          aria-label={spanOpen ? `折叠 ${span.label}` : `展开 ${span.label}`}
+                          onClick={() =>
+                            setOpenSpans((current) => {
+                              const next = new Set(current);
+                              if (next.has(span.start)) next.delete(span.start);
+                              else next.add(span.start);
+                              return next;
+                            })
+                          }
+                        >
+                          <ChevronRight
+                            className={cn("size-3.5 shrink-0 transition-transform", spanOpen && "rotate-90")}
+                          />
+                          <span>{span.label}</span>
+                        </button>
+                      ) : null}
+                      {spanOpen
+                        ? span.notes.map((note, offset) => {
+                            const chapterNumber = span.start + offset;
+                            const selected = note.id === current.id;
+                            return (
+                              <button
+                                key={note.id}
+                                type="button"
+                                aria-current={selected ? "true" : undefined}
+                                onClick={() => {
+                                  continueForIdRef.current = null;
+                                  onSelect(note.id);
+                                  setTocOpen(false);
+                                }}
+                                className={cn(
+                                  "btn-press flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left",
+                                  selected ? "bg-paper text-fg shadow-border" : "hover:bg-overlay",
+                                )}
+                              >
+                                <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">
+                                  {chapterNumber + 1}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-sm">
+                                  {titleFromContent(note.content)}
+                                </span>
+                              </button>
+                            );
+                          })
+                        : null}
+                    </div>
+                  );
+                })
+              : null}
             {onAddChapter ? (
               <button
                 type="button"

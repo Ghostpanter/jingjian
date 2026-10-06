@@ -117,3 +117,122 @@ export function libraryTags(notes: { id: string; content: string }[]): TagIndex 
 export function tagMatches(keys: string[], selected: string): boolean {
   return keys.some((key) => key === selected || key.startsWith(`${selected}/`));
 }
+
+function sameTag(raw: string, key: string): boolean {
+  return normalizeTag(raw)?.key === key;
+}
+
+function stripYamlTags(yaml: string, key: string): string {
+  const lines = yaml.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const raw = lines[i];
+    const line = raw.replace(/\r$/, "");
+    const inline = /^(tags|tag)\s*:\s*(.*)$/.exec(line);
+    if (!inline) {
+      out.push(raw);
+      i += 1;
+      continue;
+    }
+    const value = inline[2].trim();
+    if (!value) {
+      const kept: string[] = [];
+      let j = i + 1;
+      while (j < lines.length) {
+        const item = /^\s*-\s*(.+?)\s*$/.exec(lines[j].replace(/\r$/, ""));
+        if (!item) break;
+        if (!sameTag(item[1], key)) kept.push(lines[j]);
+        j += 1;
+      }
+      if (kept.length > 0) {
+        out.push(raw);
+        out.push(...kept);
+      }
+      i = j;
+      continue;
+    }
+    const bracket = value.startsWith("[") && value.endsWith("]");
+    const inner = bracket ? value.slice(1, -1) : value;
+    const parts = inner
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const kept = parts.filter((part) => !sameTag(part, key));
+    if (kept.length === parts.length) {
+      out.push(raw);
+      i += 1;
+      continue;
+    }
+    if (kept.length > 0) {
+      const body = bracket ? `[${kept.join(", ")}]` : kept.join(", ");
+      out.push(`${inline[1]}: ${body}${raw.endsWith("\r") ? "\r" : ""}`);
+    }
+    i += 1;
+  }
+  return out.join("\n");
+}
+
+function stripInlineTags(source: string, key: string): string {
+  let fence: string | null = null;
+  let changed = false;
+  const out = source.split("\n").map((raw) => {
+    const line = raw.replace(/\r$/, "");
+    const cr = raw.endsWith("\r");
+    const trimmed = line.trim();
+    const open = FENCE_LINE.exec(trimmed);
+    if (fence) {
+      if (trimmed.startsWith(fence)) fence = null;
+      return raw;
+    }
+    if (open && trimmed.startsWith(open[1])) {
+      fence = open[1];
+      return raw;
+    }
+    const masked = line.replace(/`[^`]*`/g, (span) => " ".repeat(span.length));
+    TAG_RE.lastIndex = 0;
+    const cuts: { start: number; end: number }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = TAG_RE.exec(masked))) {
+      if (!sameTag(match[2], key)) continue;
+      const hash = match.index + match[1].length;
+      const end = hash + 1 + match[2].length;
+      if (end < line.length && line[end] === " ") cuts.push({ start: hash, end: end + 1 });
+      else if (hash > 0 && line[hash - 1] === " ") cuts.push({ start: hash - 1, end });
+      else cuts.push({ start: hash, end });
+    }
+    if (cuts.length === 0) return raw;
+    changed = true;
+    let next = line;
+    for (let index = cuts.length - 1; index >= 0; index -= 1) {
+      const cut = cuts[index];
+      next = next.slice(0, cut.start) + next.slice(cut.end);
+    }
+    return cr ? `${next}\r` : next;
+  });
+  return changed ? out.join("\n") : source;
+}
+
+/** Remove one tag from front matter and prose. Child tags and code stay. */
+export function stripTag(content: string, rawKey: string): string {
+  const key = normalizeTag(rawKey)?.key;
+  if (!key || !content) return content;
+  if (content.startsWith("---")) {
+    const close = content.indexOf("\n---", 3);
+    if (close >= 0) {
+      const yamlStart = content.indexOf("\n") + 1;
+      const originalYaml = content.slice(yamlStart, close);
+      const nextYaml = stripYamlTags(originalYaml, key);
+      const rest = content.slice(close + 4);
+      if (nextYaml !== originalYaml) {
+        const inlineRest = stripInlineTags(rest.replace(/^\r?\n/, ""), key).replace(/^\n/, "");
+        if (!nextYaml.trim()) return inlineRest.replace(/^\n+/, "");
+        const yamlBody = nextYaml.endsWith("\n") ? nextYaml : `${nextYaml}\n`;
+        return `---\n${yamlBody}---\n${inlineRest}`;
+      }
+      const strippedRest = stripInlineTags(rest, key);
+      return strippedRest === rest ? content : content.slice(0, close + 4) + strippedRest;
+    }
+  }
+  return stripInlineTags(content, key);
+}

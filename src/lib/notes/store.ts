@@ -12,6 +12,7 @@ import { deleteOverflow, getOverflow, putOverflow } from "./overflow";
 import { createSeedNotes } from "./seed";
 import { notesFingerprint, reconcileNotes } from "./sync-merge";
 import { collectFolders, normalizeFolder, remainingAfterDeleteFolder } from "./folder-tree";
+import { stripTag } from "./tags";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -31,6 +32,7 @@ type NotesState = {
   }) => string;
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
+  removeTag: (key: string) => number;
   selectNote: (id: string) => void;
   setQuery: (query: string) => void;
   setPreviewMode: (mode: PreviewMode) => void;
@@ -215,6 +217,30 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
           : note,
       ),
     });
+  },
+  removeTag: (key) => {
+    const now = Date.now();
+    const activeId = get().activeId;
+    let changed = 0;
+    let activeChanged = false;
+    const notes = get().notes.map((note) => {
+      const next = stripTag(note.content, key);
+      if (next === note.content) return note;
+      changed += 1;
+      if (note.id === activeId) activeChanged = true;
+      return {
+        ...note,
+        content: next,
+        updatedAt: now,
+        overflow: isLargeNote(next) ? true : undefined,
+      };
+    });
+    if (!changed) return 0;
+    set({
+      notes,
+      ...(activeChanged ? { editorEpoch: get().editorEpoch + 1 } : {}),
+    });
+    return changed;
   },
   selectNote: (id) => {
     markOpened(id);
