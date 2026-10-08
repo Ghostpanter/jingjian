@@ -150,7 +150,7 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 ## Android
 
-安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.14.apk`。同一安装包支持 armeabi-v7a、arm64-v8a、x86 和 x86_64，可安装在安卓 9 到安卓 17。安卓 17 不会一打开就问本地网络；第一次在设置里保存局域网地址时，会先说明原因，再交给系统询问一次。在卓易通里打开会直接退出。
+安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.13.apk`。同一安装包支持 armeabi-v7a、arm64-v8a、x86 和 x86_64，可安装在安卓 9 到安卓 17。安卓 17 不会一打开就问本地网络；第一次在设置里保存局域网地址时，会先说明原因，再交给系统询问一次。在卓易通里打开会直接退出。
 
 包名 `com.ghostpanter.jingjian`。首次安装需允许「未知来源」。从旧版覆盖安装即可，本地笔记会保留。
 
@@ -160,9 +160,9 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 同一发布页提供桌面压缩包：
 
-- `jingjian-v1.7.14-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
-- `jingjian-v1.7.14-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
-- `jingjian-v1.7.14-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
+- `jingjian-v1.7.13-win-x64.zip`：解压后双击「打开静笺.bat」（不要直接点 `Jingjian.exe`）
+- `jingjian-v1.7.13-mac-x64.zip`：解压后双击「打开静笺.command」。若提示无法打开，按住 Control 再点它，选「打开」。Finder 里对 Markdown / TXT / EPUB / Kindle / FB2 可选「打开方式」
+- `jingjian-v1.7.13-linux-x64.zip`：解压后运行 `./Jingjian`（便携包已处理沙箱，不必改 chrome-sandbox）
 
 电脑版用独立应用协议加载界面，不依赖浏览器。可在资源管理器里对 `.md` / `.txt` / `.epub` / `.mobi` / `.azw3` / `.fb2` 选「打开方式」→ 静笺；也可把文件拖进编辑区。本机目录、对象存储、WebDAV 由应用直连，不必配 CORS。
 
