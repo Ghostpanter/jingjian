@@ -1,4 +1,5 @@
-import { filenameForNote, parseNoteFile, serializeNote } from "./markdown-file";
+import { filenameForNote, parseNoteFile } from "./markdown-file";
+import { serializeNoteWithImages } from "./sync-images";
 import { basicAuth, joinUrl, request } from "./sync-http";
 import type { SyncAdapter, SyncConfig } from "./sync-types";
 import type { Note } from "./types";
@@ -111,7 +112,7 @@ export function createWebdavAdapter(config: SyncConfig): SyncAdapter {
           ...auth(config),
           "Content-Type": "text/markdown; charset=utf-8",
         },
-        body: serializeNote(note),
+        body: await serializeNoteWithImages(note),
       });
       if (!response.ok && response.status !== 201 && response.status !== 204) {
         throw new Error(`上传失败（${response.status}）`);

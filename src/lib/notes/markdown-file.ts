@@ -42,9 +42,11 @@ export function serializeNote(note: Note): string {
     typeof note.starredAt === "number"
       ? `\nstarred: ${note.starred ? "true" : "false"}\nstarredAt: ${note.starredAt}`
       : "";
+  const trashed = typeof note.trashedAt === "number" ? `\ntrashedAt: ${note.trashedAt}` : "";
+  const restored = typeof note.restoredAt === "number" ? `\nrestoredAt: ${note.restoredAt}` : "";
   const format = note.format === "txt" ? "\nformat: txt" : "";
   const folder = note.folder ? `\nfolder: ${JSON.stringify(note.folder)}` : "";
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${read}${opened}${star}${folder}\n---\n${note.content}`;
+  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${read}${opened}${star}${trashed}${restored}${folder}\n---\n${note.content}`;
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
@@ -55,9 +57,11 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     : "";
   const match = source ? source.match(FRONTMATTER) : null;
   if (!match) {
+    const plain = splitImageTrailer(text);
+    rememberSyncedImages(fallbackId, plain.images);
     return {
       id: fallbackId,
-      content: text,
+      content: plain.content,
       createdAt: now,
       updatedAt: now,
     };
@@ -78,13 +82,18 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
   const openedAt = meta.openedAt ? Number(meta.openedAt) : undefined;
   const starredAt = meta.starredAt ? Number(meta.starredAt) : undefined;
   const starred = meta.starred === "true";
+  const trashedAt = meta.trashedAt ? Number(meta.trashedAt) : undefined;
+  const restoredAt = meta.restoredAt ? Number(meta.restoredAt) : undefined;
   const format = meta.format === "txt" ? ("txt" as const) : undefined;
   const folderRaw = meta.folder ? unquote(meta.folder) : "";
+  const id = meta.id || fallbackId;
+  const body = splitImageTrailer(text.slice(match[0].length));
+  rememberSyncedImages(id, body.images);
   return {
-    id: meta.id || fallbackId,
+    id,
     createdAt: Number(meta.createdAt) || Date.now(),
     updatedAt: Number(meta.updatedAt) || Date.now(),
-    content: text.slice(match[0].length),
+    content: body.content,
     ...(format ? { format } : {}),
     ...(bookId ? { bookId, bookTitle, chapterIndex } : {}),
     ...(bookAuthor ? { bookAuthor } : {}),
@@ -97,6 +106,8 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     ...(typeof starredAt === "number" && Number.isFinite(starredAt)
       ? { starred: starred || undefined, starredAt }
       : {}),
+    ...(typeof trashedAt === "number" && Number.isFinite(trashedAt) ? { trashedAt } : {}),
+    ...(typeof restoredAt === "number" && Number.isFinite(restoredAt) ? { restoredAt } : {}),
     ...(folderRaw ? { folder: folderRaw } : {}),
   };
 }
@@ -105,4 +116,42 @@ export function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value,
   );
+}
+
+export type SyncedImagePayload = { id: string; mime: string; base64: string };
+
+const IMAGE_START = "\n%%JINGJIAN-IMAGES%%\n";
+const IMAGE_END = "%%END-JINGJIAN-IMAGES%%";
+const pendingImages = new Map<string, SyncedImagePayload[]>();
+
+export function splitImageTrailer(text: string): { content: string; images: SyncedImagePayload[] } {
+  const start = text.lastIndexOf(IMAGE_START);
+  if (start < 0) return { content: text, images: [] };
+  const end = text.indexOf(IMAGE_END, start + IMAGE_START.length);
+  if (end < 0) return { content: text, images: [] };
+  const images: SyncedImagePayload[] = [];
+  for (const raw of text.slice(start + IMAGE_START.length, end).split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const first = line.indexOf(" ");
+    const second = line.indexOf(" ", first + 1);
+    if (first <= 0 || second < 0) continue;
+    const id = line.slice(0, first);
+    const mime = line.slice(first + 1, second);
+    const base64 = line.slice(second + 1).trim();
+    if (!/^[a-z0-9-]+$/i.test(id) || !base64) continue;
+    images.push({ id, mime, base64 });
+  }
+  return { content: text.slice(0, start), images };
+}
+
+export function rememberSyncedImages(noteId: string, images: SyncedImagePayload[]) {
+  if (!noteId || images.length === 0) return;
+  pendingImages.set(noteId, images);
+}
+
+export function takeSyncedImages(): Map<string, SyncedImagePayload[]> {
+  const copy = new Map(pendingImages);
+  pendingImages.clear();
+  return copy;
 }

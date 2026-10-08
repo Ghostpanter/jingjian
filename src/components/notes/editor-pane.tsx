@@ -1,5 +1,5 @@
 import type { ClipboardEvent, DragEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   indentLines,
@@ -8,7 +8,15 @@ import {
   wrapAsMarkup,
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor } from "@/lib/notes/image-insert";
-import { editorSlice, editorSliceAround, EDITOR_SLICE_CHARS, isLargeNote } from "@/lib/notes/format";
+import {
+  editorSlice,
+  editorSliceAround,
+  EDITOR_SLICE_CHARS,
+  EDITOR_WINDOW_CHARS,
+  extendBounds,
+  isLargeNote,
+  peekPendingReveal,
+} from "@/lib/notes/format";
 import { paragraphAt, typewriterScroll } from "@/lib/notes/focus-text";
 import { classifyIncoming } from "@/lib/notes/open-incoming";
 import { cn } from "@/lib/utils";
@@ -42,11 +50,13 @@ export function EditorPane({
   const focusScroll = Boolean(focusMode);
   const [cursor, setCursor] = useState(0);
   const [sliceTick, setSliceTick] = useState(0);
+  const [windowRev, setWindowRev] = useState(0);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef(content);
   const bounds = useRef({ key: "", start: 0, end: 0 });
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
+  const growing = useRef(false);
   const sliceKey = `${noteId}-${epoch}`;
   contentRef.current = content;
   if (bounds.current.key !== sliceKey) {
@@ -85,6 +95,50 @@ export function EditorPane({
     setSliceTick((tick) => tick + 1);
   }
 
+  function growWindow(el: HTMLTextAreaElement, dir: -1 | 1) {
+    const full = contentRef.current;
+    const prev = { start: bounds.current.start, end: bounds.current.end };
+    const next = extendBounds(full.length, prev, dir, 16_000, EDITOR_WINDOW_CHARS);
+    if (!next) return false;
+    const selStart = el.selectionStart;
+    const selEnd = el.selectionEnd;
+    const delta = prev.start - next.start;
+    bounds.current = { key: sliceKey, start: next.start, end: next.end };
+    el.value = full.slice(next.start, next.end);
+    el.dataset.sliceStart = String(next.start);
+    const ratio = el.scrollHeight / Math.max(1, el.value.length);
+    el.scrollTop = Math.max(0, el.scrollTop + delta * ratio);
+    if (document.activeElement === el) {
+      const from = Math.max(0, Math.min(el.value.length, selStart + delta));
+      const to = Math.max(from, Math.min(el.value.length, selEnd + delta));
+      el.setSelectionRange(from, to);
+    }
+    setWindowRev((rev) => rev + 1);
+    return true;
+  }
+
+  function followScroll(el: HTMLTextAreaElement) {
+    if (focusScroll || !isLargeNote(contentRef.current) || growing.current) return;
+    const atTop = el.scrollTop <= 48 && bounds.current.start > 0;
+    const atBottom =
+      el.scrollTop + el.clientHeight >= el.scrollHeight - 64 &&
+      bounds.current.end < contentRef.current.length;
+    const dir = atTop ? -1 : atBottom ? 1 : 0;
+    if (!dir) return;
+    growing.current = true;
+    requestAnimationFrame(() => {
+      growing.current = false;
+      const current = document.getElementById("note-editor");
+      if (!(current instanceof HTMLTextAreaElement)) return;
+      if (!growWindow(current, dir)) return;
+      const stillTop = current.scrollTop <= 48 && bounds.current.start > 0;
+      const stillBottom =
+        current.scrollTop + current.clientHeight >= current.scrollHeight - 64 &&
+        bounds.current.end < contentRef.current.length;
+      if ((dir < 0 && stillTop) || (dir > 0 && stillBottom)) followScroll(current);
+    });
+  }
+
   function placeSelection(start: number, end: number) {
     const el = document.getElementById("note-editor");
     if (!(el instanceof HTMLTextAreaElement)) return;
@@ -106,8 +160,9 @@ export function EditorPane({
 
   useEffect(() => {
     const onReveal = (event: Event) => {
-      const detail = (event as CustomEvent<{ start?: number; end?: number }>).detail;
+      const detail = (event as CustomEvent<{ start?: number; end?: number; noteId?: string }>).detail;
       if (!detail || typeof detail.start !== "number") return;
+      if (detail.noteId && detail.noteId !== noteId) return;
       const start = detail.start;
       const end = typeof detail.end === "number" ? detail.end : start;
       const full = contentRef.current;
@@ -130,7 +185,26 @@ export function EditorPane({
     };
     window.addEventListener("jingjian-reveal", onReveal);
     return () => window.removeEventListener("jingjian-reveal", onReveal);
-  }, [sliceKey]);
+  }, [sliceKey, noteId]);
+
+  useLayoutEffect(() => {
+    const pending = peekPendingReveal(noteId);
+    if (!pending) return;
+    const start = pending.start;
+    const end = pending.end;
+    const full = contentRef.current;
+    if (!isLargeNote(full)) {
+      placeSelection(start, end);
+      return;
+    }
+    const next = editorSliceAround(full, start);
+    bounds.current = { key: sliceKey, ...next };
+    pendingSel.current = {
+      start: Math.max(0, start - next.start),
+      end: Math.max(0, end - next.start),
+    };
+    setSliceTick((tick) => tick + 1);
+  }, [noteId, sliceKey]);
 
   useEffect(() => {
     const el = document.getElementById("note-editor");
@@ -286,8 +360,8 @@ export function EditorPane({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {large ? (
-        <div className="note-clip-banner flex flex-wrap items-center justify-between gap-2" role="status">
-          <p>文件较大，正在编辑其中一段。预览只显示开头，避免卡住。</p>
+        <div className="note-clip-banner flex flex-wrap items-center justify-between gap-2" role="status" data-window={windowRev}>
+          <p>文件较大，滚到边缘会继续展开这一段。</p>
           <span className="flex gap-2">
             <button
               type="button"
@@ -364,6 +438,7 @@ export function EditorPane({
         onDrop={handleDrop}
         onScroll={(event) => {
           if (focusMirror) syncMirror(event.currentTarget);
+          followScroll(event.currentTarget);
           onScroll?.();
         }}
         placeholder="从第一行开始写，它会成为标题…"

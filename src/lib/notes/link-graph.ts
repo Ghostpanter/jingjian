@@ -17,6 +17,7 @@ export function linkGraph(
   notes: { id: string; content: string }[],
   maxNodes = GRAPH_PAGE,
   focusId?: string | null,
+  hops = 1,
 ): LinkGraph {
   const titleOf = new Map<string, string>();
   const idByTitle = titleIndex(notes);
@@ -50,14 +51,44 @@ export function linkGraph(
     .map((note) => note.id)
     .filter((id) => !degree.has(id))
     .sort((a, b) => a.localeCompare(b));
-  let ranked = [...linked, ...isolates];
+  let ranked: string[];
   if (focusId && notes.some((note) => note.id === focusId)) {
-    const near = new Set<string>([focusId]);
-    for (const link of links) {
-      if (link.source === focusId) near.add(link.target);
-      if (link.target === focusId) near.add(link.source);
+    const depth = Math.max(1, hops);
+    const dist = new Map<string, number>([[focusId, 0]]);
+    let frontier = [focusId];
+    for (let hop = 0; hop < depth; hop += 1) {
+      const next: string[] = [];
+      for (const id of frontier) {
+        for (const link of links) {
+          const other =
+            link.source === id ? link.target : link.target === id ? link.source : "";
+          if (!other || dist.has(other)) continue;
+          dist.set(other, hop + 1);
+          next.push(other);
+        }
+      }
+      frontier = next;
     }
-    ranked = ranked.filter((id) => near.has(id));
+    ranked = [...dist.keys()];
+  } else {
+    const mixed: string[] = [];
+    let linkAt = 0;
+    let isolateAt = 0;
+    while (linkAt < linked.length || isolateAt < isolates.length) {
+      for (let step = 0; step < 4 && linkAt < linked.length; step += 1) {
+        const id = linked[linkAt];
+        if (id) mixed.push(id);
+        linkAt += 1;
+      }
+      if (isolateAt < isolates.length) {
+        const id = isolates[isolateAt];
+        if (id) mixed.push(id);
+        isolateAt += 1;
+      } else if (linkAt >= linked.length) {
+        break;
+      }
+    }
+    ranked = mixed;
   }
   const total = ranked.length;
   const cap = Number.isFinite(maxNodes) ? Math.max(0, maxNodes) : total;

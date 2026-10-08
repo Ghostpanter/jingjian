@@ -45,6 +45,19 @@ test("nearby mode keeps the current note and its links", () => {
   assert.deepEqual(alone.nodes.map((node) => node.id), ["e"]);
 });
 
+test("nearby mode can expand a second hop", () => {
+  const notes = [
+    { id: "a", content: "# 甲\n[[乙]]" },
+    { id: "b", content: "# 乙\n[[丙]]" },
+    { id: "c", content: "# 丙\n" },
+    { id: "d", content: "# 丁\n独自" },
+  ];
+  const one = linkGraph(notes, 160, "a", 1);
+  assert.deepEqual(one.nodes.map((node) => node.id).sort(), ["a", "b"]);
+  const two = linkGraph(notes, 160, "a", 2);
+  assert.deepEqual(two.nodes.map((node) => node.id).sort(), ["a", "b", "c"]);
+});
+
 test("layout stays inside the canvas and pulls linked notes together", () => {
   const points = layoutGraph(
     [{ id: "a" }, { id: "b" }],

@@ -74,14 +74,25 @@ export function withLatestProgress(base: Note, a: Note, b: Note): Note {
       starredAt: starSrc.starredAt,
     };
   }
+  const trashScore = (note: Note) => Math.max(note.trashedAt ?? 0, note.restoredAt ?? 0);
+  const trashSrc = trashScore(a) >= trashScore(b) ? a : b;
+  if (trashScore(trashSrc)) {
+    next = {
+      ...next,
+      ...(typeof trashSrc.trashedAt === "number" ? { trashedAt: trashSrc.trashedAt } : {}),
+      ...(typeof trashSrc.restoredAt === "number" ? { restoredAt: trashSrc.restoredAt } : {}),
+    };
+  }
   return next;
 }
 
 export function marksAhead(local: Note, remote: Note): boolean {
+  const trash = (note: Note) => Math.max(note.trashedAt ?? 0, note.restoredAt ?? 0);
   return (
     (local.readAt ?? 0) > (remote.readAt ?? 0) ||
     (local.openedAt ?? 0) > (remote.openedAt ?? 0) ||
-    (local.starredAt ?? 0) > (remote.starredAt ?? 0)
+    (local.starredAt ?? 0) > (remote.starredAt ?? 0) ||
+    trash(local) > trash(remote)
   );
 }
 

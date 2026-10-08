@@ -110,30 +110,42 @@ export function windowPrintNotes(notes: PrintNote[]): {
 } {
   const sections: PrintSection[] = [];
   let used = 0;
-  let truncated = false;
   let omittedChapters = 0;
   for (let index = 0; index < notes.length; index += 1) {
     const note = notes[index];
     if (!note) continue;
-    const remaining = PRINT_TOTAL_CHARS - used;
-    if (remaining <= 0) {
+    if (used >= PRINT_TOTAL_CHARS && notes.length > 1) {
       omittedChapters += notes.length - index;
-      truncated = true;
       break;
     }
-    const cap = Math.min(PRINT_CHAPTER_CHARS, remaining);
-    const chapterTruncated = note.content.length > cap;
-    const content = chapterTruncated ? note.content.slice(0, cap) : note.content;
-    if (chapterTruncated) truncated = true;
-    used += content.length;
-    sections.push({
-      heading: note.bookId ? chapterLabel(note) : undefined,
-      content,
-      format: note.format === "txt" ? "txt" : "md",
-      truncated: chapterTruncated,
-    });
+    const format = note.format === "txt" ? "txt" : "md";
+    const heading = note.bookId ? chapterLabel(note) : undefined;
+    const content = note.content;
+    if (content.length === 0) {
+      sections.push({ heading, content: "", format, truncated: false });
+      continue;
+    }
+    let offset = 0;
+    let first = true;
+    while (offset < content.length) {
+      let end = Math.min(content.length, offset + PRINT_CHAPTER_CHARS);
+      if (end < content.length) {
+        const nl = content.lastIndexOf("\n", end);
+        if (nl > offset + Math.floor(PRINT_CHAPTER_CHARS / 2)) end = nl;
+      }
+      const piece = content.slice(offset, end);
+      sections.push({
+        heading: first ? heading : undefined,
+        content: piece,
+        format,
+        truncated: false,
+      });
+      used += piece.length;
+      offset = end;
+      first = false;
+    }
   }
-  return { sections, truncated, omittedChapters };
+  return { sections, truncated: omittedChapters > 0, omittedChapters };
 }
 
 function startsWithHeading(content: string, heading: string): boolean {

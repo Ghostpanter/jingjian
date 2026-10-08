@@ -46,6 +46,15 @@ test("progress merge keeps the later read position without touching content", ()
   assert.equal(merged.readRatio, 0.4);
 });
 
+test("the later trash mark wins without touching the body", () => {
+  const local = note("a", { content: "正文", trashedAt: 10 });
+  const remote = note("a", { content: "正文", restoredAt: 40 });
+  const merged = withLatestProgress(local, local, remote);
+  assert.equal(merged.content, "正文");
+  assert.equal(merged.restoredAt, 40);
+  assert.equal((merged.trashedAt ?? 0) > (merged.restoredAt ?? 0), false);
+});
+
 test("excerpt note quotes the selection", () => {
   const text = excerptNoteContent({
     bookTitle: "廊下三章",

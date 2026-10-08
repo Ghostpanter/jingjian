@@ -544,6 +544,7 @@ export function ReaderView({
           ) : (
             <PreviewPane
               key={current.id}
+              noteId={current.id}
               content={current.content}
               format={current.format}
               reader

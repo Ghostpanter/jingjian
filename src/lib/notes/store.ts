@@ -10,12 +10,14 @@ import {
   titleFromContent,
   writeMarksCache,
 } from "./format";
+import { collectFolders, isUnderFolder, normalizeFolder } from "./folder-tree";
+import { replaceTag, stripTag } from "./tags";
+import { linkPlainMention } from "./wiki-links";
+import { mergeChapterNotes, moveChapterToNotes, splitChapterNotes } from "./chapters";
 import { deleteOverflow, getOverflow, putOverflow } from "./overflow";
 import { createSeedNotes } from "./seed";
 import { notesFingerprint, reconcileNotes } from "./sync-merge";
-import { collectFolders, normalizeFolder, remainingAfterDeleteFolder } from "./folder-tree";
-import { replaceTag, stripTag } from "./tags";
-import { linkPlainMention } from "./wiki-links";
+import { isTrashed, migrateLocalTrash } from "./trash";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -34,6 +36,8 @@ type NotesState = {
     activate?: boolean;
   }) => string;
   deleteNote: (id: string) => void;
+  purgeNote: (id: string) => void;
+  restoreNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
   removeTag: (key: string) => number;
   removeTagFromNote: (id: string, key: string) => boolean;
@@ -52,6 +56,9 @@ type NotesState = {
   addChapter: (bookId: string) => string | null;
   renameBook: (bookId: string, title: string) => void;
   reorderChapter: (id: string, direction: -1 | 1) => void;
+  moveChapterTo: (id: string, toIndex: number) => void;
+  mergeChapter: (id: string) => string | null;
+  splitChapter: (id: string, offset: number) => string | null;
   createFolder: (path: string) => string | null;
   moveNote: (id: string, folder: string | null) => void;
   deleteFolder: (path: string) => string[];
@@ -174,6 +181,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
         (note) =>
           isBlankContent(note.content) &&
           !note.bookId &&
+          !isTrashed(note) &&
           (note.format ?? "md") === (format ?? "md") &&
           (note.folder ?? "") === folder,
       );
@@ -207,10 +215,29 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     return note.id;
   },
   deleteNote: (id) => {
-    const remaining = get().notes.filter((note) => note.id !== id);
-    const nextId = get().activeId === id ? (remaining[0]?.id ?? null) : get().activeId;
+    const trashedAt = Date.now();
+    const notes = get().notes.map((note) => (note.id === id ? { ...note, trashedAt } : note));
+    const visible = notes.filter((note) => !isTrashed(note));
+    const activeId =
+      get().activeId && visible.some((note) => note.id === get().activeId)
+        ? get().activeId
+        : (visible[0]?.id ?? null);
+    set({ notes, activeId });
+  },
+  purgeNote: (id) => {
+    const notes = get().notes.filter((note) => note.id !== id);
     void deleteOverflow(id);
-    set({ notes: remaining, activeId: nextId });
+    const visible = notes.filter((note) => !isTrashed(note));
+    const activeId =
+      get().activeId && visible.some((note) => note.id === get().activeId)
+        ? get().activeId
+        : (visible[0]?.id ?? null);
+    set({ notes, activeId });
+  },
+  restoreNote: (id) => {
+    const restoredAt = Date.now();
+    const notes = get().notes.map((note) => (note.id === id ? { ...note, restoredAt } : note));
+    set({ notes, activeId: id, sidebarOpen: false });
   },
   updateNote: (id, content) => {
     set({
@@ -334,10 +361,11 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const current = get();
     if (notesFingerprint(current.notes) === notesFingerprint(incoming)) return;
     const reconciled = reconcileNotes(current.notes, incoming, current.activeId);
+    const visible = reconciled.notes.filter((note) => !isTrashed(note));
     const activeId =
-      current.activeId && reconciled.notes.some((note) => note.id === current.activeId)
+      current.activeId && visible.some((note) => note.id === current.activeId)
         ? current.activeId
-        : (reconciled.notes[0]?.id ?? null);
+        : (visible[0]?.id ?? null);
     set({
       notes: reconciled.notes,
       activeId,
@@ -420,7 +448,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const note = get().notes.find((item) => item.id === id);
     if (!note?.bookId) return;
     const siblings = get()
-      .notes.filter((item) => item.bookId === note.bookId)
+      .notes.filter((item) => item.bookId === note.bookId && !isTrashed(item))
       .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0));
     const index = siblings.findIndex((item) => item.id === id);
     const swap = index + direction;
@@ -436,6 +464,29 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
         return item;
       }),
     });
+  },
+  moveChapterTo: (id, toIndex) => {
+    const notes = moveChapterToNotes(get().notes, id, toIndex);
+    if (!notes) return;
+    set({ notes });
+  },
+  mergeChapter: (id) => {
+    const result = mergeChapterNotes(get().notes, id, Date.now());
+    if (!result) return null;
+    void deleteOverflow(result.removedId);
+    set({
+      notes: result.notes,
+      activeId: get().activeId === result.removedId ? id : get().activeId,
+      editorEpoch: get().editorEpoch + 1,
+    });
+    return result.removedId;
+  },
+  splitChapter: (id, offset) => {
+    const createdId = crypto.randomUUID();
+    const result = splitChapterNotes(get().notes, id, offset, Date.now(), createdId);
+    if (!result) return null;
+    set({ notes: result.notes, editorEpoch: get().editorEpoch + 1 });
+    return result.createdId;
   },
   createFolder: (path) => {
     const folder = normalizeFolder(path);
@@ -460,19 +511,25 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     });
   },
   deleteFolder: (path) => {
-    const result = remainingAfterDeleteFolder(get().notes, get().folders, path);
-    for (const id of result.removedIds) void deleteOverflow(id);
-    const currentId = get().activeId;
-    const activeId =
-      currentId && result.removedIds.includes(currentId)
-        ? (result.notes[0]?.id ?? null)
-        : currentId;
-    set({
-      notes: result.notes,
-      folders: result.folders,
-      activeId,
+    const root = normalizeFolder(path);
+    if (!root) return [];
+    const trashedAt = Date.now();
+    const removedIds: string[] = [];
+    const notes = get().notes.map((note) => {
+      if (isTrashed(note) || !isUnderFolder(root, note.folder ?? "")) return note;
+      removedIds.push(note.id);
+      return { ...note, trashedAt };
     });
-    return result.removedIds;
+    const visible = notes.filter((note) => !isTrashed(note));
+    const folders = collectFolders(
+      visible,
+      get().folders.filter((item) => !isUnderFolder(root, item)),
+    );
+    const current = get().activeId;
+    const activeId =
+      current && visible.some((note) => note.id === current) ? current : (visible[0]?.id ?? null);
+    set({ notes, folders, activeId });
+    return removedIds;
   },
   setReadProgress: (id, ratio) => {
     const readRatio = Math.min(1, Math.max(0, Number.isFinite(ratio) ? ratio : 0));
@@ -521,7 +578,7 @@ export function hydrateNotesStore(): void {
     });
     return;
   }
-  const base = absorbLocalMarks(persisted.notes);
+  const base = migrateLocalTrash(absorbLocalMarks(persisted.notes));
   if (!base.some((note) => note.overflow)) {
     useNotesStore.setState({ ...persisted, notes: base, hydrated: true });
     writeMarksCache(base);
@@ -537,7 +594,7 @@ export function useActiveNote(): Note | null {
   const notes = useNotesStore((state) => state.notes);
   const activeId = useNotesStore((state) => state.activeId);
   return useMemo(
-    () => notes.find((note) => note.id === activeId) ?? null,
+    () => notes.find((note) => note.id === activeId && !isTrashed(note)) ?? null,
     [notes, activeId],
   );
 }
@@ -547,7 +604,7 @@ export function useSortedNotes(): Note[] {
   const query = useNotesStore((state) => state.query);
   return useMemo(() => {
     return [...notes]
-      .filter((note) => matchesQuery(note, query))
+      .filter((note) => !isTrashed(note) && matchesQuery(note, query))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [notes, query]);
 }

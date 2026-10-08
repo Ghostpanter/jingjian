@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { firstLineTitle } from "@/lib/notes/format";
-import type { TrashedNote } from "@/lib/notes/trash";
+import type { Note } from "@/lib/notes/types";
 
 type TrashDialogProps = {
   open: boolean;
-  items: TrashedNote[];
+  items: Note[];
   onOpenChange: (open: boolean) => void;
   onRestore: (id: string) => void;
   onDrop: (id: string) => void;

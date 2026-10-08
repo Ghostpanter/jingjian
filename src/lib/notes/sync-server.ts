@@ -1,4 +1,5 @@
-import { parseNoteFile, serializeNote } from "./markdown-file";
+import { parseNoteFile } from "./markdown-file";
+import { serializeNoteWithImages } from "./sync-images";
 import { joinUrl, request } from "./sync-http";
 import type { SyncAdapter, SyncConfig } from "./sync-types";
 import type { Note } from "./types";
@@ -32,11 +33,13 @@ export function createServerAdapter(config: SyncConfig): SyncAdapter {
       if (!response.ok) throw new Error(`拉取失败（${response.status}）`);
       const payload = (await response.json()) as { notes?: Array<Note | { raw?: string; id?: string }> };
       return (payload.notes ?? []).map((entry) => {
+        const raw = (entry as { raw?: string }).raw;
+        const id = (entry as { id?: string }).id || crypto.randomUUID();
+        if (typeof raw === "string" && raw.startsWith("---")) return parseNoteFile(raw, id);
         if ("content" in entry && typeof entry.content === "string" && entry.id) {
           return entry as Note;
         }
-        const raw = (entry as { raw?: string }).raw ?? "";
-        return parseNoteFile(raw, (entry as { id?: string }).id || crypto.randomUUID());
+        return parseNoteFile(raw ?? "", id);
       });
     },
     async upsert(note) {
@@ -45,7 +48,7 @@ export function createServerAdapter(config: SyncConfig): SyncAdapter {
         headers: headers(config),
         body: JSON.stringify({
           ...note,
-          raw: serializeNote(note),
+          raw: await serializeNoteWithImages(note),
         }),
       });
       if (!response.ok) throw new Error(`上传失败（${response.status}）`);

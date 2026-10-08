@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { ancestorFolders, buildFileTree } from "@/lib/notes/folder-tree";
 import {
   compareNotes,
+  findQueryHit,
   formatRelativeTime,
   groupNotes,
   NOTE_SORTS,
   parseOpenIds,
+  queueEditorReveal,
   readOpened,
   readStars,
   titleFromContent,
@@ -151,6 +153,7 @@ type SidebarProps = {
   onLinkMention?: (phrase: string) => void;
   onRenameBook?: (bookId: string, title: string) => void;
   onReorderChapter?: (id: string, direction: -1 | 1) => void;
+  onMoveChapter?: (id: string, toIndex: number) => void;
   syncLabel: string;
 };
 
@@ -162,6 +165,7 @@ function ChapterRow({
   pad,
   onSelect,
   onReorder,
+  onMoveTo,
 }: {
   note: Note;
   number: number;
@@ -170,9 +174,29 @@ function ChapterRow({
   pad: number;
   onSelect: (id: string) => void;
   onReorder?: (id: string, direction: -1 | 1) => void;
+  onMoveTo?: (id: string, toIndex: number) => void;
 }) {
   return (
-    <li role="none" className="flex items-center">
+    <li
+      role="none"
+      className="flex items-center"
+      draggable={Boolean(onMoveTo)}
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/jingjian-chapter", note.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      onDragOver={(event) => {
+        if (![...event.dataTransfer.types].includes("text/jingjian-chapter")) return;
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        const id = event.dataTransfer.getData("text/jingjian-chapter");
+        if (!id || !onMoveTo) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onMoveTo(id, number - 1);
+      }}
+    >
       <button
         type="button"
         role="option"
@@ -259,6 +283,7 @@ export function Sidebar({
   onLinkMention,
   onRenameBook,
   onReorderChapter,
+  onMoveChapter,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
@@ -286,13 +311,19 @@ export function Sidebar({
     [treeNotes, folders, sort, opened, stars],
   );
   const searchHits = useMemo(() => {
-    return [...notes].sort((a, b) => {
-      const left = stars.has(a.id) || a.starred ? 1 : 0;
-      const right = stars.has(b.id) || b.starred ? 1 : 0;
-      if (left !== right) return right - left;
-      return compareNotes(a, b, sort, opened);
-    });
-  }, [notes, stars, sort, opened]);
+    const q = query.trim();
+    return [...notes]
+      .sort((a, b) => {
+        const left = stars.has(a.id) || a.starred ? 1 : 0;
+        const right = stars.has(b.id) || b.starred ? 1 : 0;
+        if (left !== right) return right - left;
+        return compareNotes(a, b, sort, opened);
+      })
+      .map((note) => ({
+        note,
+        line: q ? (findQueryHit(note.content, q)?.line ?? "") : "",
+      }));
+  }, [notes, stars, sort, opened, query]);
   const createBtnRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLElement>(null);
   const notesRef = useRef(notes);
@@ -1231,6 +1262,7 @@ export function Sidebar({
                                           pad={28}
                                           onSelect={selectAndExpand}
                                           onReorder={onReorderChapter}
+                                          onMoveTo={onMoveChapter}
                                         />
                                       ))}
                                     </ul>
@@ -1251,6 +1283,7 @@ export function Sidebar({
                               pad={18}
                               onSelect={selectAndExpand}
                               onReorder={onReorderChapter}
+                              onMoveTo={onMoveChapter}
                             />
                           ))}
                         </ul>
@@ -1264,7 +1297,7 @@ export function Sidebar({
 
             {searching ? (
               <ul role="listbox" aria-label="搜索结果">
-                {searchHits.map((note) => {
+                {searchHits.map(({ note, line }) => {
                   const selected = note.id === activeId;
                   return (
                     <li key={note.id} role="none">
@@ -1272,7 +1305,13 @@ export function Sidebar({
                         type="button"
                         role="option"
                         aria-selected={selected}
-                        onClick={() => selectAndExpand(note.id)}
+                        onClick={() => {
+                          const hit = findQueryHit(note.content, query);
+                          if (hit) {
+                            queueEditorReveal(note.id, hit.offset, hit.offset + query.trim().length);
+                          }
+                          selectAndExpand(note.id);
+                        }}
                         className={cn(
                           "note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left",
                           selected ? "bg-paper shadow-border" : "hover:bg-overlay",
@@ -1282,7 +1321,7 @@ export function Sidebar({
                           {titleFromContent(note.content)}
                         </span>
                         <span className="mt-0.5 w-full truncate text-xs text-muted">
-                          {note.bookTitle || note.folder || formatRelativeTime(note.updatedAt, now)}
+                          {line || note.bookTitle || note.folder || formatRelativeTime(note.updatedAt, now)}
                         </span>
                       </button>
                     </li>

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { isBlankContent, previewWindow } from "@/lib/notes/format";
+import { isBlankContent, EDITOR_WINDOW_CHARS, extendBounds, peekPendingReveal, PREVIEW_WINDOW_CHARS, previewWindow } from "@/lib/notes/format";
 import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
@@ -20,6 +20,7 @@ type PreviewPaneProps = {
   restoreRatio?: number;
   speakIndex?: number;
   anchorKey?: string;
+  noteId?: string;
   onScroll?: () => void;
   onScrollRatio?: (ratio: number) => void;
   onToggleTask?: (index: number) => void;
@@ -37,14 +38,32 @@ export function PreviewPane({
   restoreRatio,
   speakIndex,
   anchorKey,
+  noteId,
   onScroll,
   onScrollRatio,
   onToggleTask,
   onOpenWiki,
 }: PreviewPaneProps) {
   const [anchor, setAnchor] = useState(0);
+  const [span, setSpan] = useState<{ start: number; end: number } | null>(null);
   const pendingHeading = useRef<string | null>(null);
-  const windowed = useMemo(() => previewWindow(content, undefined, anchor), [content, anchor]);
+  const preserveScroll = useRef(false);
+  const prevStart = useRef(0);
+  const growLock = useRef(0);
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const windowed = useMemo(() => {
+    if (span && content.length > PREVIEW_WINDOW_CHARS) {
+      const start = Math.max(0, Math.min(span.start, content.length));
+      const end = Math.max(start, Math.min(span.end, content.length));
+      return {
+        text: content.slice(start, end),
+        truncated: start > 0 || end < content.length,
+        start,
+      };
+    }
+    return previewWindow(content, undefined, anchor);
+  }, [content, anchor, span]);
   const headingSeed = useMemo(
     () => (windowed.start > 0 ? headingSeedBefore(content, windowed.start) : undefined),
     [content, windowed.start],
@@ -59,20 +78,29 @@ export function PreviewPane({
   const restored = useRef(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const pending = noteId ? peekPendingReveal(noteId) : null;
+    if (pending) {
+      setAnchor(pending.start);
+      setSpan(null);
+      return;
+    }
     setAnchor(0);
-  }, [anchorKey]);
+    setSpan(null);
+  }, [anchorKey, noteId]);
 
   useEffect(() => {
     const onReveal = (event: Event) => {
-      const detail = (event as CustomEvent<{ start?: number; headingId?: string }>).detail;
+      const detail = (event as CustomEvent<{ start?: number; headingId?: string; noteId?: string }>).detail;
       if (!detail || typeof detail.start !== "number") return;
+      if (detail.noteId && noteId && detail.noteId !== noteId) return;
       pendingHeading.current = detail.headingId || null;
       setAnchor(detail.start);
+      setSpan(null);
     };
     window.addEventListener("jingjian-reveal", onReveal);
     return () => window.removeEventListener("jingjian-reveal", onReveal);
-  }, []);
+  }, [noteId]);
 
   useLayoutEffect(() => {
     const id = pendingHeading.current;
@@ -89,8 +117,19 @@ export function PreviewPane({
   }, [html, anchor]);
 
   useLayoutEffect(() => {
-    restored.current = false;
-  }, [content]);
+    const el = scrollRef.current;
+    if (!el || !preserveScroll.current) {
+      prevStart.current = windowed.start;
+      return;
+    }
+    preserveScroll.current = false;
+    const delta = prevStart.current - windowed.start;
+    prevStart.current = windowed.start;
+    if (delta !== 0) {
+      const ratio = el.scrollHeight / Math.max(1, windowed.text.length);
+      el.scrollTop = Math.max(0, el.scrollTop + delta * ratio);
+    }
+  }, [windowed.start, windowed.text]);
 
   useLayoutEffect(() => {
     const root = articleRef.current;
@@ -113,6 +152,10 @@ export function PreviewPane({
       cancelled = true;
     };
   });
+
+  useLayoutEffect(() => {
+    restored.current = false;
+  }, [content]);
 
   useLayoutEffect(() => {
     if (!reader || typeof speakIndex !== "number" || speakIndex < 0) return;
@@ -207,9 +250,30 @@ export function PreviewPane({
       onScroll={() => {
         onScroll?.();
         const el = scrollRef.current;
-        if (!el || !onScrollRatio) return;
-        const max = el.scrollHeight - el.clientHeight;
-        onScrollRatio(max > 0 ? el.scrollTop / max : 0);
+        if (!el) return;
+        if (onScrollRatio) {
+          const max = el.scrollHeight - el.clientHeight;
+          onScrollRatio(max > 0 ? el.scrollTop / max : 0);
+        }
+        if (contentRef.current.length <= PREVIEW_WINDOW_CHARS || growLock.current) return;
+        const baseEnd = windowed.start + windowed.text.length;
+        const nearTop = el.scrollTop <= 64 && windowed.start > 0;
+        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80 && baseEnd < contentRef.current.length;
+        const dir = nearTop ? -1 : nearBottom ? 1 : 0;
+        if (!dir) return;
+        growLock.current = requestAnimationFrame(() => {
+          growLock.current = 0;
+          const next = extendBounds(
+            contentRef.current.length,
+            { start: windowed.start, end: baseEnd },
+            dir,
+            16_000,
+            EDITOR_WINDOW_CHARS,
+          );
+          if (!next) return;
+          preserveScroll.current = true;
+          setSpan(next);
+        });
       }}
     >
       <div
@@ -222,8 +286,8 @@ export function PreviewPane({
         {windowed.truncated ? (
           <p className="note-clip-banner" role="status">
             {windowed.start > 0
-              ? "文件较大，预览正显示这一段，不是全文。"
-              : "文件较大，预览只显示开头。源码模式可查看与编辑全文开头，后文仍保留。"}
+              ? "文件较大，滚到边缘会继续展开这一段。"
+              : "文件较大，预览先显示开头。滚到底会继续展开后面的文字。"}
           </p>
         ) : null}
         {empty ? (

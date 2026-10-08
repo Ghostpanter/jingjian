@@ -94,19 +94,21 @@ async function loadNotes() {
     const raw = await readFile(abs, "utf8");
     const note = parseNote(raw, randomUUID());
     note.file = entry.name;
+    note.raw = raw;
     notes.push(note);
   }
   return notes;
 }
 
-async function writeNote(note) {
+async function writeNote(note, raw) {
   await mkdir(NOTES_DIR, { recursive: true });
   const target = filenameFor(note);
   const abs = path.join(NOTES_DIR, target);
   if (!abs.startsWith(NOTES_DIR)) throw new Error("invalid path");
   const existing = await loadNotes();
   const previous = existing.find((item) => item.id === note.id);
-  await writeFile(abs, serialize(note), "utf8");
+  const text = typeof raw === "string" && raw.startsWith("---") ? raw : serialize(note);
+  await writeFile(abs, text, "utf8");
   if (previous?.file && previous.file !== target) {
     const stale = path.join(NOTES_DIR, previous.file);
     if (stale.startsWith(NOTES_DIR)) await rm(stale, { force: true });
@@ -193,7 +195,8 @@ const server = createServer(async (req, res) => {
           createdAt: Number(body.createdAt) || Date.now(),
           updatedAt: Number(body.updatedAt) || Date.now(),
         };
-        const file = await writeNote(note);
+        const raw = typeof body.raw === "string" && body.raw.startsWith("---") ? body.raw : "";
+        const file = await writeNote(note, raw);
         json(res, 200, { ok: true, file });
         return;
       }

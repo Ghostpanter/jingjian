@@ -3,6 +3,9 @@ import { createFolderAdapter } from "./sync-folder";
 import { mergeNotes, notesFingerprint } from "./sync-merge";
 import { createOssAdapter } from "./sync-oss";
 import { createServerAdapter } from "./sync-server";
+import { imageIdsIn, persistSyncedImages } from "./sync-images";
+import { getImage } from "./image-store";
+import { takeSyncedImages } from "./markdown-file";
 import type { SyncAdapter, SyncConfig, SyncStatus } from "./sync-types";
 import { createWebdavAdapter } from "./sync-webdav";
 import type { Note } from "./types";
@@ -34,6 +37,8 @@ export async function runSync(
 
   const adapter = createAdapter(config);
   const remote = await adapter.list();
+  const syncedImages = takeSyncedImages();
+  await persistSyncedImages(syncedImages);
   const merged = mergeNotes({
     local,
     remote,
@@ -41,6 +46,25 @@ export async function runSync(
     activeId: options?.activeId ?? null,
     protectActive: options?.protectActive ?? false,
   });
+  const uploading = new Set(merged.toUpload.map((note) => note.id));
+  for (const note of merged.notes) {
+    if (uploading.has(note.id)) continue;
+    const ids = imageIdsIn(note.content);
+    if (ids.length === 0) continue;
+    const remoteIds = new Set((syncedImages.get(note.id) ?? []).map((image) => image.id));
+    let missing = false;
+    for (const id of ids) {
+      if (remoteIds.has(id)) continue;
+      const stored = await getImage(`images/${id}`);
+      if (stored) {
+        missing = true;
+        break;
+      }
+    }
+    if (!missing) continue;
+    merged.toUpload.push(note);
+    uploading.add(note.id);
+  }
 
   for (const note of merged.toUpload) {
     await adapter.upsert(note);

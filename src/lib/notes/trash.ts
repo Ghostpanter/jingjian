@@ -63,3 +63,28 @@ export function dropTrash(id: string) {
 export function emptyTrash() {
   writeTrash([]);
 }
+
+export function isTrashed(note: { trashedAt?: number; restoredAt?: number }): boolean {
+  return (note.trashedAt ?? 0) > (note.restoredAt ?? 0);
+}
+
+/** One-time: local trash becomes note timestamps, then the old list is cleared. */
+export function migrateLocalTrash(notes: Note[]): Note[] {
+  const items = readTrash();
+  if (items.length === 0) return notes;
+  const map = new Map(notes.map((note) => [note.id, note]));
+  const extra: Note[] = [];
+  for (const item of items) {
+    const { deletedAt, ...rest } = item;
+    const existing = map.get(item.id);
+    if (existing) {
+      const score = Math.max(existing.trashedAt ?? 0, existing.restoredAt ?? 0);
+      if (score >= deletedAt) continue;
+      map.set(item.id, { ...existing, trashedAt: deletedAt });
+      continue;
+    }
+    extra.push({ ...rest, trashedAt: deletedAt });
+  }
+  emptyTrash();
+  return [...map.values(), ...extra];
+}

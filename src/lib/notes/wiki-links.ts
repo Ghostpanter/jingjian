@@ -32,7 +32,6 @@ export type UnlinkedMention = {
   phrase: string;
 };
 
-const SCAN_CAP = 120_000;
 const FENCE_LINE = /^(```|~~~)/;
 const WIKI = /!?\[\[([^\]|#]+?)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 
@@ -51,7 +50,7 @@ function snippet(line: string): string {
 }
 
 export function wikiHits(content: string): WikiHit[] {
-  const source = content.length > SCAN_CAP ? content.slice(0, SCAN_CAP) : content;
+  const source = content;
   const hits: WikiHit[] = [];
   let fence: string | null = null;
   for (const raw of source.split("\n")) {
@@ -93,7 +92,7 @@ export function titleIndex(notes: { id: string; content: string }[]): Map<string
 }
 
 function proseForMentions(content: string): string {
-  const source = content.length > SCAN_CAP ? content.slice(0, SCAN_CAP) : content;
+  const source = content;
   let fence: string | null = null;
   const lines: string[] = [];
   for (const raw of source.split("\n")) {

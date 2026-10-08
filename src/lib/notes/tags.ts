@@ -9,7 +9,6 @@ export type TagIndex = {
   keysByNote: Map<string, string[]>;
 };
 
-const SCAN_CAP = 120_000;
 const FENCE_LINE = /^(```|~~~)/;
 const TAG_RE = /(^|[^\p{L}\p{N}_/:?&=%.#])#([\p{L}\p{N}_/-]{1,64})/gu;
 
@@ -80,7 +79,7 @@ function inlineTags(source: string, into: Map<string, string>) {
 }
 
 export function tagsInContent(content: string): Map<string, string> {
-  const source = content.length > SCAN_CAP ? content.slice(0, SCAN_CAP) : content;
+  const source = content;
   const into = new Map<string, string>();
   if (source.startsWith("---")) {
     const close = source.indexOf("\n---", 3);

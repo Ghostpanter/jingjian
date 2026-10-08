@@ -23,6 +23,7 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, k: 1 });
   const [page, setPage] = useState(GRAPH_PAGE);
   const [near, setNear] = useState(false);
+  const [hops, setHops] = useState(1);
   const [laidOut, setLaidOut] = useState<GraphPoint[]>([]);
   const [layingOut, setLayingOut] = useState(false);
   const pointers = useRef(
@@ -32,8 +33,8 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
   const moved = useRef(false);
 
   const graph = useMemo(
-    () => linkGraph(notes, page, near ? activeId : null),
-    [notes, page, near, activeId],
+    () => linkGraph(notes, page, near ? activeId : null, hops),
+    [notes, page, near, activeId, hops],
   );
   const syncLayout = graph.nodes.length > 0 && graph.nodes.length <= 48;
   const points = useMemo(() => {
@@ -270,10 +271,23 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
           onClick={() => {
             setNear((current) => !current);
             setPage(GRAPH_PAGE);
+            setHops(1);
           }}
         >
           附近
         </button>
+        {near ? (
+          <button
+            type="button"
+            className="btn-press rounded-md bg-overlay px-2 py-1 text-fg"
+            onClick={() => {
+              setHops((current) => current + 1);
+              setPage(GRAPH_PAGE);
+            }}
+          >
+            再扩一圈
+          </button>
+        ) : null}
         {graph.truncated ? (
           <button
             type="button"

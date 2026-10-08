@@ -1,4 +1,5 @@
 import { compareNotes, type NoteSort } from "./format.ts";
+import { isTrashed } from "./trash.ts";
 import type { Note } from "./types.ts";
 
 export type FolderNode = {
@@ -54,7 +55,7 @@ export function collectFolders(notes: Note[], extra: string[] = []): string[] {
     for (const item of ancestorFolders(path)) set.add(item);
   }
   for (const note of notes) {
-    if (!note.folder) continue;
+    if (!note.folder || isTrashed(note)) continue;
     for (const item of ancestorFolders(note.folder)) set.add(item);
   }
   return [...set].sort((a, b) => a.localeCompare(b, "zh-CN"));

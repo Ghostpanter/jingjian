@@ -78,13 +78,13 @@ import {
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor, resolveInsertedImage, storeLocalImage } from "@/lib/notes/image-insert";
 import { putImage, extensionFor } from "@/lib/notes/image-store";
-import { recordTombstone, clearTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
+import { recordTombstone, readSyncConfig, writeSyncConfig } from "@/lib/notes/sync-config";
 import { runSync, createAdapter } from "@/lib/notes/sync";
 import { applyTheme, readThemeConfig } from "@/lib/notes/theme";
 import { applyEditorPrefs } from "@/lib/notes/editor-prefs";
 import { findNoteByTitle, toggleTaskAt } from "@/lib/notes/markdown-extra";
 import { templateById } from "@/lib/notes/templates";
-import { dropTrash, emptyTrash, pushTrash, readTrash, restoreTrash, type TrashedNote } from "@/lib/notes/trash";
+import { isTrashed } from "@/lib/notes/trash";
 import { FormatBar } from "@/components/notes/format-bar";
 import { QuickOpen } from "@/components/notes/quick-open";
 import { TrashDialog } from "@/components/notes/trash-dialog";
@@ -115,7 +115,6 @@ import {
   ensureLibraryRoot,
   isLibraryCancelled,
   persistMovedNote,
-  removeFolderOnDisk,
   saveNoteAs,
   saveNoteToLibrary,
 } from "@/lib/notes/library-fs";
@@ -332,6 +331,8 @@ export function NoteApp() {
   const sidebarOpen = useNotesStore((state) => state.sidebarOpen);
   const createNote = useNotesStore((state) => state.createNote);
   const deleteNote = useNotesStore((state) => state.deleteNote);
+  const purgeNote = useNotesStore((state) => state.purgeNote);
+  const restoreNote = useNotesStore((state) => state.restoreNote);
   const updateNote = useNotesStore((state) => state.updateNote);
   const removeTag = useNotesStore((state) => state.removeTag);
   const removeTagFromNote = useNotesStore((state) => state.removeTagFromNote);
@@ -339,6 +340,9 @@ export function NoteApp() {
   const linkMention = useNotesStore((state) => state.linkMention);
   const renameBook = useNotesStore((state) => state.renameBook);
   const reorderChapter = useNotesStore((state) => state.reorderChapter);
+  const moveChapterTo = useNotesStore((state) => state.moveChapterTo);
+  const mergeChapter = useNotesStore((state) => state.mergeChapter);
+  const splitChapter = useNotesStore((state) => state.splitChapter);
   const selectNote = useNotesStore((state) => state.selectNote);
   const setQuery = useNotesStore((state) => state.setQuery);
   const setPreviewMode = useNotesStore((state) => state.setPreviewMode);
@@ -356,6 +360,17 @@ export function NoteApp() {
   const setReadProgress = useNotesStore((state) => state.setReadProgress);
   const editorEpoch = useNotesStore((state) => state.editorEpoch);
   const rawNotes = useNotesStore((state) => state.notes);
+  const visibleNotes = useMemo(
+    () => rawNotes.filter((note) => !isTrashed(note)),
+    [rawNotes],
+  );
+  const trashItems = useMemo(
+    () =>
+      rawNotes
+        .filter((note) => isTrashed(note))
+        .sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0)),
+    [rawNotes],
+  );
 
   const notes = useSortedNotes();
   const activeNote = useActiveNote();
@@ -426,7 +441,6 @@ export function NoteApp() {
   const [publishPick, setPublishPick] = useState<PlatformId[]>([]);
   const [quickOpen, setQuickOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
-  const [trashItems, setTrashItems] = useState<TrashedNote[]>([]);
   const [blogPostsOpen, setBlogPostsOpen] = useState(false);
   const [noteSort, setNoteSort] = useState<NoteSort>("updated");
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
@@ -1146,7 +1160,7 @@ export function NoteApp() {
       const path = await exportNotes({
         format,
         note: activeNote,
-        notes: rawNotes,
+        notes: visibleNotes,
         onPicked: () => toast.message("正在生成…"),
       });
       setExportOpen(false);
@@ -1516,7 +1530,7 @@ export function NoteApp() {
     else setSidebarDragging(true);
   }
 
-  function resolveConflict(choice: "local" | "remote" | "both") {
+  function resolveConflict(choice: "local" | "remote" | "both" | "merge", merged?: string) {
     const current = conflicts[0];
     if (!current) return;
     const uploadLocal = () => {
@@ -1534,6 +1548,17 @@ export function NoteApp() {
       );
     } else if (choice === "local") {
       uploadLocal();
+    } else if (choice === "merge") {
+      updateNote(current.local.id, merged ?? current.local.content);
+      const config = readSyncConfig();
+      const saved = useNotesStore.getState().notes.find((note) => note.id === current.local.id);
+      if (saved && config.provider !== "off") {
+        void createAdapter(config)
+          .upsert(saved)
+          .catch((error) => {
+            toast.message(error instanceof Error ? error.message : "同步失败");
+          });
+      }
     } else {
       importNotes([{ ...current.remote, id: crypto.randomUUID() }]);
       uploadLocal();
@@ -1543,7 +1568,7 @@ export function NoteApp() {
 
   async function handleExportFolder(path: string) {
     try {
-      const saved = await exportFolderArchive(rawNotes, path, () => toast.message("正在生成…"));
+      const saved = await exportFolderArchive(visibleNotes, path, () => toast.message("正在生成…"));
       toast.message(`已保存到 ${saved.split("/").pop() || saved}`);
     } catch (error) {
       if (isCancelled(error)) return;
@@ -1554,15 +1579,10 @@ export function NoteApp() {
   function handleConfirmFolderDelete() {
     const path = pendingFolderDelete;
     if (!path) return;
-    const doomed = notesInFolder(rawNotes, path);
-    for (const note of doomed) pushTrash(note);
-    setTrashItems(readTrash());
     const removed = deleteFolder(path);
-    for (const id of removed) recordTombstone(id);
     if (isUnderFolder(path, activeFolder) || activeFolder === path) setActiveFolder("");
     setPendingFolderDelete("");
-    void removeFolderOnDisk(path).catch(() => undefined);
-    toast.message(removed.length ? `已删除文件夹及 ${removed.length} 篇笔记` : "已删除文件夹");
+    toast.message(removed.length ? `已将 ${removed.length} 篇移入回收站` : "已删除文件夹");
   }
 
   if (!hydrated) {
@@ -1572,7 +1592,7 @@ export function NoteApp() {
   const showEditor = previewMode === "edit" || previewMode === "split";
   const showPreview = previewMode === "preview" || previewMode === "split";
   const bookChapters = activeNote?.bookId
-    ? rawNotes
+    ? visibleNotes
         .filter((note) => note.bookId === activeNote.bookId)
         .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0))
     : activeNote
@@ -1677,7 +1697,7 @@ export function NoteApp() {
           activeHeadingId={activeHeadingId}
           onQueryChange={setQuery}
           onSelect={(id) => {
-            const note = rawNotes.find((item) => item.id === id);
+            const note = visibleNotes.find((item) => item.id === id);
             setActiveFolder(note?.folder ?? "");
             selectNote(id);
           }}
@@ -1715,10 +1735,7 @@ export function NoteApp() {
             setSettingsTab("sync");
             setSettingsOpen(true);
           }}
-          onOpenTrash={() => {
-            setTrashItems(readTrash());
-            setTrashOpen(true);
-          }}
+          onOpenTrash={() => setTrashOpen(true)}
           onOpenBlog={openBlogPosts}
           onOpenGraph={() => setGraphOpen(true)}
           sort={noteSort}
@@ -1758,6 +1775,7 @@ export function NoteApp() {
           }}
           onRenameBook={(bookId, title) => renameBook(bookId, title)}
           onReorderChapter={(id, direction) => reorderChapter(id, direction)}
+          onMoveChapter={(id, toIndex) => moveChapterTo(id, toIndex)}
           syncLabel={
             syncConfig.provider === "off"
               ? "本地笔记"
@@ -2014,17 +2032,18 @@ export function NoteApp() {
               {activeNote ? (
                 <PreviewPane
                   content={activeNote.content}
-                  notes={rawNotes}
+                  notes={visibleNotes}
                   format={activeNote.format}
                   centered={previewMode !== "split"}
                   focusMode={focusMode}
                   anchorKey={activeNote.id}
+                  noteId={activeNote.id}
                   onScroll={() => syncScroll("preview")}
                   onToggleTask={(index) => {
                     updateNote(activeNote.id, toggleTaskAt(activeNote.content, index));
                   }}
                   onOpenWiki={(title) => {
-                    const found = findNoteByTitle(rawNotes, title);
+                    const found = findNoteByTitle(visibleNotes, title);
                     if (!found) {
                       toast.message(`没有「${title}」`);
                       return;
@@ -2073,9 +2092,6 @@ export function NoteApp() {
         onConfirm={() => {
           const target = pendingNoteDelete ?? activeNote;
           if (!target) return;
-          pushTrash(target);
-          setTrashItems(readTrash());
-          recordTombstone(target.id);
           deleteNote(target.id);
           setPendingDelete(false);
           setPendingNoteDelete(null);
@@ -2085,7 +2101,7 @@ export function NoteApp() {
       <DeleteFolderDialog
         open={Boolean(pendingFolderDelete)}
         folder={pendingFolderDelete}
-        noteCount={pendingFolderDelete ? notesInFolder(rawNotes, pendingFolderDelete).length : 0}
+        noteCount={pendingFolderDelete ? notesInFolder(visibleNotes, pendingFolderDelete).length : 0}
         onOpenChange={(open) => {
           if (!open) setPendingFolderDelete("");
         }}
@@ -2112,6 +2128,12 @@ export function NoteApp() {
                     ? [{ id: "unfile", label: "移到根目录" }]
                     : []),
                   { id: "star", label: readStars().has(itemMenu.note.id) ? "取消星标" : "星标" },
+                  ...(itemMenu.note.bookId
+                    ? [
+                        { id: "merge-chapter", label: "与下一章合并" },
+                        { id: "split-chapter", label: "从光标拆成下一章" },
+                      ]
+                    : []),
                   { id: "delete", label: "删除笔记", destructive: true },
                 ]
               : []
@@ -2140,15 +2162,39 @@ export function NoteApp() {
           }
           if (itemMenu.kind === "note" && id === "delete") {
             setPendingNoteDelete(itemMenu.note);
+            return;
+          }
+          if (itemMenu.kind === "note" && id === "merge-chapter") {
+            const removed = mergeChapter(itemMenu.note.id);
+            if (!removed) toast.message("没有下一章可以合并");
+            else {
+              recordTombstone(removed);
+              toast.message("已合并到这一章");
+            }
+            return;
+          }
+          if (itemMenu.kind === "note" && id === "split-chapter") {
+            if (activeNote?.id !== itemMenu.note.id) {
+              toast.message("先打开这一章，再把光标放在要分开的地方");
+              return;
+            }
+            const el = document.getElementById("note-editor");
+            if (!(el instanceof HTMLTextAreaElement)) {
+              toast.message("先打开这一章，再把光标放在要分开的地方");
+              return;
+            }
+            const offset = el.selectionStart + Number(el.dataset.sliceStart || 0);
+            const created = splitChapter(itemMenu.note.id, offset);
+            toast.message(created ? "已拆成下一章" : "光标要放在章节中间才能拆开");
           }
         }}
       />
       <QuickOpen
         open={quickOpen}
-        notes={rawNotes}
+        notes={visibleNotes}
         onOpenChange={setQuickOpen}
         onSelect={(id) => {
-          const note = rawNotes.find((item) => item.id === id);
+          const note = visibleNotes.find((item) => item.id === id);
           setActiveFolder(note?.folder ?? "");
           selectNote(id);
         }}
@@ -2158,32 +2204,19 @@ export function NoteApp() {
         items={trashItems}
         onOpenChange={setTrashOpen}
         onRestore={(id) => {
-          const note = restoreTrash(id);
-          setTrashItems(readTrash());
-          if (!note) return;
-          clearTombstone(note.id);
-          importNotes([
-            {
-              id: note.id,
-              content: note.content,
-              createdAt: note.createdAt,
-              updatedAt: Date.now(),
-              ...(note.format ? { format: note.format } : {}),
-              ...(note.folder ? { folder: note.folder } : {}),
-              ...(note.bookId ? { bookId: note.bookId } : {}),
-              ...(note.bookTitle ? { bookTitle: note.bookTitle } : {}),
-              ...(typeof note.chapterIndex === "number" ? { chapterIndex: note.chapterIndex } : {}),
-            },
-          ]);
+          restoreNote(id);
           toast.message("已恢复");
         }}
         onDrop={(id) => {
-          dropTrash(id);
-          setTrashItems(readTrash());
+          recordTombstone(id);
+          purgeNote(id);
         }}
         onEmpty={() => {
-          emptyTrash();
-          setTrashItems([]);
+          for (const note of useNotesStore.getState().notes) {
+            if (!isTrashed(note)) continue;
+            recordTombstone(note.id);
+            purgeNote(note.id);
+          }
         }}
       />
       <BlogPostsDialog
@@ -2208,6 +2241,7 @@ export function NoteApp() {
         onKeepLocal={() => resolveConflict("local")}
         onKeepRemote={() => resolveConflict("remote")}
         onKeepBoth={() => resolveConflict("both")}
+        onMerge={(content) => resolveConflict("merge", content)}
       />
       <SettingsDialog
         open={settingsOpen}
@@ -2227,7 +2261,7 @@ export function NoteApp() {
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <PrintDialog
         open={printOpen}
-        notes={rawNotes}
+        notes={visibleNotes}
         activeId={activeNote?.id ?? ""}
         onOpenChange={setPrintOpen}
         onError={(message) => toast.message(message)}
@@ -2313,10 +2347,10 @@ export function NoteApp() {
       />
       {graphOpen ? (
         <GraphView
-          notes={rawNotes}
+          notes={visibleNotes}
           activeId={activeNote?.id ?? null}
           onOpen={(id) => {
-            const note = rawNotes.find((item) => item.id === id);
+            const note = visibleNotes.find((item) => item.id === id);
             setActiveFolder(note?.folder ?? "");
             selectNote(id);
             setGraphOpen(false);

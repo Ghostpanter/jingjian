@@ -127,7 +127,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
 
 export function notesFingerprint(notes: Note[]): string {
   return notes
-    .map((note) => `${note.id}:${note.updatedAt}:${note.readAt ?? 0}:${note.openedAt ?? 0}:${note.starredAt ?? 0}:${note.starred ? 1 : 0}`)
+    .map((note) => `${note.id}:${note.updatedAt}:${note.readAt ?? 0}:${note.openedAt ?? 0}:${note.starredAt ?? 0}:${note.starred ? 1 : 0}:${note.trashedAt ?? 0}:${note.restoredAt ?? 0}`)
     .sort()
     .join("|");
 }

@@ -1,6 +1,7 @@
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { desktopApi, isDesktopApp } from "./desktop";
-import { filenameForNote, isNoteFilename, parseNoteFile, serializeNote } from "./markdown-file";
+import { filenameForNote, isNoteFilename, parseNoteFile } from "./markdown-file";
+import { serializeNoteWithImages } from "./sync-images";
 import { isNativeApp, nativeFolder } from "./native-folder";
 import type { SyncAdapter, SyncConfig } from "./sync-types";
 import type { Note } from "./types";
@@ -239,7 +240,7 @@ export function createFolderAdapter(config: SyncConfig): SyncAdapter {
     },
     async upsert(note) {
       const name = filenameForNote(note);
-      const data = serializeNote(note);
+      const data = await serializeNoteWithImages(note);
       const shortId = note.id.replace(/-/g, "").slice(0, 8);
       if (desktop) {
         const status = await desktopApi()!.folderStatus();

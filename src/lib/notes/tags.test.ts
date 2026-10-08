@@ -51,3 +51,8 @@ test("replaceTag renames the exact tag and leaves children and code", () => {
   assert.equal(replaceTag("见 `#读书`", "读书", "阅历"), "见 `#读书`");
   assert.equal(replaceTag("见 #读书", "读书", "读书"), "见 #读书");
 });
+
+test("tags past the old scan window are still found", () => {
+  const content = `${"字".repeat(130_000)}\n#后段标签`;
+  assert.equal(tagsInContent(content).has("后段标签"), true);
+});

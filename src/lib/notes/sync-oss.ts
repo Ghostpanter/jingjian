@@ -1,4 +1,5 @@
-import { filenameForNote, isNoteFilename, parseNoteFile, serializeNote } from "./markdown-file.ts";
+import { filenameForNote, isNoteFilename, parseNoteFile } from "./markdown-file.ts";
+import { serializeNoteWithImages } from "./sync-images.ts";
 import { encodeS3Path, rfc3986, signS3Request } from "./s3-sign.ts";
 import { request } from "./sync-http.ts";
 import type { OssVendor, SyncAdapter, SyncConfig } from "./sync-types.ts";
@@ -222,7 +223,7 @@ export function createOssAdapter(config: SyncConfig): SyncAdapter {
         config,
         "PUT",
         ossObjectUrl(config, key),
-        serializeNote(note),
+        await serializeNoteWithImages(note),
       );
       if (!response.ok && response.status !== 201 && response.status !== 204) {
         throw statusError(response.status, "上传");

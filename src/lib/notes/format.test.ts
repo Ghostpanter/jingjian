@@ -5,6 +5,8 @@ import {
   countChars,
   editorSlice,
   editorSliceAround,
+  extendBounds,
+  findQueryHit,
   firstLineTitle,
   formatCharCount,
   isBlankContent,
@@ -164,4 +166,27 @@ test("books group by bookId and stay collapsed until opened", () => {
   const opened = toggleOpenId([], "b1");
   assert.equal(opened.has("b1"), true);
   assert.equal(toggleOpenId(opened, "b1").has("b1"), false);
+});
+
+test("aliases after a long yaml block still resolve", () => {
+  const content = `---\n${"x".repeat(4800)}\naliases:\n  - 很后面的别名\n---\n# 标题\n`;
+  assert.deepEqual(noteAliases(content), ["很后面的别名"]);
+  assert.equal(firstLineTitle(content), "标题");
+});
+
+test("findQueryHit returns the line around a late match", () => {
+  const content = `${"开".repeat(40_000)}\n后半句有记号zz在这里\n`;
+  const hit = findQueryHit(content, "记号zz");
+  assert.ok(hit);
+  assert.ok((hit?.offset ?? 0) > 40_000);
+  assert.match(hit?.line ?? "", /记号zz/);
+});
+
+test("extendBounds grows and then slides inside the cap", () => {
+  const grown = extendBounds(100_000, { start: 0, end: 48_000 }, 1, 16_000, 240_000);
+  assert.deepEqual(grown, { start: 0, end: 64_000 });
+  const slid = extendBounds(400_000, { start: 0, end: 240_000 }, 1, 16_000, 240_000);
+  assert.equal(slid?.end, 256_000);
+  assert.equal((slid?.end ?? 0) - (slid?.start ?? 0), 240_000);
+  assert.equal(extendBounds(20, { start: 0, end: 20 }, 1), null);
 });

@@ -24,6 +24,10 @@ export type Note = {
   starredAt?: number;
   /** Last time the note was opened. Synced; does not bump `updatedAt`. */
   openedAt?: number;
+  /** Soft-deleted. Newer than `restoredAt` means it sits in the trash. */
+  trashedAt?: number;
+  /** Restored from trash. Newer than `trashedAt` means it is visible again. */
+  restoredAt?: number;
   /** Body lives in IndexedDB; localStorage only keeps a title head. */
   overflow?: boolean;
   /** Nested sidebar path, e.g. `手册/写作`. */

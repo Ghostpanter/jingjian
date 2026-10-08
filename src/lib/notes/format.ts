@@ -43,12 +43,28 @@ function stripTitleDecor(line: string): string {
     .trim();
 }
 
+const FRONT_MATTER_SCAN = 524_288;
+
 function frontMatterBlock(content: string): { yaml: string; body: string } | null {
   if (!content.startsWith("---")) return null;
-  const head = content.length > 4096 ? content.slice(0, 4096) : content;
-  const match = head.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!match) return null;
-  return { yaml: match[1], body: content.slice(match[0].length) };
+  const limit = Math.min(content.length, FRONT_MATTER_SCAN);
+  const firstNl = content.indexOf("\n");
+  if (firstNl < 0 || firstNl >= limit) return null;
+  if (content.slice(0, firstNl).replace(/\r$/, "") !== "---") return null;
+  let pos = firstNl + 1;
+  while (pos < limit) {
+    const next = content.indexOf("\n", pos);
+    const lineEnd = next < 0 || next >= limit ? limit : next;
+    const line = content.slice(pos, lineEnd).replace(/\r$/, "");
+    if (line === "---") {
+      const yaml = content.slice(firstNl + 1, pos).replace(/\r?\n$/, "");
+      const bodyStart = next >= 0 && next < content.length ? next + 1 : lineEnd;
+      return { yaml, body: content.slice(bodyStart) };
+    }
+    if (next < 0 || next >= limit) break;
+    pos = next + 1;
+  }
+  return null;
 }
 
 function yamlScalar(raw: string): string {
@@ -385,6 +401,83 @@ export function includesIgnoreCase(
     if (haystack.slice(index, end).toLowerCase().includes(q)) return true;
   }
   return false;
+}
+
+export function findQueryHit(
+  content: string,
+  query: string,
+): { offset: number; line: string } | null {
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+  let offset = -1;
+  if (content.length <= 32_768) {
+    offset = content.toLowerCase().indexOf(q);
+  } else {
+    const chunk = 24_576;
+    const overlap = Math.min(q.length, 256);
+    for (let index = 0; index < content.length; index += chunk) {
+      const end = Math.min(content.length, index + chunk + overlap);
+      const at = content.slice(index, end).toLowerCase().indexOf(q);
+      if (at >= 0) {
+        offset = index + at;
+        break;
+      }
+    }
+  }
+  if (offset < 0) return null;
+  const lineStart = content.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+  let lineEnd = content.indexOf("\n", offset);
+  if (lineEnd < 0) lineEnd = content.length;
+  let line = content.slice(lineStart, lineEnd).replace(/\r$/, "").replace(/\s+/g, " ").trim();
+  if (line.length > 72) {
+    const local = Math.max(0, Math.min(offset - lineStart, line.length));
+    const from = Math.max(0, local - 28);
+    const to = Math.min(line.length, from + 68);
+    line = `${from > 0 ? "…" : ""}${line.slice(from, to).trim()}${to < line.length ? "…" : ""}`;
+  }
+  return { offset, line };
+}
+
+type PendingReveal = { noteId: string; start: number; end: number };
+let pendingReveal: PendingReveal | null = null;
+
+export function queueEditorReveal(noteId: string, start: number, end: number) {
+  pendingReveal = { noteId, start, end };
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("jingjian-reveal", { detail: { noteId, start, end } }),
+  );
+  window.requestAnimationFrame(() => {
+    if (pendingReveal?.noteId === noteId && pendingReveal.start === start) pendingReveal = null;
+  });
+}
+
+export function peekPendingReveal(noteId: string): { start: number; end: number } | null {
+  if (!pendingReveal || pendingReveal.noteId !== noteId) return null;
+  return { start: pendingReveal.start, end: pendingReveal.end };
+}
+
+export function extendBounds(
+  length: number,
+  bounds: { start: number; end: number },
+  dir: -1 | 1,
+  chunk = 16_000,
+  max = EDITOR_WINDOW_CHARS,
+): { start: number; end: number } | null {
+  if (dir > 0) {
+    if (bounds.end >= length) return null;
+    const end = Math.min(length, bounds.end + chunk);
+    let start = bounds.start;
+    if (end - start > max) start = Math.max(0, end - max);
+    if (start === bounds.start && end === bounds.end) return null;
+    return { start, end };
+  }
+  if (bounds.start <= 0) return null;
+  const start = Math.max(0, bounds.start - chunk);
+  let end = bounds.end;
+  if (end - start > max) end = Math.min(length, start + max);
+  if (start === bounds.start && end === bounds.end) return null;
+  return { start, end };
 }
 
 export function formatRelativeTime(timestamp: number, now = Date.now()): string {

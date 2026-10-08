@@ -50,3 +50,8 @@ test("plain titles become wiki links outside code and existing links", () => {
   assert.match(next, /```\n乙的笔记\n```/);
   assert.equal(next.match(/\[\[乙的笔记\]\]/g)?.length, 2);
 });
+
+test("wiki links past the old scan window are still found", () => {
+  const hits = wikiHits(`${"字".repeat(130_000)}\n见 [[后段笔记]]`);
+  assert.equal(hits[0]?.target, "后段笔记");
+});

@@ -93,13 +93,17 @@ test("print html escapes titles, keeps txt literal, and breaks chapters", () => 
   assert.doesNotMatch(html, /<script>/);
 });
 
-test("long notes and later chapters are clipped instead of laid out whole", () => {
+test("long chapters are printed whole and later chapters can still be omitted", () => {
   const long = "甲".repeat(PRINT_CHAPTER_CHARS + 20);
   const windowed = windowPrintNotes([
     { id: "1", content: long, format: "txt" },
   ]);
-  assert.equal(windowed.truncated, true);
-  assert.equal(windowed.sections[0]?.content.length, PRINT_CHAPTER_CHARS);
+  assert.equal(windowed.truncated, false);
+  assert.equal(
+    windowed.sections.reduce((sum, section) => sum + section.content.length, 0),
+    long.length,
+  );
+  assert.equal(windowed.sections.every((section) => !section.truncated), true);
   const chapter = "乙".repeat(40_000);
   const bookNotes: PrintNote[] = [0, 1, 2, 3].map((chapterIndex) => ({
     id: String(chapterIndex),
