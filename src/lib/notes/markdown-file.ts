@@ -37,9 +37,14 @@ export function serializeNote(note: Note): string {
     typeof note.readAt === "number"
       ? `\nreadAt: ${note.readAt}\nreadRatio: ${Number(note.readRatio ?? 0)}`
       : "";
+  const opened = typeof note.openedAt === "number" ? `\nopenedAt: ${note.openedAt}` : "";
+  const star =
+    typeof note.starredAt === "number"
+      ? `\nstarred: ${note.starred ? "true" : "false"}\nstarredAt: ${note.starredAt}`
+      : "";
   const format = note.format === "txt" ? "\nformat: txt" : "";
   const folder = note.folder ? `\nfolder: ${JSON.stringify(note.folder)}` : "";
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${read}${folder}\n---\n${note.content}`;
+  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}${format}${book}${read}${opened}${star}${folder}\n---\n${note.content}`;
 }
 
 export function parseNoteFile(raw: string, fallbackId: string): Note {
@@ -70,6 +75,9 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
   const chapterIndex = meta.chapterIndex ? Number(meta.chapterIndex) : undefined;
   const readAt = meta.readAt ? Number(meta.readAt) : undefined;
   const readRatio = meta.readRatio ? Number(meta.readRatio) : undefined;
+  const openedAt = meta.openedAt ? Number(meta.openedAt) : undefined;
+  const starredAt = meta.starredAt ? Number(meta.starredAt) : undefined;
+  const starred = meta.starred === "true";
   const format = meta.format === "txt" ? ("txt" as const) : undefined;
   const folderRaw = meta.folder ? unquote(meta.folder) : "";
   return {
@@ -84,6 +92,10 @@ export function parseNoteFile(raw: string, fallbackId: string): Note {
     ...(typeof readAt === "number" && Number.isFinite(readAt) ? { readAt } : {}),
     ...(typeof readRatio === "number" && Number.isFinite(readRatio)
       ? { readRatio }
+      : {}),
+    ...(typeof openedAt === "number" && Number.isFinite(openedAt) ? { openedAt } : {}),
+    ...(typeof starredAt === "number" && Number.isFinite(starredAt)
+      ? { starred: starred || undefined, starredAt }
       : {}),
     ...(folderRaw ? { folder: folderRaw } : {}),
   };

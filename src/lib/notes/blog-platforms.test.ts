@@ -67,3 +67,15 @@ test("ghost admin token is a signed jwt", async () => {
   assert.equal(token.split(".").length, 3);
   assert.match(token.split(".")[0] ?? "", /^[A-Za-z0-9_-]+$/);
 });
+
+test("wordpress cover becomes a featured image only after a sideload", async () => {
+  const { wordpressArticleFields } = await import("./blog-platform-publish.ts");
+  const plain = wordpressArticleFields("<p>正文</p>", "", null);
+  assert.equal(plain.content, "<p>正文</p>");
+  assert.equal(plain.featured_media, undefined);
+  const prepended = wordpressArticleFields("<p>正文</p>", "https://cdn.example/a.jpg", null);
+  assert.match(prepended.content, /img/);
+  const featured = wordpressArticleFields("<p>正文</p>", "https://cdn.example/a.jpg", 12);
+  assert.equal(featured.content, "<p>正文</p>");
+  assert.equal(featured.featured_media, 12);
+});

@@ -64,17 +64,17 @@ export function FindBar({
   useEffect(() => {
     if (!open) return;
     const el = document.getElementById("note-editor");
-    const cursor = el instanceof HTMLTextAreaElement ? el.selectionStart : 0;
+    const base = el instanceof HTMLTextAreaElement ? Number(el.dataset.sliceStart || 0) : 0;
+    const cursor =
+      (el instanceof HTMLTextAreaElement ? el.selectionStart : 0) + (Number.isFinite(base) ? base : 0);
     setIndex(indexNear(matches, cursor));
   }, [open, query, regex, caseSensitive, wholeWord, content, matches]);
 
   function selectMatch(range: TextRange | null) {
-    const el = document.getElementById("note-editor");
-    if (!(el instanceof HTMLTextAreaElement) || !range) return;
-    const active = document.activeElement;
-    el.focus();
-    el.setSelectionRange(range.start, range.end);
-    if (active instanceof HTMLElement && active !== el) active.focus();
+    if (!range) return;
+    window.dispatchEvent(
+      new CustomEvent("jingjian-reveal", { detail: { start: range.start, end: range.end } }),
+    );
   }
 
   function jump(direction: 1 | -1) {

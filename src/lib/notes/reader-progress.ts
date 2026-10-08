@@ -59,13 +59,30 @@ export function foldChapters<T>(notes: T[], size = CHAPTER_FOLD): ChapterSpan<T>
 }
 
 export function withLatestProgress(base: Note, a: Note, b: Note): Note {
-  const src = (a.readAt ?? 0) >= (b.readAt ?? 0) ? a : b;
-  if (!src.readAt) return base;
-  return {
-    ...base,
-    readAt: src.readAt,
-    readRatio: src.readRatio,
-  };
+  let next = base;
+  const readSrc = (a.readAt ?? 0) >= (b.readAt ?? 0) ? a : b;
+  if (readSrc.readAt) {
+    next = { ...next, readAt: readSrc.readAt, readRatio: readSrc.readRatio };
+  }
+  const openedAt = Math.max(a.openedAt ?? 0, b.openedAt ?? 0);
+  if (openedAt) next = { ...next, openedAt };
+  const starSrc = (a.starredAt ?? 0) >= (b.starredAt ?? 0) ? a : b;
+  if (starSrc.starredAt) {
+    next = {
+      ...next,
+      starred: starSrc.starred ? true : undefined,
+      starredAt: starSrc.starredAt,
+    };
+  }
+  return next;
+}
+
+export function marksAhead(local: Note, remote: Note): boolean {
+  return (
+    (local.readAt ?? 0) > (remote.readAt ?? 0) ||
+    (local.openedAt ?? 0) > (remote.openedAt ?? 0) ||
+    (local.starredAt ?? 0) > (remote.starredAt ?? 0)
+  );
 }
 
 export function readReaderSession(): ReaderSession | null {

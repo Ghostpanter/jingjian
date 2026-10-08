@@ -22,6 +22,7 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, k: 1 });
   const [page, setPage] = useState(GRAPH_PAGE);
+  const [near, setNear] = useState(false);
   const [laidOut, setLaidOut] = useState<GraphPoint[]>([]);
   const [layingOut, setLayingOut] = useState(false);
   const pointers = useRef(
@@ -30,7 +31,10 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
   const pinch = useRef<{ dist: number; k: number } | null>(null);
   const moved = useRef(false);
 
-  const graph = useMemo(() => linkGraph(notes, page), [notes, page]);
+  const graph = useMemo(
+    () => linkGraph(notes, page, near ? activeId : null),
+    [notes, page, near, activeId],
+  );
   const syncLayout = graph.nodes.length > 0 && graph.nodes.length <= 48;
   const points = useMemo(() => {
     if (!syncLayout || size.width < 40) return [] as GraphPoint[];
@@ -259,6 +263,17 @@ export function GraphView({ notes, activeId, onOpen, onClose }: GraphViewProps) 
       </div>
       <p className="graph-hint flex flex-wrap items-center justify-center gap-2">
         <span>拖动空白处移动，双指缩放。点一篇打开。</span>
+        <button
+          type="button"
+          className="btn-press rounded-md bg-overlay px-2 py-1 text-fg"
+          aria-pressed={near}
+          onClick={() => {
+            setNear((current) => !current);
+            setPage(GRAPH_PAGE);
+          }}
+        >
+          附近
+        </button>
         {graph.truncated ? (
           <button
             type="button"

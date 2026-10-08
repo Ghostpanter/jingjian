@@ -107,6 +107,76 @@ function withCoverHtml(html: string, cover: string | undefined): string {
   return `<p><img src="${escapeHtml(url)}" alt="" /></p>\n${html}`;
 }
 
+export function wordpressArticleFields(
+  html: string,
+  cover: string | undefined,
+  featuredId: number | null,
+): { content: string; featured_media?: number } {
+  if (featuredId && featuredId > 0) return { content: html, featured_media: featuredId };
+  return { content: withCoverHtml(html, cover) };
+}
+
+function coverFileName(url: string, mime: string): string {
+  const ext = mime.includes("png")
+    ? "png"
+    : mime.includes("webp")
+      ? "webp"
+      : mime.includes("gif")
+        ? "gif"
+        : "jpg";
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || "");
+    const clean = name.replace(/[^\w.\-]+/g, "_").slice(0, 80);
+    if (/\.(jpe?g|png|gif|webp)$/i.test(clean)) return clean;
+  } catch {
+    // keep the generated name
+  }
+  return `cover.${ext}`;
+}
+
+async function sideloadWordPressCover(
+  base: string,
+  site: WordPressSite,
+  cover: string,
+): Promise<number | null> {
+  const url = cover.trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  let response: Response;
+  try {
+    response = await platformFetch(url);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  const blob = await response.blob();
+  if (!blob.size || blob.size > 12_000_000) return null;
+  const hinted = blob.type.startsWith("image/") ? blob.type : "";
+  const fromUrl = /\.png($|\?)/i.test(url)
+    ? "image/png"
+    : /\.webp($|\?)/i.test(url)
+      ? "image/webp"
+      : /\.gif($|\?)/i.test(url)
+        ? "image/gif"
+        : "image/jpeg";
+  const mime = hinted || fromUrl;
+  if (!mime.startsWith("image/")) return null;
+  const filename = coverFileName(url, mime);
+  const file = new File([blob], filename, { type: mime });
+  const uploaded = await platformFetch(`${base}/wp-json/wp/v2/media`, {
+    method: "POST",
+    headers: {
+      Authorization: basicAuth(site.username, site.password),
+      "Content-Type": mime,
+      "Content-Disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
+      Accept: "application/json",
+    },
+    body: file,
+  });
+  if (!uploaded.ok) return null;
+  const payload = (await uploaded.json()) as { id?: number };
+  return typeof payload.id === "number" && payload.id > 0 ? payload.id : null;
+}
+
 function xmlArray(values: string[]): string {
   return `<array><data>${values.map((value) => `<value>${xmlString(value)}</value>`).join("")}</data></array>`;
 }
@@ -130,15 +200,26 @@ export async function publishWordPress(noteId: string, content: string, site: Wo
   for (const name of categories) categoryIds.push(await wpTermId(base, site, "categories", name));
   const tagIds = [];
   for (const name of tags) tagIds.push(await wpTermId(base, site, "tags", name));
+  let featured: number | null = null;
+  const cover = site.cover?.trim() ?? "";
+  if (cover) {
+    try {
+      featured = await sideloadWordPressCover(base, site, cover);
+    } catch {
+      featured = null;
+    }
+  }
+  const fields = wordpressArticleFields(article.html, site.cover, featured);
   const path = previous
     ? `${base}/wp-json/wp/v2/posts/${encodeURIComponent(previous.remoteId)}`
     : `${base}/wp-json/wp/v2/posts`;
   const body: Record<string, unknown> = {
     title: article.title,
-    content: withCoverHtml(article.html, site.cover),
+    content: fields.content,
     status: site.status,
     slug: postSlug(article.title),
   };
+  if (fields.featured_media) body.featured_media = fields.featured_media;
   if (categoryIds.length) body.categories = categoryIds;
   if (tagIds.length) body.tags = tagIds;
   const response = await platformFetch(path, {

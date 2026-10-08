@@ -1,18 +1,21 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import {
+  absorbLocalMarks,
   isBlankContent,
   isLargeNote,
   markOpened,
   matchesQuery,
   NOTE_HEAD_SCAN,
   titleFromContent,
+  writeMarksCache,
 } from "./format";
 import { deleteOverflow, getOverflow, putOverflow } from "./overflow";
 import { createSeedNotes } from "./seed";
 import { notesFingerprint, reconcileNotes } from "./sync-merge";
 import { collectFolders, normalizeFolder, remainingAfterDeleteFolder } from "./folder-tree";
-import { stripTag } from "./tags";
+import { replaceTag, stripTag } from "./tags";
+import { linkPlainMention } from "./wiki-links";
 import type { Note, PreviewMode } from "./types";
 
 type NotesState = {
@@ -33,6 +36,10 @@ type NotesState = {
   deleteNote: (id: string) => void;
   updateNote: (id: string, content: string) => void;
   removeTag: (key: string) => number;
+  removeTagFromNote: (id: string, key: string) => boolean;
+  renameTag: (key: string, nextLabel: string) => number;
+  linkMention: (phrase: string) => boolean;
+  setStar: (id: string, on: boolean) => void;
   selectNote: (id: string) => void;
   setQuery: (query: string) => void;
   setPreviewMode: (mode: PreviewMode) => void;
@@ -44,6 +51,7 @@ type NotesState = {
   makeBookFromNote: (noteId: string, title?: string) => string | null;
   addChapter: (bookId: string) => string | null;
   renameBook: (bookId: string, title: string) => void;
+  reorderChapter: (id: string, direction: -1 | 1) => void;
   createFolder: (path: string) => string | null;
   moveNote: (id: string, folder: string | null) => void;
   deleteFolder: (path: string) => string[];
@@ -242,9 +250,76 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     });
     return changed;
   },
+  removeTagFromNote: (id, key) => {
+    const note = get().notes.find((item) => item.id === id);
+    if (!note) return false;
+    const next = stripTag(note.content, key);
+    if (next === note.content) return false;
+    set({
+      notes: get().notes.map((item) =>
+        item.id === id
+          ? { ...item, content: next, updatedAt: Date.now(), overflow: isLargeNote(next) ? true : undefined }
+          : item,
+      ),
+      ...(get().activeId === id ? { editorEpoch: get().editorEpoch + 1 } : {}),
+    });
+    return true;
+  },
+  renameTag: (key, nextLabel) => {
+    const now = Date.now();
+    const activeId = get().activeId;
+    let changed = 0;
+    let activeChanged = false;
+    const notes = get().notes.map((note) => {
+      const next = replaceTag(note.content, key, nextLabel);
+      if (next === note.content) return note;
+      changed += 1;
+      if (note.id === activeId) activeChanged = true;
+      return {
+        ...note,
+        content: next,
+        updatedAt: now,
+        overflow: isLargeNote(next) ? true : undefined,
+      };
+    });
+    if (!changed) return 0;
+    set({
+      notes,
+      ...(activeChanged ? { editorEpoch: get().editorEpoch + 1 } : {}),
+    });
+    return changed;
+  },
+  linkMention: (phrase) => {
+    const id = get().activeId;
+    if (!id) return false;
+    const note = get().notes.find((item) => item.id === id);
+    if (!note) return false;
+    const next = linkPlainMention(note.content, phrase);
+    if (next === note.content) return false;
+    set({
+      notes: get().notes.map((item) =>
+        item.id === id
+          ? { ...item, content: next, updatedAt: Date.now(), overflow: isLargeNote(next) ? true : undefined }
+          : item,
+      ),
+      editorEpoch: get().editorEpoch + 1,
+    });
+    return true;
+  },
+  setStar: (id, on) => {
+    const starredAt = Date.now();
+    const notes = get().notes.map((note) =>
+      note.id === id ? { ...note, starred: on ? true : undefined, starredAt } : note,
+    );
+    set({ notes });
+    writeMarksCache(notes);
+  },
   selectNote: (id) => {
     markOpened(id);
-    set({ activeId: id, sidebarOpen: false });
+    const openedAt = Date.now();
+    const notes = get().notes.map((note) => (note.id === id ? { ...note, openedAt } : note));
+    set({ activeId: id, sidebarOpen: false, notes });
+    writeMarksCache(notes);
   },
   setQuery: (query) => set({ query }),
   setPreviewMode: (previewMode) => set({ previewMode }),
@@ -271,6 +346,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
         : current.editorEpoch,
       folders: collectFolders(reconciled.notes, current.folders),
     });
+    writeMarksCache(reconciled.notes);
   },
   importNotes: (incoming) => {
     if (incoming.length === 0) return;
@@ -338,6 +414,27 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       notes: get().notes.map((note) =>
         note.bookId === bookId ? { ...note, bookTitle, updatedAt: Date.now() } : note,
       ),
+    });
+  },
+  reorderChapter: (id, direction) => {
+    const note = get().notes.find((item) => item.id === id);
+    if (!note?.bookId) return;
+    const siblings = get()
+      .notes.filter((item) => item.bookId === note.bookId)
+      .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0));
+    const index = siblings.findIndex((item) => item.id === id);
+    const swap = index + direction;
+    if (index < 0 || swap < 0 || swap >= siblings.length) return;
+    const other = siblings[swap];
+    const aIndex = note.chapterIndex ?? index;
+    const bIndex = other.chapterIndex ?? swap;
+    const now = Date.now();
+    set({
+      notes: get().notes.map((item) => {
+        if (item.id === note.id) return { ...item, chapterIndex: bIndex, updatedAt: now };
+        if (item.id === other.id) return { ...item, chapterIndex: aIndex, updatedAt: now };
+        return item;
+      }),
     });
   },
   createFolder: (path) => {
@@ -424,12 +521,15 @@ export function hydrateNotesStore(): void {
     });
     return;
   }
-  if (!persisted.notes.some((note) => note.overflow)) {
-    useNotesStore.setState({ ...persisted, hydrated: true });
+  const base = absorbLocalMarks(persisted.notes);
+  if (!base.some((note) => note.overflow)) {
+    useNotesStore.setState({ ...persisted, notes: base, hydrated: true });
+    writeMarksCache(base);
     return;
   }
-  void restoreOverflowNotes(persisted.notes).then((notes) => {
+  void restoreOverflowNotes(base).then((notes) => {
     useNotesStore.setState({ ...persisted, notes, hydrated: true });
+    writeMarksCache(notes);
   });
 }
 

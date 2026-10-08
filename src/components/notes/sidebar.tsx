@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ancestorFolders, buildFileTree } from "@/lib/notes/folder-tree";
 import {
+  compareNotes,
   formatRelativeTime,
   groupNotes,
   NOTE_SORTS,
@@ -22,6 +23,7 @@ import type { OutlineHeading } from "@/lib/notes/outline";
 import { chapterProgress, CHAPTER_FOLD, foldChapters, lastReadChapter } from "@/lib/notes/reader-progress";
 import { noteLinks, unlinkedMentions } from "@/lib/notes/wiki-links";
 import { libraryTags, tagMatches } from "@/lib/notes/tags";
+import { useNotesStore } from "@/lib/notes/store";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -144,8 +146,76 @@ type SidebarProps = {
   onOpenToday?: () => void;
   onReadBook?: (noteId: string) => void;
   onRemoveTag?: (key: string, label: string) => void;
+  onRemoveTagFromNote?: (key: string, label: string) => void;
+  onRenameTag?: (key: string, next: string) => void;
+  onLinkMention?: (phrase: string) => void;
+  onRenameBook?: (bookId: string, title: string) => void;
+  onReorderChapter?: (id: string, direction: -1 | 1) => void;
   syncLabel: string;
 };
+
+function ChapterRow({
+  note,
+  number,
+  total,
+  selected,
+  pad,
+  onSelect,
+  onReorder,
+}: {
+  note: Note;
+  number: number;
+  total: number;
+  selected: boolean;
+  pad: number;
+  onSelect: (id: string) => void;
+  onReorder?: (id: string, direction: -1 | 1) => void;
+}) {
+  return (
+    <li role="none" className="flex items-center">
+      <button
+        type="button"
+        role="option"
+        aria-selected={selected}
+        onClick={() => onSelect(note.id)}
+        className={cn(
+          "note-item btn-press flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left text-sm",
+          "transition-colors duration-(--motion-quick) ease-(--ease-out)",
+          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+          selected ? "bg-paper shadow-border" : "hover:bg-overlay",
+        )}
+        style={{ paddingLeft: pad }}
+      >
+        <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">{number}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+          {titleFromContent(note.content)}
+        </span>
+      </button>
+      {onReorder ? (
+        <>
+          <button
+            type="button"
+            aria-label={`上移第${number}章`}
+            disabled={number <= 1}
+            className="btn-press shrink-0 px-1 py-1 text-xs text-subtle hover:text-fg disabled:opacity-30"
+            onClick={() => onReorder(note.id, -1)}
+          >
+            上
+          </button>
+          <button
+            type="button"
+            aria-label={`下移第${number}章`}
+            disabled={number >= total}
+            className="btn-press mr-1 shrink-0 px-1 py-1 text-xs text-subtle hover:text-fg disabled:opacity-30"
+            onClick={() => onReorder(note.id, 1)}
+          >
+            下
+          </button>
+        </>
+      ) : null}
+    </li>
+  );
+}
 
 export function Sidebar({
   notes,
@@ -184,6 +254,11 @@ export function Sidebar({
   onOpenToday,
   onReadBook,
   onRemoveTag,
+  onRemoveTagFromNote,
+  onRenameTag,
+  onLinkMention,
+  onRenameBook,
+  onReorderChapter,
   syncLabel,
 }: SidebarProps) {
   const groups = groupNotes(notes);
@@ -199,6 +274,10 @@ export function Sidebar({
   const [tagsOpen, setTagsOpen] = useState(() => readFlag(TAGS_SECTION_KEY, false));
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagPending, setTagPending] = useState<string | null>(null);
+  const [tagRename, setTagRename] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
+  const [renamingBook, setRenamingBook] = useState<string | null>(null);
+  const bookRenameGuard = useRef(false);
   const [openSpans, setOpenSpans] = useState<Set<string>>(() => new Set());
   const [stars, setStars] = useState<Set<string>>(() => new Set());
   const [opened, setOpened] = useState<Record<string, number>>({});
@@ -206,6 +285,14 @@ export function Sidebar({
     () => buildFileTree(treeNotes, folders, sort, { opened, stars }),
     [treeNotes, folders, sort, opened, stars],
   );
+  const searchHits = useMemo(() => {
+    return [...notes].sort((a, b) => {
+      const left = stars.has(a.id) || a.starred ? 1 : 0;
+      const right = stars.has(b.id) || b.starred ? 1 : 0;
+      if (left !== right) return right - left;
+      return compareNotes(a, b, sort, opened);
+    });
+  }, [notes, stars, sort, opened]);
   const createBtnRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLElement>(null);
   const notesRef = useRef(notes);
@@ -729,10 +816,10 @@ export function Sidebar({
               ) : (
                 <ul>
                   {mentions.map((item) => (
-                    <li key={item.id}>
+                    <li key={item.id} className="flex items-start">
                       <button
                         type="button"
-                        className="note-item btn-press flex w-full flex-col items-start rounded-md px-2 py-1 text-left hover:bg-overlay"
+                        className="note-item btn-press flex min-w-0 flex-1 flex-col items-start rounded-md px-2 py-1 text-left hover:bg-overlay"
                         onClick={() => openLinked(item.id)}
                       >
                         <span className="w-full truncate text-sm text-fg">
@@ -743,6 +830,16 @@ export function Sidebar({
                           <span className="w-full truncate text-[11px] leading-4 text-muted">{item.line}</span>
                         ) : null}
                       </button>
+                      {onLinkMention ? (
+                        <button
+                          type="button"
+                          className="btn-press mt-1 shrink-0 rounded-md px-1.5 py-1 text-xs text-subtle hover:text-fg"
+                          aria-label={`把${item.phrase}写成双链`}
+                          onClick={() => onLinkMention(item.phrase)}
+                        >
+                          写成双链
+                        </button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -812,16 +909,66 @@ export function Sidebar({
                     </p>
                   ) : (
                     <ul aria-label="标签">
-                      {tagIndex.tags.slice(0, 80).map((tag) => {
+                      {tagIndex.tags.map((tag) => {
                         const selected = tag.key === activeTag;
                         const depth = tag.key.split("/").length - 1;
                         const short = tag.label.split("/").pop() ?? tag.label;
+                        const onThis = activeId
+                          ? tagMatches(tagIndex.keysByNote.get(activeId) ?? [], tag.key)
+                          : false;
                         return (
                           <li key={tag.key}>
-                            {tagPending === tag.key ? (
+                            {tagRename === tag.key ? (
+                              <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 + depth * 12 }}>
+                                <input
+                                  autoFocus
+                                  value={tagDraft}
+                                  aria-label={`新的标签名，原为 ${tag.label}`}
+                                  className="min-w-0 flex-1 rounded-sm bg-paper px-1 py-0.5 text-sm text-fg"
+                                  onChange={(event) => setTagDraft(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      onRenameTag?.(tag.key, tagDraft);
+                                      setTagRename(null);
+                                      if (activeTag === tag.key) setActiveTag(null);
+                                    }
+                                    if (event.key === "Escape") setTagRename(null);
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-press rounded-md bg-paper px-2 py-1 text-xs text-fg"
+                                  onClick={() => {
+                                    onRenameTag?.(tag.key, tagDraft);
+                                    setTagRename(null);
+                                    if (activeTag === tag.key) setActiveTag(null);
+                                  }}
+                                >
+                                  确定
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-press rounded-md px-2 py-1 text-xs text-muted"
+                                  onClick={() => setTagRename(null)}
+                                >
+                                  取消
+                                </button>
+                              </div>
+                            ) : tagPending === tag.key ? (
                               <div className="px-2 py-1.5" style={{ paddingLeft: 8 + depth * 12 }}>
-                                <p className="text-xs leading-5 text-muted">去掉 #{tag.label}？笔记里的这个标签会一起删掉。</p>
-                                <div className="mt-1 flex gap-2">
+                                <p className="text-xs leading-5 text-muted">去掉 #{tag.label}？</p>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={!onThis}
+                                    className="btn-press rounded-md bg-paper px-2 py-1 text-xs text-fg disabled:opacity-40"
+                                    onClick={() => {
+                                      onRemoveTagFromNote?.(tag.key, tag.label);
+                                      setTagPending(null);
+                                    }}
+                                  >
+                                    这篇
+                                  </button>
                                   <button
                                     type="button"
                                     className="btn-press rounded-md bg-paper px-2 py-1 text-xs text-fg"
@@ -831,7 +978,7 @@ export function Sidebar({
                                       if (activeTag === tag.key) setActiveTag(null);
                                     }}
                                   >
-                                    去掉
+                                    全部
                                   </button>
                                   <button
                                     type="button"
@@ -858,12 +1005,29 @@ export function Sidebar({
                                   <span className="min-w-0 flex-1 truncate text-fg">#{short}</span>
                                   <span className="shrink-0 tabular-nums text-xs text-subtle">{tag.count}</span>
                                 </button>
+                                {onRenameTag ? (
+                                  <button
+                                    type="button"
+                                    aria-label={`改名 #${tag.label}`}
+                                    className="btn-press shrink-0 rounded-md px-1.5 py-1 text-xs text-subtle hover:text-fg"
+                                    onClick={() => {
+                                      setTagRename(tag.key);
+                                      setTagDraft(tag.label);
+                                      setTagPending(null);
+                                    }}
+                                  >
+                                    改名
+                                  </button>
+                                ) : null}
                                 {onRemoveTag ? (
                                   <button
                                     type="button"
                                     aria-label={`删除标签 #${tag.label}`}
                                     className="btn-press mr-1 shrink-0 rounded-md px-1.5 py-1 text-xs text-subtle hover:text-fg"
-                                    onClick={() => setTagPending(tag.key)}
+                                    onClick={() => {
+                                      setTagPending(tag.key);
+                                      setTagRename(null);
+                                    }}
                                   >
                                     删除
                                   </button>
@@ -962,6 +1126,33 @@ export function Sidebar({
                               className={cn("size-3.5 transition-transform", open && "rotate-90")}
                             />
                           </button>
+                          {renamingBook === bookId ? (
+                            <input
+                              autoFocus
+                              defaultValue={group.label}
+                              aria-label="书名"
+                              className="min-w-0 flex-1 rounded-sm bg-paper px-1 py-0.5 text-sm text-fg"
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  bookRenameGuard.current = true;
+                                  onRenameBook?.(bookId, event.currentTarget.value);
+                                  setRenamingBook(null);
+                                }
+                                if (event.key === "Escape") {
+                                  bookRenameGuard.current = true;
+                                  setRenamingBook(null);
+                                }
+                              }}
+                              onBlur={(event) => {
+                                if (bookRenameGuard.current) {
+                                  bookRenameGuard.current = false;
+                                  return;
+                                }
+                                onRenameBook?.(bookId, event.currentTarget.value);
+                                setRenamingBook(null);
+                              }}
+                            />
+                          ) : (
                           <button
                             type="button"
                             className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
@@ -972,6 +1163,7 @@ export function Sidebar({
                               {group.label}
                             </span>
                           </button>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 pr-1 pb-1 pl-7">
                           <span className="shrink-0 tabular-nums text-xs text-subtle">
@@ -984,6 +1176,19 @@ export function Sidebar({
                               onClick={() => onReadBook(resume.id)}
                             >
                               阅读
+                            </button>
+                          ) : null}
+                          {onRenameBook ? (
+                            <button
+                              type="button"
+                              className="btn-press shrink-0 rounded-sm px-1.5 py-0.5 text-xs text-muted hover:text-fg"
+                              aria-label={`改名 ${group.label}`}
+                              onClick={() => {
+                                bookRenameGuard.current = false;
+                                setRenamingBook(bookId);
+                              }}
+                            >
+                              改名
                             </button>
                           ) : null}
                         </div>
@@ -1016,34 +1221,18 @@ export function Sidebar({
                                   </button>
                                   {spanOpen ? (
                                     <ul role="listbox" aria-label={span.label}>
-                                      {span.notes.map((note, index) => {
-                                        const selected = note.id === activeId;
-                                        const number = span.start + index + 1;
-                                        return (
-                                          <li key={note.id} role="none">
-                                            <button
-                                              type="button"
-                                              role="option"
-                                              aria-selected={selected}
-                                              onClick={() => selectAndExpand(note.id)}
-                                              className={cn(
-                                                "note-item btn-press flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm",
-                                                "transition-colors duration-(--motion-quick) ease-(--ease-out)",
-                                                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                                                selected ? "bg-paper shadow-border" : "hover:bg-overlay",
-                                              )}
-                                              style={{ paddingLeft: 28 }}
-                                            >
-                                              <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">
-                                                {number}
-                                              </span>
-                                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
-                                                {titleFromContent(note.content)}
-                                              </span>
-                                            </button>
-                                          </li>
-                                        );
-                                      })}
+                                      {span.notes.map((note, index) => (
+                                        <ChapterRow
+                                          key={note.id}
+                                          note={note}
+                                          number={span.start + index + 1}
+                                          total={group.notes.length}
+                                          selected={note.id === activeId}
+                                          pad={28}
+                                          onSelect={selectAndExpand}
+                                          onReorder={onReorderChapter}
+                                        />
+                                      ))}
                                     </ul>
                                   ) : null}
                                 </div>
@@ -1052,33 +1241,18 @@ export function Sidebar({
                           </div>
                         ) : (
                         <ul role="listbox" aria-label={group.label}>
-                          {group.notes.map((note, index) => {
-                            const selected = note.id === activeId;
-                            return (
-                              <li key={note.id} role="none">
-                                <button
-                                  type="button"
-                                  role="option"
-                                  aria-selected={selected}
-                                  onClick={() => selectAndExpand(note.id)}
-                                  className={cn(
-                                    "note-item btn-press flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm",
-                                    "transition-colors duration-(--motion-quick) ease-(--ease-out)",
-                                    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                                    selected ? "bg-paper shadow-border" : "hover:bg-overlay",
-                                  )}
-                                  style={{ paddingLeft: 18 }}
-                                >
-                                  <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">
-                                    {index + 1}
-                                  </span>
-                                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
-                                    {titleFromContent(note.content)}
-                                  </span>
-                                </button>
-                              </li>
-                            );
-                          })}
+                          {group.notes.map((note, index) => (
+                            <ChapterRow
+                              key={note.id}
+                              note={note}
+                              number={index + 1}
+                              total={group.notes.length}
+                              selected={note.id === activeId}
+                              pad={18}
+                              onSelect={selectAndExpand}
+                              onReorder={onReorderChapter}
+                            />
+                          ))}
                         </ul>
                         )
                       ) : null}
@@ -1090,7 +1264,7 @@ export function Sidebar({
 
             {searching ? (
               <ul role="listbox" aria-label="搜索结果">
-                {treeNotes.map((note) => {
+                {searchHits.map((note) => {
                   const selected = note.id === activeId;
                   return (
                     <li key={note.id} role="none">
@@ -1108,7 +1282,7 @@ export function Sidebar({
                           {titleFromContent(note.content)}
                         </span>
                         <span className="mt-0.5 w-full truncate text-xs text-muted">
-                          {note.folder || formatRelativeTime(note.updatedAt, now)}
+                          {note.bookTitle || note.folder || formatRelativeTime(note.updatedAt, now)}
                         </span>
                       </button>
                     </li>
@@ -1132,7 +1306,8 @@ export function Sidebar({
                   onFolderMenu={onFolderMenu}
                   starred={stars}
                   onToggleStar={(id) => {
-                    toggleStar(id);
+                    const on = toggleStar(id);
+                    useNotesStore.getState().setStar(id, on);
                     setStars(readStars());
                   }}
                 />

@@ -16,10 +16,19 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     private static final String CHROME_PREFS = "jingjian_chrome";
     private static final String DEFAULT_BG = "#F2EDE4";
+    /** HarmonyOS NEXT Android container store. Not the older 卓易市场. */
+    private static final String ZHUOYI_TONG = "com.zhuoyi.appstore.lite";
     private volatile boolean keepSplash = true;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        if (isZhuoyiTong()) {
+            super.onCreate(savedInstanceState);
+            finishAndRemoveTask();
+            android.os.Process.killProcess(android.os.Process.myPid());
+            System.exit(0);
+            return;
+        }
         SplashScreen splash = SplashScreen.installSplashScreen(this);
         splash.setKeepOnScreenCondition(() -> keepSplash);
         splash.setOnExitAnimationListener(splashView -> {
@@ -51,6 +60,25 @@ public class MainActivity extends BridgeActivity {
             window.setNavigationBarContrastEnforced(false);
         }
         new Handler(Looper.getMainLooper()).postDelayed(this::releaseSplash, 2500);
+    }
+
+    private boolean isZhuoyiTong() {
+        try {
+            String installer = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                installer = getPackageManager().getInstallSourceInfo(getPackageName()).getInstallingPackageName();
+            } else {
+                installer = getPackageManager().getInstallerPackageName(getPackageName());
+            }
+            if (ZHUOYI_TONG.equals(installer)) return true;
+        } catch (Exception ignored) {
+        }
+        try {
+            getPackageManager().getPackageInfo(ZHUOYI_TONG, 0);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     void releaseSplash() {

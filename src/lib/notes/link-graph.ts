@@ -16,6 +16,7 @@ export const GRAPH_PAGE = 160;
 export function linkGraph(
   notes: { id: string; content: string }[],
   maxNodes = GRAPH_PAGE,
+  focusId?: string | null,
 ): LinkGraph {
   const titleOf = new Map<string, string>();
   const idByTitle = titleIndex(notes);
@@ -42,9 +43,22 @@ export function linkGraph(
     }
   }
 
-  const ranked = [...degree.keys()].sort(
+  const linked = [...degree.keys()].sort(
     (a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a.localeCompare(b),
   );
+  const isolates = notes
+    .map((note) => note.id)
+    .filter((id) => !degree.has(id))
+    .sort((a, b) => a.localeCompare(b));
+  let ranked = [...linked, ...isolates];
+  if (focusId && notes.some((note) => note.id === focusId)) {
+    const near = new Set<string>([focusId]);
+    for (const link of links) {
+      if (link.source === focusId) near.add(link.target);
+      if (link.target === focusId) near.add(link.source);
+    }
+    ranked = ranked.filter((id) => near.has(id));
+  }
   const total = ranked.length;
   const cap = Number.isFinite(maxNodes) ? Math.max(0, maxNodes) : total;
   const ids = ranked.slice(0, cap);

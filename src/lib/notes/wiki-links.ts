@@ -28,6 +28,8 @@ export type UnlinkedMention = {
   title: string;
   line: string;
   count: number;
+  /** The plain text that should become `[[phrase]]`. */
+  phrase: string;
 };
 
 const SCAN_CAP = 120_000;
@@ -167,6 +169,7 @@ export function unlinkedMentions(
     let count = 0;
     let line = "";
     const seen = new Set<string>();
+    let phrase = "";
     for (const name of names) {
       const key = name.toLowerCase();
       if (seen.has(key)) continue;
@@ -174,6 +177,7 @@ export function unlinkedMentions(
       const hits = mentionCount(prose, name);
       if (!hits) continue;
       count += hits;
+      if (!phrase) phrase = name;
       if (!line) {
         const found = prose.split("\n").find((row) => row.toLowerCase().includes(name.toLowerCase()));
         line = found ? snippet(found) : "";
@@ -185,6 +189,7 @@ export function unlinkedMentions(
       title: firstLineTitle(note.content) || "未命名笔记",
       line,
       count,
+      phrase,
     });
   }
   return mentions;
@@ -243,4 +248,66 @@ export function noteLinks(
   }
 
   return { incoming: [...incoming.values()], outgoing };
+}
+
+/** Wrap plain occurrences of `phrase` in `[[phrase]]`, outside code and existing links. */
+export function linkPlainMention(content: string, phrase: string): string {
+  const name = phrase.trim();
+  if (name.length < 2 || !content.includes(name) && !content.toLowerCase().includes(name.toLowerCase())) {
+    return content;
+  }
+  const wrapped = `[[${name}]]`;
+  const cjk = /[\u3400-\u9fff]/.test(name);
+  const key = name.toLowerCase();
+  let fence: string | null = null;
+  let changed = false;
+  const lines = content.split("\n").map((raw) => {
+    const line = raw.replace(/\r$/, "");
+    const cr = raw.endsWith("\r");
+    const trimmed = line.trim();
+    const open = FENCE_LINE.exec(trimmed);
+    if (fence) {
+      if (trimmed.startsWith(fence)) fence = null;
+      return raw;
+    }
+    if (open) {
+      fence = open[1];
+      return raw;
+    }
+    const mask = line
+      .replace(/`[^`]*`/g, (span) => " ".repeat(span.length))
+      .replace(/!\[[^\]]*\]\]/g, (span) => " ".repeat(span.length))
+      .replace(/\[\[[^\]]*\]\]/g, (span) => " ".repeat(span.length));
+    const lower = mask.toLowerCase();
+    const cuts: { start: number; end: number }[] = [];
+    let from = 0;
+    while (from < lower.length) {
+      const at = lower.indexOf(key, from);
+      if (at < 0) break;
+      const end = at + name.length;
+      if (line.slice(at, end).toLowerCase() !== key) {
+        from = at + 1;
+        continue;
+      }
+      if (!cjk) {
+        const before = at > 0 ? line[at - 1] : "";
+        const after = end < line.length ? line[end] : "";
+        if (/[A-Za-z0-9]/.test(before) || /[A-Za-z0-9]/.test(after)) {
+          from = at + 1;
+          continue;
+        }
+      }
+      cuts.push({ start: at, end });
+      from = end;
+    }
+    if (cuts.length === 0) return raw;
+    changed = true;
+    let next = line;
+    for (let index = cuts.length - 1; index >= 0; index -= 1) {
+      const cut = cuts[index];
+      next = next.slice(0, cut.start) + wrapped + next.slice(cut.end);
+    }
+    return cr ? `${next}\r` : next;
+  });
+  return changed ? lines.join("\n") : content;
 }

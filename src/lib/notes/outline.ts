@@ -26,10 +26,14 @@ export function headingIdFor(text: string, seen: Map<string, number>): string {
   return count === 1 ? base : `${base}-${count}`;
 }
 
-export function extractHeadings(content: string, maxScan = 400_000): OutlineHeading[] {
+function walkHeadings(
+  content: string,
+  maxScan: number,
+  seen: Map<string, number>,
+  collect: boolean,
+): OutlineHeading[] {
   const limit = Math.min(content.length, maxScan);
   const headings: OutlineHeading[] = [];
-  const seen = new Map<string, number>();
   let offset = 0;
   let fence: string | null = null;
 
@@ -53,12 +57,8 @@ export function extractHeadings(content: string, maxScan = 400_000): OutlineHead
       if (match) {
         const text = match[2].trim();
         if (text) {
-          headings.push({
-            level: match[1].length,
-            text,
-            id: headingIdFor(text, seen),
-            offset,
-          });
+          const id = headingIdFor(text, seen);
+          if (collect) headings.push({ level: match[1].length, text, id, offset });
         }
       }
     }
@@ -68,4 +68,16 @@ export function extractHeadings(content: string, maxScan = 400_000): OutlineHead
   }
 
   return headings;
+}
+
+export function extractHeadings(content: string, maxScan = Number.POSITIVE_INFINITY): OutlineHeading[] {
+  return walkHeadings(content, maxScan, new Map(), true);
+}
+
+/** Heading-id counts for everything before `until`, so a later slice keeps the same ids. */
+export function headingSeedBefore(content: string, until: number): Map<string, number> {
+  const seen = new Map<string, number>();
+  if (until <= 0) return seen;
+  walkHeadings(content, until, seen, false);
+  return seen;
 }

@@ -236,3 +236,106 @@ export function stripTag(content: string, rawKey: string): string {
   }
   return stripInlineTags(content, key);
 }
+
+function rewriteYamlTags(yaml: string, key: string, label: string): string {
+  const lines = yaml.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const raw = lines[i];
+    const line = raw.replace(/\r$/, "");
+    const inline = /^(tags|tag)\s*:\s*(.*)$/.exec(line);
+    if (!inline) {
+      out.push(raw);
+      i += 1;
+      continue;
+    }
+    const value = inline[2].trim();
+    if (!value) {
+      out.push(raw);
+      i += 1;
+      while (i < lines.length) {
+        const item = /^\s*-\s*(.+?)\s*$/.exec(lines[i].replace(/\r$/, ""));
+        if (!item) break;
+        if (!sameTag(item[1], key)) out.push(lines[i]);
+        else {
+          const indent = /^\s*/.exec(lines[i])?.[0] ?? "";
+          const cr = lines[i].endsWith("\r") ? "\r" : "";
+          out.push(`${indent}- ${label}${cr}`);
+        }
+        i += 1;
+      }
+      continue;
+    }
+    const bracket = value.startsWith("[") && value.endsWith("]");
+    const inner = bracket ? value.slice(1, -1) : value;
+    const parts = inner.split(",").map((part) => part.trim()).filter(Boolean);
+    const next = parts.map((part) => (sameTag(part, key) ? label : part));
+    if (next.join(",") === parts.join(",")) out.push(raw);
+    else {
+      const body = bracket ? `[${next.join(", ")}]` : next.join(", ");
+      out.push(`${inline[1]}: ${body}${raw.endsWith("\r") ? "\r" : ""}`);
+    }
+    i += 1;
+  }
+  return out.join("\n");
+}
+
+function rewriteInlineTags(source: string, key: string, label: string): string {
+  let fence: string | null = null;
+  let changed = false;
+  const out = source.split("\n").map((raw) => {
+    const line = raw.replace(/\r$/, "");
+    const cr = raw.endsWith("\r");
+    const trimmed = line.trim();
+    const open = FENCE_LINE.exec(trimmed);
+    if (fence) {
+      if (trimmed.startsWith(fence)) fence = null;
+      return raw;
+    }
+    if (open && trimmed.startsWith(open[1])) {
+      fence = open[1];
+      return raw;
+    }
+    const masked = line.replace(/`[^`]*`/g, (span) => " ".repeat(span.length));
+    TAG_RE.lastIndex = 0;
+    const cuts: { start: number; end: number }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = TAG_RE.exec(masked))) {
+      if (!sameTag(match[2], key)) continue;
+      const hash = match.index + match[1].length;
+      cuts.push({ start: hash, end: hash + 1 + match[2].length });
+    }
+    if (cuts.length === 0) return raw;
+    changed = true;
+    let next = line;
+    for (let index = cuts.length - 1; index >= 0; index -= 1) {
+      const cut = cuts[index];
+      next = next.slice(0, cut.start) + `#${label}` + next.slice(cut.end);
+    }
+    return cr ? `${next}\r` : next;
+  });
+  return changed ? out.join("\n") : source;
+}
+
+/** Rename one exact tag in place. Child tags and code stay. */
+export function replaceTag(content: string, rawKey: string, rawNext: string): string {
+  const from = normalizeTag(rawKey);
+  const to = normalizeTag(rawNext);
+  if (!from || !to || from.key === to.key || !content) return content;
+  const apply = (source: string) => rewriteInlineTags(source, from.key, to.label);
+  if (content.startsWith("---")) {
+    const close = content.indexOf("\n---", 3);
+    if (close >= 0) {
+      const yamlStart = content.indexOf("\n") + 1;
+      const originalYaml = content.slice(yamlStart, close);
+      const nextYaml = rewriteYamlTags(originalYaml, from.key, to.label);
+      const rest = content.slice(close + 4);
+      const nextRest = apply(rest);
+      if (nextYaml === originalYaml && nextRest === rest) return content;
+      const yamlBody = nextYaml.endsWith("\n") ? nextYaml : `${nextYaml}\n`;
+      return `---\n${yamlBody}---${nextRest.startsWith("\n") || nextRest.startsWith("\r") ? "" : "\n"}${nextRest}`;
+    }
+  }
+  return apply(content);
+}

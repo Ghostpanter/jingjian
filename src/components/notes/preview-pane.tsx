@@ -1,9 +1,10 @@
-import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isBlankContent, previewWindow } from "@/lib/notes/format";
 import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { renderMarkdown } from "@/lib/notes/markdown";
 import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
+import { headingSeedBefore } from "@/lib/notes/outline";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
 import type { NoteFormat } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ type PreviewPaneProps = {
   previewId?: string;
   restoreRatio?: number;
   speakIndex?: number;
+  anchorKey?: string;
   onScroll?: () => void;
   onScrollRatio?: (ratio: number) => void;
   onToggleTask?: (index: number) => void;
@@ -34,21 +36,57 @@ export function PreviewPane({
   previewId = "note-preview",
   restoreRatio,
   speakIndex,
+  anchorKey,
   onScroll,
   onScrollRatio,
   onToggleTask,
   onOpenWiki,
 }: PreviewPaneProps) {
-  const windowed = useMemo(() => previewWindow(content), [content]);
+  const [anchor, setAnchor] = useState(0);
+  const pendingHeading = useRef<string | null>(null);
+  const windowed = useMemo(() => previewWindow(content, undefined, anchor), [content, anchor]);
+  const headingSeed = useMemo(
+    () => (windowed.start > 0 ? headingSeedBefore(content, windowed.start) : undefined),
+    [content, windowed.start],
+  );
   const html = useMemo(
-    () => (format === "txt" ? "" : renderMarkdown(windowed.text, notes)),
-    [windowed.text, format, notes],
+    () => (format === "txt" ? "" : renderMarkdown(windowed.text, notes, headingSeed)),
+    [windowed.text, format, notes, headingSeed],
   );
   const empty = isBlankContent(content);
   const articleRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+
+  useEffect(() => {
+    setAnchor(0);
+  }, [anchorKey]);
+
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ start?: number; headingId?: string }>).detail;
+      if (!detail || typeof detail.start !== "number") return;
+      pendingHeading.current = detail.headingId || null;
+      setAnchor(detail.start);
+    };
+    window.addEventListener("jingjian-reveal", onReveal);
+    return () => window.removeEventListener("jingjian-reveal", onReveal);
+  }, []);
+
+  useLayoutEffect(() => {
+    const id = pendingHeading.current;
+    if (!id || !scrollRef.current) return;
+    const target = scrollRef.current.querySelector(`[id="${CSS.escape(id)}"]`);
+    if (target instanceof HTMLElement) {
+      const top =
+        target.getBoundingClientRect().top -
+        scrollRef.current.getBoundingClientRect().top +
+        scrollRef.current.scrollTop;
+      scrollRef.current.scrollTop = Math.max(0, top - 8);
+    }
+    pendingHeading.current = null;
+  }, [html, anchor]);
 
   useLayoutEffect(() => {
     restored.current = false;
@@ -183,7 +221,9 @@ export function PreviewPane({
       >
         {windowed.truncated ? (
           <p className="note-clip-banner" role="status">
-            文件较大，预览只显示开头。源码模式可查看与编辑全文开头，后文仍保留。
+            {windowed.start > 0
+              ? "文件较大，预览正显示这一段，不是全文。"
+              : "文件较大，预览只显示开头。源码模式可查看与编辑全文开头，后文仍保留。"}
           </p>
         ) : null}
         {empty ? (

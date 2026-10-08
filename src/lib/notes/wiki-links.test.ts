@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { noteLinks, unlinkedMentions, wikiHits } from "./wiki-links.ts";
+import { linkPlainMention, noteLinks, unlinkedMentions, wikiHits } from "./wiki-links.ts";
 
 test("wiki hits skip fenced and inline code, and keep the link target", () => {
   const hits = wikiHits("见 [[甲|链接]] 与 `[[乙]]`\n```\n[[丙]]\n```\n还有 [[甲#节]]");
@@ -38,5 +38,15 @@ test("aliases resolve both ways and plain titles show up as unlinked", () => {
   assert.equal(fromB.outgoing[0]?.id, "a");
   const mentions = unlinkedMentions(notes, "a");
   assert.equal(mentions[0]?.id, "b");
+  assert.equal(mentions[0]?.phrase, "乙的笔记");
   assert.equal(unlinkedMentions(notes, "b").length, 0);
+});
+
+test("plain titles become wiki links outside code and existing links", () => {
+  const source = "这里写了乙的笔记。\n`乙的笔记`\n```\n乙的笔记\n```\n已有 [[乙的笔记]]";
+  const next = linkPlainMention(source, "乙的笔记");
+  assert.match(next, /这里写了\[\[乙的笔记\]\]。/);
+  assert.match(next, /`乙的笔记`/);
+  assert.match(next, /```\n乙的笔记\n```/);
+  assert.equal(next.match(/\[\[乙的笔记\]\]/g)?.length, 2);
 });

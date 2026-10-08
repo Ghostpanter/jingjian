@@ -103,6 +103,9 @@ test("reading progress survives serialize", () => {
       chapterIndex: 0,
       readAt: 90,
       readRatio: 0.4,
+      openedAt: 40,
+      starred: true,
+      starredAt: 50,
     }),
     "fallback",
   );
@@ -110,6 +113,9 @@ test("reading progress survives serialize", () => {
   assert.equal(parsed.bookCover, "images/cover.jpg");
   assert.equal(parsed.readAt, 90);
   assert.equal(parsed.readRatio, 0.4);
+  assert.equal(parsed.openedAt, 40);
+  assert.equal(parsed.starred, true);
+  assert.equal(parsed.starredAt, 50);
 });
 
 

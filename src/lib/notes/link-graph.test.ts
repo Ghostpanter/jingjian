@@ -10,8 +10,8 @@ test("graph keeps resolved wiki links and drops code, self links, and missing no
     { id: "d", content: "# 丁\n\n指向 [[没有]]。" },
   ]);
   assert.deepEqual(
-    graph.nodes.map((node) => node.id).sort(),
-    ["a", "b"],
+    graph.nodes.map((node) => node.id),
+    ["a", "b", "c", "d"],
   );
   assert.equal(graph.links.length, 1);
   assert.equal(graph.nodes.find((node) => node.id === "a")?.title, "甲");
@@ -29,6 +29,20 @@ test("aliases connect notes and the page cap can grow", () => {
   const full = linkGraph(notes, Number.POSITIVE_INFINITY);
   assert.equal(full.truncated, false);
   assert.equal(full.links.length, 1);
+});
+
+test("nearby mode keeps the current note and its links", () => {
+  const notes = [
+    { id: "a", content: "# 甲\n[[乙]]" },
+    { id: "b", content: "# 乙\n" },
+    { id: "c", content: "# 丙\n[[丁]]" },
+    { id: "d", content: "# 丁\n" },
+    { id: "e", content: "# 戊\n独自" },
+  ];
+  const near = linkGraph(notes, 160, "a");
+  assert.deepEqual(near.nodes.map((node) => node.id).sort(), ["a", "b"]);
+  const alone = linkGraph(notes, 160, "e");
+  assert.deepEqual(alone.nodes.map((node) => node.id), ["e"]);
 });
 
 test("layout stays inside the canvas and pulls linked notes together", () => {

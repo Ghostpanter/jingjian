@@ -18,6 +18,12 @@ export type Note = {
   readRatio?: number;
   /** Last time this chapter was opened in the reader. */
   readAt?: number;
+  /** Starred in the library. Synced; does not bump `updatedAt`. */
+  starred?: boolean;
+  /** When the star was last set or cleared. */
+  starredAt?: number;
+  /** Last time the note was opened. Synced; does not bump `updatedAt`. */
+  openedAt?: number;
   /** Body lives in IndexedDB; localStorage only keeps a title head. */
   overflow?: boolean;
   /** Nested sidebar path, e.g. `手册/写作`. */

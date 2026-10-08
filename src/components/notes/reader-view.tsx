@@ -59,6 +59,7 @@ export function ReaderView({
   const [editing, setEditing] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(true);
+  const [tocQuery, setTocQuery] = useState("");
   const [openSpans, setOpenSpans] = useState<Set<number>>(() => new Set());
   const [fontScale, setFontScale] = useState(() => {
     if (typeof localStorage === "undefined") return 1;
@@ -378,9 +379,61 @@ export function ReaderView({
                   {index + 1}/{notes.length}
                 </span>
               </button>
+              {chaptersOpen ? (
+                <input
+                  value={tocQuery}
+                  onChange={(event) => setTocQuery(event.target.value)}
+                  placeholder="搜索章节"
+                  aria-label="搜索章节"
+                  className="mt-1 h-9 w-full rounded-md bg-paper px-2 text-sm text-fg"
+                />
+              ) : null}
             </div>
             {chaptersOpen
-              ? (foldChapters(notes) ?? [{ start: 0, label: "", notes }]).map((span) => {
+              ? (() => {
+                  const q = tocQuery.trim().toLowerCase();
+                  if (q) {
+                    const hits = notes.flatMap((note, chapterNumber) => {
+                      const title = titleFromContent(note.content);
+                      const label = `第${chapterNumber + 1}章`;
+                      if (
+                        title.toLowerCase().includes(q) ||
+                        label.includes(q) ||
+                        String(chapterNumber + 1) === q
+                      ) {
+                        return [{ note, chapterNumber }];
+                      }
+                      return [];
+                    });
+                    if (hits.length === 0) {
+                      return <p className="px-3 py-3 text-sm text-muted">没有这一章</p>;
+                    }
+                    return hits.map(({ note, chapterNumber }) => {
+                      const selected = note.id === current.id;
+                      return (
+                        <button
+                          key={note.id}
+                          type="button"
+                          aria-current={selected ? "true" : undefined}
+                          onClick={() => {
+                            continueForIdRef.current = null;
+                            onSelect(note.id);
+                            setTocOpen(false);
+                          }}
+                          className={cn(
+                            "btn-press flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left",
+                            selected ? "bg-paper text-fg shadow-border" : "hover:bg-overlay",
+                          )}
+                        >
+                          <span className="w-10 shrink-0 text-right text-xs tabular-nums text-subtle">
+                            {chapterNumber + 1}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm">{titleFromContent(note.content)}</span>
+                        </button>
+                      );
+                    });
+                  }
+                  return (foldChapters(notes) ?? [{ start: 0, label: "", notes }]).map((span) => {
                   const grouped = Boolean(span.label);
                   const spanOpen = !grouped || openSpans.has(span.start);
                   return (
@@ -437,7 +490,8 @@ export function ReaderView({
                         : null}
                     </div>
                   );
-                })
+                });
+                })()
               : null}
             {onAddChapter ? (
               <button

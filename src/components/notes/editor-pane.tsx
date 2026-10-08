@@ -8,7 +8,7 @@ import {
   wrapAsMarkup,
 } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor } from "@/lib/notes/image-insert";
-import { editorSlice, EDITOR_SLICE_CHARS, isLargeNote } from "@/lib/notes/format";
+import { editorSlice, editorSliceAround, EDITOR_SLICE_CHARS, isLargeNote } from "@/lib/notes/format";
 import { paragraphAt, typewriterScroll } from "@/lib/notes/focus-text";
 import { classifyIncoming } from "@/lib/notes/open-incoming";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,7 @@ export function EditorPane({
   const probeRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef(content);
   const bounds = useRef({ key: "", start: 0, end: 0 });
+  const pendingSel = useRef<{ start: number; end: number } | null>(null);
   const sliceKey = `${noteId}-${epoch}`;
   contentRef.current = content;
   if (bounds.current.key !== sliceKey) {
@@ -83,6 +84,62 @@ export function EditorPane({
     bounds.current = { key: sliceKey, ...next };
     setSliceTick((tick) => tick + 1);
   }
+
+  function placeSelection(start: number, end: number) {
+    const el = document.getElementById("note-editor");
+    if (!(el instanceof HTMLTextAreaElement)) return;
+    const active = document.activeElement;
+    const from = Math.max(0, Math.min(start, el.value.length));
+    const to = Math.max(from, Math.min(end, el.value.length));
+    el.focus();
+    el.setSelectionRange(from, to);
+    const max = el.scrollHeight - el.clientHeight;
+    if (max > 0) el.scrollTop = (from / Math.max(1, el.value.length)) * max;
+    if (
+      active instanceof HTMLElement &&
+      active !== el &&
+      (active.id === "note-find" || active.id === "note-replace")
+    ) {
+      active.focus();
+    }
+  }
+
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ start?: number; end?: number }>).detail;
+      if (!detail || typeof detail.start !== "number") return;
+      const start = detail.start;
+      const end = typeof detail.end === "number" ? detail.end : start;
+      const full = contentRef.current;
+      if (!isLargeNote(full)) {
+        placeSelection(start, end);
+        return;
+      }
+      const current = bounds.current;
+      if (start >= current.start && end <= current.end) {
+        placeSelection(start - current.start, end - current.start);
+        return;
+      }
+      const next = editorSliceAround(full, start);
+      bounds.current = { key: sliceKey, ...next };
+      pendingSel.current = {
+        start: Math.max(0, start - next.start),
+        end: Math.max(0, end - next.start),
+      };
+      setSliceTick((tick) => tick + 1);
+    };
+    window.addEventListener("jingjian-reveal", onReveal);
+    return () => window.removeEventListener("jingjian-reveal", onReveal);
+  }, [sliceKey]);
+
+  useEffect(() => {
+    const el = document.getElementById("note-editor");
+    if (el instanceof HTMLTextAreaElement) el.dataset.sliceStart = String(bounds.current.start);
+    const sel = pendingSel.current;
+    if (!sel) return;
+    pendingSel.current = null;
+    placeSelection(sel.start, sel.end);
+  }, [sliceTick, sliceKey, windowText]);
 
   useEffect(() => {
     if (!large) return;

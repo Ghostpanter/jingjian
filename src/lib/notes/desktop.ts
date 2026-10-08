@@ -48,6 +48,7 @@ export type DesktopApi = {
     method?: string;
     headers?: Record<string, string>;
     body?: string | null;
+    bodyBase64?: string | null;
     timeoutMs?: number;
   }): Promise<DesktopNetResult>;
   setChrome?(options: { bg: string; dark: boolean }): Promise<void> | void;
@@ -82,26 +83,66 @@ function headersToRecord(headers: HeadersInit | undefined): Record<string, strin
   return { ...headers };
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const out = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) out[index] = binary.charCodeAt(index);
+  return out;
+}
+
+export async function desktopBodyFields(
+  body: BodyInit | null | undefined,
+): Promise<{ body: string | null; bodyBase64: string | null }> {
+  if (body == null) return { body: null, bodyBase64: null };
+  if (typeof body === "string") return { body, bodyBase64: null };
+  if (body instanceof URLSearchParams) return { body: body.toString(), bodyBase64: null };
+  if (typeof Blob !== "undefined" && body instanceof Blob) {
+    return { body: null, bodyBase64: bytesToBase64(new Uint8Array(await body.arrayBuffer())) };
+  }
+  if (body instanceof ArrayBuffer) {
+    return { body: null, bodyBase64: bytesToBase64(new Uint8Array(body)) };
+  }
+  if (ArrayBuffer.isView(body)) {
+    return {
+      body: null,
+      bodyBase64: bytesToBase64(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
+    };
+  }
+  return { body: String(body), bodyBase64: null };
+}
+
 export async function desktopRequest(
   url: string,
   init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<Response> {
   const api = desktopApi();
   if (!api?.netFetch) throw new Error("桌面网络不可用");
-  const body =
-    typeof init.body === "string"
-      ? init.body
-      : init.body == null
-        ? null
-        : String(init.body);
+  const fields = await desktopBodyFields(init.body);
   const result = await api.netFetch({
     url,
     method: init.method,
     headers: headersToRecord(init.headers),
-    body,
+    body: fields.body,
+    bodyBase64: fields.bodyBase64,
     timeoutMs: init.timeoutMs,
   });
-  return new Response(result.bodyText, {
+  const bytes = result.bodyBase64 ? base64ToBytes(result.bodyBase64) : null;
+  let body: BodyInit = result.bodyText;
+  if (bytes) {
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    body = new Blob([copy]);
+  }
+  return new Response(body, {
     status: result.status,
     headers: result.headers,
   });

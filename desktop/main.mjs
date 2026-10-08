@@ -571,8 +571,12 @@ function registerIpc() {
     try {
       /** @type {RequestInit} */
       const init = { method, headers, signal: controller.signal };
-      if (payload?.body != null && method !== "GET" && method !== "HEAD") {
-        init.body = String(payload.body);
+      if (method !== "GET" && method !== "HEAD") {
+        if (typeof payload?.bodyBase64 === "string" && payload.bodyBase64) {
+          init.body = Buffer.from(payload.bodyBase64, "base64");
+        } else if (payload?.body != null) {
+          init.body = String(payload.body);
+        }
       }
       const response = await net.fetch(url, init);
       const buffer = Buffer.from(await response.arrayBuffer());

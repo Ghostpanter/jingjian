@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { libraryTags, stripTag, tagMatches, tagsInContent } from "./tags.ts";
+import { libraryTags, replaceTag, stripTag, tagMatches, tagsInContent } from "./tags.ts";
 
 test("inline tags skip headings, code, urls, and bare numbers", () => {
   const tags = tagsInContent(
@@ -40,4 +40,14 @@ test("stripTag removes that tag from prose and front matter", () => {
   assert.equal(stripTag("---\ntags: [读书]\n---\n\n正文 #读书", "读书"), "正文");
   const kept = "见 #旅行";
   assert.equal(stripTag(kept, "读书"), kept);
+});
+
+test("replaceTag renames the exact tag and leaves children and code", () => {
+  assert.equal(replaceTag("见 #读书 和 #写作/草稿", "读书", "阅历"), "见 #阅历 和 #写作/草稿");
+  assert.equal(
+    replaceTag("---\ntags: [读书, 旅行]\n---\n\n#读书", "读书", "阅历"),
+    "---\ntags: [阅历, 旅行]\n---\n\n#阅历",
+  );
+  assert.equal(replaceTag("见 `#读书`", "读书", "阅历"), "见 `#读书`");
+  assert.equal(replaceTag("见 #读书", "读书", "读书"), "见 #读书");
 });

@@ -4,6 +4,7 @@ import {
   compareNotes,
   countChars,
   editorSlice,
+  editorSliceAround,
   firstLineTitle,
   formatCharCount,
   isBlankContent,
@@ -50,10 +51,16 @@ test("large notes never split or copy the full body", () => {
     ),
     true,
   );
+  const deep = `${"开".repeat(300_000)}句末记号zz`;
+  assert.equal(
+    matchesQuery({ id: "1", content: deep, createdAt: 1, updatedAt: 1 }, "句末记号zz"),
+    true,
+  );
   assert.equal(
     matchesQuery(
-      { id: "1", content: huge, createdAt: 1, updatedAt: 1 },
-      "不可能出现的检索词xyz"),
+      { id: "1", content: "短", createdAt: 1, updatedAt: 1 },
+      "不可能出现的检索词xyz",
+    ),
     false,
   );
   assert.ok(Date.now() - started < 500, "large-note helpers must stay cheap");
@@ -86,6 +93,34 @@ test("compareNotes sorts by updated, created, or title", () => {
   assert.notEqual(compareNotes(a, b, "title"), 0);
   assert.equal(compareNotes(a, b, "title"), -compareNotes(b, a, "title"));
   assert.ok(compareNotes(a, b, "opened", { a: 1, b: 5 }) > 0);
+});
+
+test("search matches aliases, book titles, and a window around an offset", () => {
+  assert.equal(
+    matchesQuery(
+      {
+        id: "1",
+        content: "---\naliases:\n  - 窗边\n---\n# 标题\n",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      "窗边",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesQuery(
+      { id: "1", content: "# 一", createdAt: 1, updatedAt: 1, bookTitle: "廊下三章" },
+      "廊下",
+    ),
+    true,
+  );
+  const body = `${"甲".repeat(20)}\n${"乙".repeat(80)}`;
+  const slice = editorSliceAround(body, 70, 30);
+  assert.ok(slice.start <= 70 && slice.end >= 70);
+  const jumped = previewWindow(body, 40, 70);
+  assert.ok(jumped.start > 0);
+  assert.ok(jumped.text.length > 0);
 });
 
 test("aliases and editor slices stay on line boundaries", () => {

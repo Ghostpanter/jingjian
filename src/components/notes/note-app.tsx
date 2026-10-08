@@ -334,6 +334,11 @@ export function NoteApp() {
   const deleteNote = useNotesStore((state) => state.deleteNote);
   const updateNote = useNotesStore((state) => state.updateNote);
   const removeTag = useNotesStore((state) => state.removeTag);
+  const removeTagFromNote = useNotesStore((state) => state.removeTagFromNote);
+  const renameTag = useNotesStore((state) => state.renameTag);
+  const linkMention = useNotesStore((state) => state.linkMention);
+  const renameBook = useNotesStore((state) => state.renameBook);
+  const reorderChapter = useNotesStore((state) => state.reorderChapter);
   const selectNote = useNotesStore((state) => state.selectNote);
   const setQuery = useNotesStore((state) => state.setQuery);
   const setPreviewMode = useNotesStore((state) => state.setPreviewMode);
@@ -1439,30 +1444,12 @@ export function NoteApp() {
   }
 
   function jumpHeading(heading: OutlineHeading) {
-    const editor = document.getElementById("note-editor") as HTMLTextAreaElement | null;
-    const preview = document.getElementById("note-preview");
-    const target = preview?.querySelector(
-      `#${CSS.escape(heading.id)}`,
-    ) as HTMLElement | null;
-    syncLock.current = "preview";
-    if (preview && target) {
-      const top = contentOffset(
-        target.getBoundingClientRect().top,
-        preview.getBoundingClientRect().top,
-        preview.scrollTop,
-      );
-      preview.scrollTop = Math.max(0, top - 8);
-    }
-    if (editor) {
-      const max = scrollMax(editor.scrollHeight, editor.clientHeight);
-      editor.scrollTop = (heading.offset / Math.max(1, editor.value.length)) * max;
-      editor.focus();
-      editor.setSelectionRange(heading.offset, heading.offset);
-    }
+    window.dispatchEvent(
+      new CustomEvent("jingjian-reveal", {
+        detail: { start: heading.offset, end: heading.offset, headingId: heading.id },
+      }),
+    );
     setActiveHeadingId(heading.id);
-    window.setTimeout(() => {
-      syncLock.current = null;
-    }, 90);
   }
 
   function closeSidebar() {
@@ -1752,6 +1739,25 @@ export function NoteApp() {
             const count = removeTag(key);
             toast.message(count ? `已去掉 #${label}` : "没有笔记带着这个标签");
           }}
+          onRemoveTagFromNote={(key, label) => {
+            const id = activeNote?.id;
+            if (!id) {
+              toast.message("先打开一篇笔记");
+              return;
+            }
+            const ok = removeTagFromNote(id, key);
+            toast.message(ok ? `已从这篇去掉 #${label}` : "这篇没有这个标签");
+          }}
+          onRenameTag={(key, next) => {
+            const count = renameTag(key, next);
+            toast.message(count ? `已改成 #${next.trim()}` : "没有改名");
+          }}
+          onLinkMention={(phrase) => {
+            const ok = linkMention(phrase);
+            toast.message(ok ? `已写成 [[${phrase}]]` : "这篇里没有可改的原文");
+          }}
+          onRenameBook={(bookId, title) => renameBook(bookId, title)}
+          onReorderChapter={(id, direction) => reorderChapter(id, direction)}
           syncLabel={
             syncConfig.provider === "off"
               ? "本地笔记"
@@ -2012,6 +2018,7 @@ export function NoteApp() {
                   format={activeNote.format}
                   centered={previewMode !== "split"}
                   focusMode={focusMode}
+                  anchorKey={activeNote.id}
                   onScroll={() => syncScroll("preview")}
                   onToggleTask={(index) => {
                     updateNote(activeNote.id, toggleTaskAt(activeNote.content, index));

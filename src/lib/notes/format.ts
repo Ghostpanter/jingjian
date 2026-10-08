@@ -164,6 +164,26 @@ export function editorSlice(
   return { start: from, end };
 }
 
+/** Window that contains `offset`, biased toward the lines just before it. */
+export function editorSliceAround(
+  content: string,
+  offset: number,
+  size = EDITOR_SLICE_CHARS,
+): { start: number; end: number } {
+  const focus = Math.max(0, Math.min(offset, content.length));
+  let anchor = Math.max(0, focus - Math.floor(size * 0.25));
+  if (anchor > 0) {
+    const nl = content.lastIndexOf("\n", anchor);
+    if (nl >= 0 && anchor - nl < 2000) anchor = nl + 1;
+  }
+  const slice = editorSlice(content, anchor, size);
+  if (focus >= slice.start && focus <= slice.end) return slice;
+  const line = content.lastIndexOf("\n", Math.max(0, focus - 1));
+  const lineStart = line >= 0 ? line + 1 : 0;
+  if (focus - lineStart < size) return editorSlice(content, lineStart, size);
+  return editorSlice(content, focus, size);
+}
+
 export type NoteSort = "updated" | "created" | "title" | "opened";
 
 export const NOTE_SORTS: { id: NoteSort; label: string }[] = [
@@ -207,8 +227,8 @@ export function compareNotes(
     return firstLineTitle(a.content).localeCompare(firstLineTitle(b.content), "zh-CN");
   }
   if (sort === "opened") {
-    const left = opened?.[a.id] ?? 0;
-    const right = opened?.[b.id] ?? 0;
+    const left = Math.max(opened?.[a.id] ?? 0, a.openedAt ?? 0);
+    const right = Math.max(opened?.[b.id] ?? 0, b.openedAt ?? 0);
     if (left !== right) return right - left;
     return b.updatedAt - a.updatedAt;
   }
@@ -271,6 +291,44 @@ export function markOpened(id: string) {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("jingjian-opened"));
 }
 
+/** Copy stars and open times that only lived in this browser onto the notes. */
+export function absorbLocalMarks(notes: Note[]): Note[] {
+  const stars = readStars();
+  const opened = readOpened();
+  if (stars.size === 0 && Object.keys(opened).length === 0) return notes;
+  return notes.map((note) => {
+    let next = note;
+    if (!note.starredAt && stars.has(note.id)) next = { ...next, starred: true, starredAt: 1 };
+    if (!note.openedAt && opened[note.id]) next = { ...next, openedAt: opened[note.id] };
+    return next;
+  });
+}
+
+/** Mirror note stars and open times back into the local cache the sidebar reads. */
+export function writeMarksCache(notes: Note[]) {
+  const stars: string[] = [];
+  const opened: Record<string, number> = {};
+  const previous = readOpened();
+  for (const note of notes) {
+    if (note.starred) stars.push(note.id);
+    const at = Math.max(note.openedAt ?? 0, previous[note.id] ?? 0);
+    if (at) opened[note.id] = at;
+  }
+  try {
+    localStorage.setItem(STAR_KEY, JSON.stringify(stars));
+    const entries = Object.entries(opened)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 400);
+    localStorage.setItem(OPENED_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // private mode
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("jingjian-stars"));
+    window.dispatchEvent(new Event("jingjian-opened"));
+  }
+}
+
 export function formatCharCount(content: string): string {
   if (isLargeNote(content)) {
     return `约 ${content.length.toLocaleString("zh-CN")} 字`;
@@ -281,9 +339,32 @@ export function formatCharCount(content: string): string {
 export function previewWindow(
   content: string,
   max = PREVIEW_WINDOW_CHARS,
-): { text: string; truncated: boolean } {
-  if (content.length <= max) return { text: content, truncated: false };
-  return { text: content.slice(0, max), truncated: true };
+  anchor = 0,
+): { text: string; truncated: boolean; start: number } {
+  if (content.length <= max) return { text: content, truncated: false, start: 0 };
+  const focus = Math.max(0, Math.min(anchor, content.length));
+  let start = 0;
+  if (focus > 0) {
+    start = Math.max(0, focus - Math.floor(max * 0.2));
+    if (start > 0) {
+      const nl = content.lastIndexOf("\n", start);
+      if (nl >= 0 && start - nl < 800) start = nl + 1;
+    }
+  }
+  let end = Math.min(content.length, start + max);
+  if (end < content.length) {
+    const nl = content.indexOf("\n", end);
+    if (nl !== -1 && nl - start < max + 800) end = nl;
+  }
+  if (focus > end) {
+    start = Math.max(0, focus - Math.floor(max * 0.2));
+    end = Math.min(content.length, start + max);
+  }
+  return {
+    text: content.slice(start, end),
+    truncated: start > 0 || end < content.length,
+    start,
+  };
 }
 
 export function includesIgnoreCase(
@@ -413,7 +494,10 @@ export function matchesQuery(note: Note, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   if (titleFromContent(note.content).toLowerCase().includes(q)) return true;
+  if (note.bookTitle?.toLowerCase().includes(q)) return true;
   if (note.folder?.toLowerCase().includes(q)) return true;
-  const max = isLargeNote(note.content) ? SEARCH_SCAN : Infinity;
-  return includesIgnoreCase(note.content, q, max);
+  for (const alias of noteAliases(note.content)) {
+    if (alias.toLowerCase().includes(q)) return true;
+  }
+  return includesIgnoreCase(note.content, q);
 }

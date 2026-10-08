@@ -120,8 +120,12 @@ export function sanitizeHref(href: string | null | undefined): string | null {
 export function renderMarkdown(
   source: string,
   library?: { id: string; content: string }[],
+  headingSeed?: Map<string, number>,
 ): string {
   headingSeen.clear();
+  if (headingSeed) {
+    for (const [key, count] of headingSeed) headingSeen.set(key, count);
+  }
   taskIndex = 0;
   const prepared = library?.length ? expandNoteEmbeds(source || "", library) : source || "";
   const math = extractMath(prepared);

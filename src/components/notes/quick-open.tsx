@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { firstLineTitle, snippetFromContent } from "@/lib/notes/format";
+import { firstLineTitle, noteAliases, snippetFromContent } from "@/lib/notes/format";
 import type { Note } from "@/lib/notes/types";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,11 @@ export function QuickOpen({ open, notes, onOpenChange, onSelect }: QuickOpenProp
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q
-      ? notes.filter((note) => firstLineTitle(note.content).toLowerCase().includes(q))
+      ? notes.filter((note) => {
+          if (firstLineTitle(note.content).toLowerCase().includes(q)) return true;
+          if (note.bookTitle?.toLowerCase().includes(q)) return true;
+          return noteAliases(note.content).some((alias) => alias.toLowerCase().includes(q));
+        })
       : notes;
     return list.slice(0, 12);
   }, [notes, query]);
@@ -91,7 +95,10 @@ export function QuickOpen({ open, notes, onOpenChange, onSelect }: QuickOpenProp
                   onClick={() => choose(note.id)}
                 >
                   <span className="font-serif text-sm">{firstLineTitle(note.content)}</span>
-                  <span className="text-xs text-subtle">{snippetFromContent(note.content)}</span>
+                  <span className="text-xs text-subtle">
+                    {note.bookTitle ? `${note.bookTitle} · ` : ""}
+                    {snippetFromContent(note.content)}
+                  </span>
                 </button>
               </li>
             ))

@@ -1,5 +1,5 @@
 import type { Note } from "./types";
-import { withLatestProgress } from "./reader-progress.ts";
+import { marksAhead, withLatestProgress } from "./reader-progress.ts";
 
 export type MergeInput = {
   local: Note[];
@@ -58,7 +58,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
       const winner = local.updatedAt >= remote.updatedAt ? local : remote;
       const merged = withLatestProgress(winner, local, remote);
       notes.set(id, merged);
-      if ((local.readAt ?? 0) > (remote.readAt ?? 0)) toUpload.push(merged);
+      if (marksAhead(local, remote)) toUpload.push(merged);
       continue;
     }
     if (isEditing(local, input, now)) {
@@ -93,7 +93,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
       } else {
         const merged = withLatestProgress(remote, local, remote);
         notes.set(id, merged);
-        if ((local.readAt ?? 0) > (remote.readAt ?? 0)) toUpload.push(merged);
+        if (marksAhead(local, remote)) toUpload.push(merged);
       }
       continue;
     }
@@ -104,7 +104,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
       remote,
     );
     notes.set(id, next);
-    if (mergedContent !== remote.content || (local.readAt ?? 0) > (remote.readAt ?? 0)) {
+    if (mergedContent !== remote.content || marksAhead(local, remote)) {
       toUpload.push(next);
     }
   }
@@ -127,7 +127,7 @@ export function mergeNotes(input: MergeInput): MergeResult {
 
 export function notesFingerprint(notes: Note[]): string {
   return notes
-    .map((note) => `${note.id}:${note.updatedAt}:${note.readAt ?? 0}`)
+    .map((note) => `${note.id}:${note.updatedAt}:${note.readAt ?? 0}:${note.openedAt ?? 0}:${note.starredAt ?? 0}:${note.starred ? 1 : 0}`)
     .sort()
     .join("|");
 }

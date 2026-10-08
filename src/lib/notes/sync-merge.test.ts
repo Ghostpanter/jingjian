@@ -133,3 +133,27 @@ test("progress-only local changes are uploaded without a conflict", () => {
   assert.equal(result.conflicts.length, 0);
   assert.equal(result.toUpload[0]?.readAt, 90);
 });
+
+test("a star or open time uploads without a content conflict", () => {
+  const local: Note = {
+    id: "a",
+    content: "正文",
+    createdAt: 1,
+    updatedAt: 5,
+    starred: true,
+    starredAt: 40,
+    openedAt: 30,
+  };
+  const remote: Note = {
+    id: "a",
+    content: "正文",
+    createdAt: 1,
+    updatedAt: 9,
+  };
+  const result = mergeNotes({ local: [local], remote: [remote], tombstones: {} });
+  assert.equal(result.conflicts.length, 0);
+  assert.equal(result.notes[0]?.starred, true);
+  assert.equal(result.notes[0]?.openedAt, 30);
+  assert.equal(result.notes[0]?.updatedAt, 9);
+  assert.equal(result.toUpload.length, 1);
+});
