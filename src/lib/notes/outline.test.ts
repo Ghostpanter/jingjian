@@ -30,3 +30,13 @@ test("extractHeadings skips fenced code and records offsets", () => {
   assert.equal(headings[1].text, "常用操作");
   assert.equal(source.slice(headings[0].offset, headings[0].offset + 4), "# 欢迎");
 });
+
+test("extractHeadings allows up to three leading spaces like CommonMark", () => {
+  const source = "  ## 缩进标题\n\n# 顶格\n";
+  const headings = extractHeadings(source);
+  assert.equal(headings.length, 2);
+  assert.equal(headings[0].text, "缩进标题");
+  assert.equal(headings[0].level, 2);
+  assert.equal(headings[1].text, "顶格");
+  assert.equal(headings[1].level, 1);
+});

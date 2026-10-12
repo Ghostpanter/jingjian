@@ -6,7 +6,7 @@ export type OutlineHeading = {
 };
 
 const FENCE = /^(`{3,}|~{3,})/;
-const ATX = /^(#{1,6})[ \t]+(.+?)\s*#*\s*$/;
+const ATX = /^ {0,3}(#{1,6})[ \t]+(.+?)\s*#*\s*$/;
 
 export function slugifyHeading(text: string): string {
   const compact = text

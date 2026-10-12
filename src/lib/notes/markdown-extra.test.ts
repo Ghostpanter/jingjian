@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { renderMarkdown } from "./markdown.ts";
 import {
   countTasks,
+  countTasksBefore,
   ensureKatex,
   extractFootnotes,
   extractMath,
@@ -100,4 +101,59 @@ test("extractFootnotes strips definitions", () => {
   assert.equal(result.notes[0]?.body, "body");
   assert.match(result.source, /@@FNREF0@@/);
   assert.doesNotMatch(result.source, /\[\^a\]:/);
+});
+
+test("embed tasks and headings do not steal parent task indices", () => {
+  const src = "- [ ] 父1\n\n![[乙]]\n\n- [ ] 父2\n";
+  const html = renderMarkdown(src, [
+    { id: "b", content: "# 乙\n\n- [ ] 嵌套任务\n\n## 小标题\n" },
+  ]);
+  assert.equal((html.match(/task-toggle/g) ?? []).length, 2);
+  assert.match(html, /☐|☑/);
+  assert.doesNotMatch(html, /<h1[^>]*>乙<\/h1>/);
+  assert.doesNotMatch(html, /<h2[^>]*>小标题<\/h2>/);
+  assert.match(html, /嵌套任务/);
+  assert.match(toggleTaskAt(src, 1), /- \[x\] 父2/);
+});
+
+test("countTasksBefore ignores tasks inside a fence that spans the cut", () => {
+  const source = [
+    "- [ ] before",
+    "```",
+    "- [ ] inside",
+    "- [ ] inside2",
+    "still fence",
+    "```",
+    "- [ ] after",
+  ].join("\n");
+  // Cut in the middle of the fence (after "inside\n")
+  const cut = source.indexOf("inside2");
+  assert.equal(countTasksBefore(source, cut), 1);
+  assert.equal(countTasksBefore(source, 0), 0);
+  assert.equal(countTasksBefore(source, source.length), 2);
+});
+
+test("embed flatten leaves fenced sample tasks and headings alone", () => {
+  const src = "![[真标题]]\n";
+  const html = renderMarkdown(src, [
+    {
+      id: "s",
+      content: [
+        "# 真标题",
+        "",
+        "- [ ] 真任务",
+        "",
+        "```md",
+        "# 代码里的标题",
+        "- [ ] 代码里的任务",
+        "```",
+      ].join("\n"),
+    },
+  ]);
+  assert.equal((html.match(/task-toggle/g) ?? []).length, 0);
+  assert.match(html, /☐|☑/);
+  assert.match(html, /# 代码里的标题/);
+  assert.match(html, /代码里的任务/);
+  assert.match(html, /\[ \]/); // fence sample keeps markdown checkbox syntax
+  assert.doesNotMatch(html, /<h1[^>]*>真标题<\/h1>/);
 });
