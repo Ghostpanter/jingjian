@@ -6,6 +6,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/note.dart';
+import 'app_prefs.dart';
+import 'folder_tree.dart';
 
 class NoteStore {
   NoteStore._();
@@ -14,6 +16,11 @@ class NoteStore {
   static const _uuid = Uuid();
   Directory? _dir;
   final List<Note> _notes = [];
+  final List<String> _extraFolders = [];
+
+  List<String> get extraFolders => List.unmodifiable(_extraFolders);
+
+  List<Note> get allNotes => List.unmodifiable(_notes);
 
   List<Note> get notes =>
       List.unmodifiable(_notes.where((n) => !n.isTrashed).toList()
@@ -27,6 +34,9 @@ class NoteStore {
     final docs = await getApplicationDocumentsDirectory();
     _dir = Directory(p.join(docs.path, 'jingjian', 'notes'));
     await _dir!.create(recursive: true);
+    _extraFolders
+      ..clear()
+      ..addAll(AppPrefs.instance.readExtraFolders());
     await _load();
   }
 
@@ -40,16 +50,16 @@ class NoteStore {
       try {
         final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
         _notes.add(Note.fromJson(map));
-      } catch (_) {
-        // skip corrupt
-      }
+      } catch (_) {}
     }
     if (_notes.isEmpty) {
       await create(
         content: '# 欢迎使用静笺\n\n在左侧新建笔记，右侧预览 Markdown。\n\n'
             '- [ ] 任务列表\n'
             '- **加粗** *斜体*\n\n'
-            '\$\$E = mc^2\$\$\n\n'
+            r'$$E = mc^2$$'
+            '\n\n'
+            '使用 [[欢迎使用静笺]] 双向链接。\n\n'
             '```mermaid\ngraph LR\n  A[编辑] --> B[预览]\n```\n',
       );
     }
@@ -61,7 +71,11 @@ class NoteStore {
     await _fileFor(note.id).writeAsString(jsonEncode(note.toJson()));
   }
 
-  Future<Note> create({String content = '', NoteFormat format = NoteFormat.markdown}) async {
+  Future<Note> create({
+    String content = '',
+    NoteFormat format = NoteFormat.markdown,
+    String? folder,
+  }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final note = Note(
       id: _uuid.v4(),
@@ -69,6 +83,7 @@ class NoteStore {
       createdAt: now,
       updatedAt: now,
       format: format,
+      folder: folder != null && folder.isNotEmpty ? normalizeFolder(folder) : null,
     );
     _notes.add(note);
     await _persist(note);
@@ -82,13 +97,27 @@ class NoteStore {
     await _persist(note);
   }
 
+  Future<void> replaceAll(List<Note> notes) async {
+    final keep = notes.map((n) => n.id).toSet();
+    for (final existing in List<Note>.from(_notes)) {
+      if (!keep.contains(existing.id)) {
+        final f = _fileFor(existing.id);
+        if (await f.exists()) await f.delete();
+      }
+    }
+    _notes
+      ..clear()
+      ..addAll(notes);
+    for (final note in _notes) {
+      await _persist(note);
+    }
+  }
+
   Future<void> moveToTrash(String id) async {
     final i = _notes.indexWhere((n) => n.id == id);
     if (i < 0) return;
-    final next = _notes[i].copyWith(
-      trashedAt: DateTime.now().millisecondsSinceEpoch,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final next = _notes[i].copyWith(trashedAt: now, updatedAt: now);
     _notes[i] = next;
     await _persist(next);
   }
@@ -96,10 +125,8 @@ class NoteStore {
   Future<void> restore(String id) async {
     final i = _notes.indexWhere((n) => n.id == id);
     if (i < 0) return;
-    final next = _notes[i].copyWith(
-      clearTrash: true,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final next = _notes[i].copyWith(restoredAt: now, updatedAt: now);
     _notes[i] = next;
     await _persist(next);
   }
@@ -108,6 +135,54 @@ class NoteStore {
     _notes.removeWhere((n) => n.id == id);
     final f = _fileFor(id);
     if (await f.exists()) await f.delete();
+    final tombs = AppPrefs.instance.readTombstones();
+    tombs[id] = DateTime.now().millisecondsSinceEpoch;
+    await AppPrefs.instance.writeTombstones(tombs);
+  }
+
+  Future<void> setFolder(String id, String? folder) async {
+    final note = byId(id);
+    if (note == null) return;
+    final updated = Note(
+      id: note.id,
+      content: note.content,
+      createdAt: note.createdAt,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      trashedAt: note.trashedAt,
+      restoredAt: note.restoredAt,
+      format: note.format,
+      folder: folder == null || folder.isEmpty ? null : normalizeFolder(folder),
+      bookId: note.bookId,
+      bookTitle: note.bookTitle,
+      bookAuthor: note.bookAuthor,
+      bookCover: note.bookCover,
+      chapterIndex: note.chapterIndex,
+      readRatio: note.readRatio,
+      readAt: note.readAt,
+      starred: note.starred,
+      starredAt: note.starredAt,
+      openedAt: note.openedAt,
+    );
+    await update(updated);
+  }
+
+  Future<void> toggleStar(String id) async {
+    final note = byId(id);
+    if (note == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await update(note.copyWith(starred: !note.starred, starredAt: now));
+  }
+
+  Future<void> addExtraFolder(String path) async {
+    final n = normalizeFolder(path);
+    if (n.isEmpty || _extraFolders.contains(n)) return;
+    _extraFolders.add(n);
+    await AppPrefs.instance.writeExtraFolders(_extraFolders);
+  }
+
+  Future<void> removeExtraFolder(String path) async {
+    _extraFolders.remove(normalizeFolder(path));
+    await AppPrefs.instance.writeExtraFolders(_extraFolders);
   }
 
   Note? byId(String id) {
