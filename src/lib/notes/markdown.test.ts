@@ -9,6 +9,13 @@ test("highlights fenced code by language", () => {
   assert.match(html, /javascript|hljs-keyword|hljs-number/);
 });
 
+test("renders mermaid fences as mermaid blocks", () => {
+  const html = renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```\n");
+  assert.match(html, /class="mermaid"/);
+  assert.match(html, /flowchart LR/);
+  assert.doesNotMatch(html, /hljs/);
+});
+
 test("unclosed backticks stay fast and still render real code", () => {
   const lone = renderMarkdown(`hello \` world\n${"文字\n".repeat(400)}`);
   assert.match(lone, /hello/);
