@@ -440,16 +440,29 @@ export function PreviewPane({
         if (!dir) return;
         growLock.current = requestAnimationFrame(() => {
           growLock.current = 0;
+          const content = contentRef.current;
           const next = extendBounds(
-            contentRef.current.length,
+            content.length,
             { start: windowed.start, end: baseEnd },
             dir,
             16_000,
             EDITOR_WINDOW_CHARS,
           );
           if (!next) return;
+          // Snap to line boundaries so heading seeds / task windows stay coherent.
+          let start = next.start;
+          let end = next.end;
+          if (start > 0) {
+            const nl = content.lastIndexOf("\n", start - 1);
+            start = nl >= 0 ? nl + 1 : 0;
+          }
+          if (end < content.length) {
+            const nl = content.indexOf("\n", end);
+            if (nl >= 0) end = nl + 1;
+          }
+          if (start >= end) return;
           preserveScroll.current = true;
-          setSpan(next);
+          setSpan({ start, end });
         });
       }}
     >
