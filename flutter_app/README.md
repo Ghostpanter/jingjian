@@ -1,4 +1,4 @@
-# 静笺 Flutter（1.9.0）
+# 静笺 Flutter（1.8.0）
 
 原生 Flutter 客户端：编辑 / Markdown 预览 / 公式 / Mermaid，以及同步、文件夹树、图谱、图库、博客、电子书、TTS、导出。
 
