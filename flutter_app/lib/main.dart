@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'screens/home_shell.dart';
+import 'services/app_prefs.dart';
+import 'services/image_store.dart';
 import 'services/note_store.dart';
 import 'theme/app_theme.dart';
 
@@ -13,6 +15,8 @@ Future<void> main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  await AppPrefs.instance.init();
+  await ImageStore.instance.init();
   await NoteStore.instance.init();
   runApp(const JingjianApp());
 }
