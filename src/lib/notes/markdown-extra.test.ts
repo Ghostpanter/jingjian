@@ -163,3 +163,18 @@ test("malformed jingjian-wiki percent encoding does not crash preview", () => {
   assert.match(html, /class="wiki-link"/);
   assert.match(html, /坏链/);
 });
+
+test("CRLF notes still count and toggle tasks", () => {
+  const src = "- [ ] a\r\n- [x] b\r\n";
+  assert.equal(countTasks(src), 2);
+  assert.equal(countTasksBefore(src, src.indexOf("- [x] b")), 1);
+  const flipped = toggleTaskAt(src, 0);
+  assert.match(flipped, /- \[x\] a/);
+  assert.equal(countTasks(flipped), 2);
+});
+
+test("CRLF fenced closers are recognized so tasks after a fence count", () => {
+  const src = "```\r\n- [ ] inside\r\n```\r\n- [ ] after\r\n";
+  assert.equal(countTasks(src), 1);
+  assert.match(toggleTaskAt(src, 0), /- \[x\] after/);
+});

@@ -6,7 +6,8 @@ export type MarkupEdit = {
 
 export function looksLikeUrl(value: string): boolean {
   const trimmed = value.trim();
-  return /^(https?:\/\/|mailto:|www\.)/i.test(trimmed);
+  // Require something after the scheme so a bare "http://" is not treated as a link paste.
+  return /^(https?:\/\/\S+|mailto:\S+|www\.\S+)/i.test(trimmed);
 }
 
 export function normalizeHref(value: string): string {

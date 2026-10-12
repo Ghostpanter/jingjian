@@ -21,7 +21,8 @@ export type FenceScan = {
  * typing stays prose, so it cannot swallow the rest of the note.
  */
 export function scanFences(source: string): FenceScan {
-  const lines = source.split("\n");
+  // Strip CR so Windows \r\n notes still match fence closers and task lines.
+  const lines = source.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
   const code = new Array<boolean>(lines.length).fill(false);
   const unclosed: number[] = [];
   // Shortest run per fence char already known to have no closer further down.
@@ -370,7 +371,10 @@ export function countTasksBefore(source: string, offset: number): number {
     const line = lines[i] ?? "";
     if (pos >= offset) break;
     if (!code[i] && TASK_LINE.test(line)) count += 1;
-    pos += line.length + 1;
+    // lines are CR-stripped; the original may still be \r\n.
+    pos += line.length;
+    if (source[pos] === "\r") pos += 1;
+    if (source[pos] === "\n") pos += 1;
   }
   return count;
 }

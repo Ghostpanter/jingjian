@@ -92,3 +92,9 @@ test("wraps a fence and inserts a table", () => {
   assert.match(table.value, /前文\n\| {2}\| {2}\|/);
   assert.match(table.value, /\| --- \| --- \|/);
 });
+
+test("bare http:// is not a pasteable url", () => {
+  assert.equal(looksLikeUrl("http://"), false);
+  assert.equal(looksLikeUrl("https://"), false);
+  assert.equal(looksLikeUrl("https://ok.test"), true);
+});
