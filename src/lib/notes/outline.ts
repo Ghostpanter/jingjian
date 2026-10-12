@@ -6,7 +6,9 @@ export type OutlineHeading = {
 };
 
 const FENCE = /^(`{3,}|~{3,})/;
-const ATX = /^(#{1,6})[ \t]+(.+?)\s*#*\s*$/;
+const ATX = /^ {0,3}(#{1,6})[ \t]+(.+?)\s*#*\s*$/;
+/** Setext underline: a line of only `=` (h1) or `-` (h2), optional trailing spaces. */
+const SETEXT_UNDER = /^ {0,3}(=+|-+)[ \t]*$/;
 
 export function slugifyHeading(text: string): string {
   const compact = text
@@ -39,7 +41,11 @@ function walkHeadings(
 
   while (offset < limit) {
     const next = content.indexOf("\n", offset);
-    const end = next === -1 || next > limit ? limit : next;
+    const lineEndsAt = next === -1 ? content.length : next;
+    // A cut mid-line (windowed preview / headingSeedBefore) must not treat
+    // "# Hello| World" as a heading named "Hello" — that would poison ids.
+    if (lineEndsAt > limit) break;
+    const end = lineEndsAt;
     const line = content.slice(offset, end).replace(/\r$/, "");
     const trimmed = line.trimStart();
     const fenceMark = trimmed.match(FENCE);
@@ -59,6 +65,25 @@ function walkHeadings(
         if (text) {
           const id = headingIdFor(text, seen);
           if (collect) headings.push({ level: match[1].length, text, id, offset });
+        }
+      } else if (next !== -1 && next < limit && line.trim() !== "") {
+        // Setext: current line + underline on the next complete line.
+        const underStart = next + 1;
+        const underNext = content.indexOf("\n", underStart);
+        const underEndsAt = underNext === -1 ? content.length : underNext;
+        if (underEndsAt <= limit) {
+          const under = content.slice(underStart, underEndsAt).replace(/\r$/, "");
+          const setext = SETEXT_UNDER.exec(under);
+          if (setext) {
+            const text = line.trim();
+            const level = (setext[1] ?? "").startsWith("=") ? 1 : 2;
+            const id = headingIdFor(text, seen);
+            if (collect) headings.push({ level, text, id, offset });
+            // Skip the underline line.
+            if (underNext === -1 || underNext >= limit) break;
+            offset = underEndsAt + 1;
+            continue;
+          }
         }
       }
     }

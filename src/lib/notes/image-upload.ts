@@ -1,4 +1,4 @@
-import type { ImageConfig } from "./image-config";
+import type { ImageConfig } from "./image-config.ts";
 
 function joinPath(...parts: string[]): string {
   return parts

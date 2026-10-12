@@ -64,18 +64,31 @@ function convertTables(source: string): string {
   });
 }
 
+function listItemPrefix(text: string): { prefix: string; body: string } {
+  const checked =
+    /<input\b[^>]*\btype=["']?checkbox["']?[^>]*\bchecked\b/i.test(text) ||
+    /<input\b[^>]*\bchecked\b[^>]*\btype=["']?checkbox["']?/i.test(text);
+  const isCheckbox = /<input\b[^>]*\btype=["']?checkbox["']?/i.test(text);
+  const body = text.replace(/<input\b[^>]*\btype=["']?checkbox["']?[^>]*\/?>/gi, "");
+  if (checked) return { prefix: "[x] ", body };
+  if (isCheckbox) return { prefix: "[ ] ", body };
+  return { prefix: "", body };
+}
+
 function convertLists(source: string): string {
   let next = source.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, inner: string) => {
     let index = 0;
     const items = inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (__, text: string) => {
       index += 1;
-      return `${index}. ${inline(text)}\n`;
+      const { prefix, body } = listItemPrefix(text);
+      return `${index}. ${prefix}${inline(body)}\n`;
     });
     return `\n\n${items}\n`;
   });
   next = next.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, inner: string) => {
     const items = inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (__, text: string) => {
-      return `- ${inline(text)}\n`;
+      const { prefix, body } = listItemPrefix(text);
+      return `- ${prefix}${inline(body)}\n`;
     });
     return `\n\n${items}\n`;
   });

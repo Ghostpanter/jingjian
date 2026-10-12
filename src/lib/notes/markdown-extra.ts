@@ -21,7 +21,8 @@ export type FenceScan = {
  * typing stays prose, so it cannot swallow the rest of the note.
  */
 export function scanFences(source: string): FenceScan {
-  const lines = source.split("\n");
+  // Strip CR so Windows \r\n notes still match fence closers and task lines.
+  const lines = source.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
   const code = new Array<boolean>(lines.length).fill(false);
   const unclosed: number[] = [];
   // Shortest run per fence char already known to have no closer further down.
@@ -239,6 +240,30 @@ export function expandWikiLinks(source: string): string {
   );
 }
 
+
+/** Neutralize tasks/headings in embed bodies without touching fenced samples. */
+function flattenEmbedMarkup(source: string): string {
+  return mapProse(source, (chunk) =>
+    chunk
+      .replace(
+        /^((?:[ \t]*>)*[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]/gm,
+        (_all, pre: string, mark: string) => `${pre}${mark === " " ? "☐" : "☑"}`,
+      )
+      .replace(/^(\s{0,3})#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm, "$1**$2**")
+      // Setext headings also become real <h1>/<h2> inside the quote and would
+      // steal heading ids from the parent note during render.
+      .replace(
+        /^([^\n]+)\n {0,3}(=+|-+)[ \t]*$/gm,
+        (all, text: string) => {
+          const trimmed = text.trimStart();
+          if (/^#{1,6}[ \t]/.test(trimmed)) return all;
+          if (/^(`{3,}|~{3,})/.test(trimmed)) return all;
+          return `**${text.trim()}**`;
+        },
+      ),
+  );
+}
+
 const EMBED = /!\[\[([^\]|#]+?)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 
 /** Inline `![[笔记]]` as a quote. Nested embeds become ordinary links. */
@@ -255,9 +280,14 @@ export function expandNoteEmbeds(
       if (!title) return all;
       const id = index.get(title.toLowerCase());
       if (!id) return `「没有 ${title}」`;
-      const body = bodyAfterFrontMatter(byId.get(id) ?? "")
-        .trim()
-        .replace(EMBED, (_match, inner: string) => `[[${String(inner).trim()}]]`);
+      // Embeds are quoted into this note's markdown. Tasks would share data-task
+      // indices with the parent (and toggle the wrong lines); headings would show
+      // up in the preview outline / scroll-sync. Flatten both to plain marks,
+      // but only outside fenced / inline code so sample markdown stays intact.
+      const embedBody = bodyAfterFrontMatter(byId.get(id) ?? "").trim();
+      const body = flattenEmbedMarkup(
+        embedBody.replace(EMBED, (_match, inner: string) => `[[${String(inner).trim()}]]`),
+      );
       const quoted = (body || title)
         .split("\n")
         .map((line) => `> ${line}`)
@@ -339,6 +369,25 @@ export function toggleTaskAt(source: string, index: number): string {
 
 export function countTasks(source: string): number {
   return taskLines(source).tasks.length;
+}
+
+/** How many tasks start before `offset` in the full note (fence-aware). */
+export function countTasksBefore(source: string, offset: number): number {
+  if (offset <= 0) return 0;
+  if (offset >= source.length) return countTasks(source);
+  const { lines, code } = scanFences(source);
+  let pos = 0;
+  let count = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (pos >= offset) break;
+    if (!code[i] && TASK_LINE.test(line)) count += 1;
+    // lines are CR-stripped; the original may still be \r\n.
+    pos += line.length;
+    if (source[pos] === "\r") pos += 1;
+    if (source[pos] === "\n") pos += 1;
+  }
+  return count;
 }
 
 export function findNoteByTitle(notes: Note[], title: string): Note | null {

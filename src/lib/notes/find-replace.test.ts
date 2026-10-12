@@ -71,3 +71,30 @@ test("nextIndex wraps and indexNear picks upcoming match", () => {
   assert.equal(indexNear(matches, 5), 1);
   assert.equal(indexNear(matches, 20), 0);
 });
+
+test("whole word still matches CJK phrases inside continuous Chinese", () => {
+  const text = "我的笔记应用里有笔记两字";
+  const matches = findMatches(text, {
+    query: "笔记",
+    regex: false,
+    caseSensitive: false,
+    wholeWord: true,
+  });
+  assert.equal(isFindError(matches), false);
+  if (isFindError(matches)) return;
+  assert.equal(matches.length, 2);
+  assert.deepEqual(matches[0], { start: 2, end: 4 });
+});
+
+test("whole word still skips Latin partials next to CJK", () => {
+  const matches = findMatches("用cat测试 catalog", {
+    query: "cat",
+    regex: false,
+    caseSensitive: false,
+    wholeWord: true,
+  });
+  assert.equal(isFindError(matches), false);
+  if (isFindError(matches)) return;
+  assert.equal(matches.length, 1);
+  assert.deepEqual(matches[0], { start: 1, end: 4 });
+});

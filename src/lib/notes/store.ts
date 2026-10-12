@@ -237,9 +237,15 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   restoreNote: (id) => {
     const restoredAt = Date.now();
     const notes = get().notes.map((note) => (note.id === id ? { ...note, restoredAt } : note));
-    set({ notes, activeId: id, sidebarOpen: false });
+    // Always remount the editor: the previous active note may have been empty
+    // (deleted last note) or a different id; epoch avoids a stale CM doc.
+    set({ notes, activeId: id, sidebarOpen: false, editorEpoch: get().editorEpoch + 1 });
   },
   updateNote: (id, content) => {
+    const current = get().notes.find((note) => note.id === id);
+    // Avoid bumping updatedAt / re-persisting / syncing when nothing changed
+    // (e.g. replace-with-same, redundant writes).
+    if (current && current.content === content) return;
     set({
       notes: get().notes.map((note) =>
         note.id === id

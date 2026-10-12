@@ -6,7 +6,8 @@ export type MarkupEdit = {
 
 export function looksLikeUrl(value: string): boolean {
   const trimmed = value.trim();
-  return /^(https?:\/\/|mailto:|www\.)/i.test(trimmed);
+  // Require something after the scheme so a bare "http://" is not treated as a link paste.
+  return /^(https?:\/\/\S+|mailto:\S+|www\.\S+)/i.test(trimmed);
 }
 
 export function normalizeHref(value: string): string {
@@ -47,13 +48,31 @@ export function wrapAsMarkup(
 
 export { readEditorSelection, writeEditorValue } from "./editor-bridge.ts";
 
+/** True at a line edge for both LF and CRLF notes (Windows desktop / pasted text). */
+function atLineStart(value: string, index: number): boolean {
+  if (index <= 0) return true;
+  const prev = value[index - 1];
+  return prev === "\n" || prev === "\r";
+}
+
+function atLineEnd(value: string, index: number): boolean {
+  if (index >= value.length) return true;
+  const next = value[index];
+  return next === "\n" || next === "\r";
+}
+
 function lineBounds(value: string, start: number, end: number) {
   const from = value.lastIndexOf("\n", Math.max(0, start) - 1) + 1;
-  if (end > start && end > 0 && value[end - 1] === "\n") {
-    return { from, to: end - 1 };
+  if (end > start && end > 0 && (value[end - 1] === "\n" || value[end - 1] === "\r")) {
+    let to = end - 1;
+    if (value[end - 1] === "\n" && end >= 2 && value[end - 2] === "\r") to = end - 2;
+    return { from, to: Math.max(from, to) };
   }
   const nl = value.indexOf("\n", end);
-  return { from, to: nl === -1 ? value.length : nl };
+  let to = nl === -1 ? value.length : nl;
+  // Keep the CR that pairs with this LF outside the block so markers stay clean.
+  if (to > from && value[to - 1] === "\r") to -= 1;
+  return { from, to };
 }
 
 export function mapLines(
@@ -263,10 +282,8 @@ export function wrapFence(
   end: number,
 ): MarkupEdit {
   const selected = value.slice(start, end);
-  const atLineStart = start === 0 || value[start - 1] === "\n";
-  const atLineEnd = end === value.length || value[end] === "\n";
-  const prefix = atLineStart ? "" : "\n";
-  const suffix = atLineEnd ? "" : "\n";
+  const prefix = atLineStart(value, start) ? "" : "\n";
+  const suffix = atLineEnd(value, end) ? "" : "\n";
   const snippet = `${prefix}\`\`\`\n${selected}\n\`\`\`${suffix}`;
   const innerStart = start + prefix.length + 4;
   return {
@@ -282,10 +299,8 @@ export function insertTable(
   end: number,
 ): MarkupEdit {
   const table = "|  |  |\n| --- | --- |\n|  |  |";
-  const atLineStart = start === 0 || value[start - 1] === "\n";
-  const atLineEnd = end === value.length || value[end] === "\n";
-  const prefix = atLineStart ? "" : "\n";
-  const suffix = atLineEnd ? "\n" : "\n";
+  const prefix = atLineStart(value, start) ? "" : "\n";
+  const suffix = "\n";
   const snippet = `${prefix}${table}${suffix}`;
   const cursor = start + prefix.length + 2;
   return {

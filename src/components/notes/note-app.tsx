@@ -928,13 +928,23 @@ export function NoteApp() {
         return;
       }
 
+      // ⌘H is "Hide" on macOS app menus — use ⌘⌥F for replace there.
+      // Keep Ctrl+H on Windows/Linux; also accept mod+alt+f everywhere.
+      if (mod && event.altKey && key.toLowerCase() === "f") {
+        event.preventDefault();
+        openFind(true);
+        return;
+      }
+
       if (mod && key.toLowerCase() === "f") {
         event.preventDefault();
         openFind(false);
         return;
       }
 
-      if (mod && key.toLowerCase() === "h") {
+      const appleMod =
+        typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+      if (mod && !appleMod && key.toLowerCase() === "h") {
         event.preventDefault();
         openFind(true);
         return;
@@ -1395,7 +1405,7 @@ export function NoteApp() {
     const article = preview?.querySelector("article");
     if (!editor || !preview || !activeNote) return { from: [] as number[], to: [] as number[] };
     const headings = extractHeadings(activeNote.content);
-    const els = [...(article?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [])] as HTMLElement[];
+    const els = [...(article?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [])].filter((el) => !el.closest("blockquote")) as HTMLElement[];
     const rootRect = preview.getBoundingClientRect();
     return ratioAnchors(
       headings.map((item) => item.offset),
@@ -1410,7 +1420,7 @@ export function NoteApp() {
   function updateActiveHeading() {
     const preview = document.getElementById("note-preview");
     const article = preview?.querySelector("article");
-    const els = [...(article?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [])] as HTMLElement[];
+    const els = [...(article?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [])].filter((el) => !el.closest("blockquote")) as HTMLElement[];
     if (!preview || els.length === 0) {
       setActiveHeadingId("");
       return;

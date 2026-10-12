@@ -11,6 +11,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isInside, openExternalSafe, safeFolderFileName } from "./path-safe.mjs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -190,11 +191,6 @@ async function saveFolderPath(folder) {
   await writeJson(userDataFile("sync-folder.json"), { path: folder });
 }
 
-function isInside(root, target) {
-  const rel = path.relative(root, target);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-}
-
 async function libraryRootPath() {
   const root = path.join(app.getPath("documents"), "jingjian");
   await mkdir(root, { recursive: true });
@@ -213,8 +209,18 @@ function libraryJoin(root, relative) {
 }
 
 function resolveWww(requestUrl) {
-  const parsed = new URL(requestUrl);
-  let pathname = decodeURIComponent(parsed.pathname || "/");
+  let parsed;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+  let pathname = parsed.pathname || "/";
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
   if (pathname.endsWith("/")) pathname += "index.html";
   if (pathname === "") pathname = "/index.html";
   const target = path.normalize(path.join(WWW_ROOT, pathname.replace(/^\/+/, "")));
@@ -252,8 +258,25 @@ async function loadWindowBounds() {
 }
 
 function setupMenu() {
+  // Windows/Linux: a real Edit menu is required so Chromium still wires
+  // Ctrl+C/V/X/A/Z. The bar stays hidden via autoHideMenuBar on the window.
   if (process.platform !== "darwin") {
-    Menu.setApplicationMenu(null);
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        {
+          label: "Edit",
+          submenu: [
+            { role: "undo" },
+            { role: "redo" },
+            { type: "separator" },
+            { role: "cut" },
+            { role: "copy" },
+            { role: "paste" },
+            { role: "selectAll" },
+          ],
+        },
+      ]),
+    );
     return;
   }
   const template = [
@@ -341,13 +364,13 @@ function createWindow(bounds) {
     void writeJson(userDataFile("window.json"), { width, height });
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternalSafe(url, (next) => { void shell.openExternal(next); });
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, url) => {
     if (url.startsWith(`${SCHEME}://`) || url.startsWith("file:")) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternalSafe(url, (next) => { void shell.openExternal(next); });
   });
   win.webContents.on("did-fail-load", (_event, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3) return;
@@ -464,18 +487,20 @@ function registerIpc() {
   ipcMain.handle("folder-write", async (_event, payload) => {
     const folder = await loadFolderPath();
     if (!folder) throw new Error("请先选择保存文件夹");
-    const name = String(payload?.name || "未命名.md");
+    const name = safeFolderFileName(payload?.name);
     const content = String(payload?.content || "");
     const shortId = String(payload?.shortId || "");
+    const next = path.join(folder, name);
+    if (!isInside(folder, next)) throw new Error("路径不合法");
     const names = await readdir(folder);
     for (const entry of names) {
       if (!shortId || !entry.replaceAll("-", "").includes(shortId)) continue;
       const previous = path.join(folder, entry);
-      const next = path.join(folder, name);
+      if (!isInside(folder, previous)) continue;
       if (previous !== next) await unlink(previous).catch(() => {});
       break;
     }
-    await writeFile(path.join(folder, name), content, "utf8");
+    await writeFile(next, content, "utf8");
   });
 
   ipcMain.handle("folder-remove", async (_event, payload) => {
@@ -486,7 +511,9 @@ function registerIpc() {
     const names = await readdir(folder);
     for (const entry of names) {
       if (!entry.replaceAll("-", "").includes(shortId)) continue;
-      await unlink(path.join(folder, entry)).catch(() => {});
+      const target = path.join(folder, safeFolderFileName(entry));
+      if (!isInside(folder, target)) continue;
+      await unlink(target).catch(() => {});
     }
   });
 
@@ -512,6 +539,7 @@ function registerIpc() {
   ipcMain.handle("library-write", async (_event, payload) => {
     const root = await libraryRootPath();
     const filePath = libraryJoin(root, payload?.relative);
+    if (filePath === root) throw new Error("路径不合法");
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, String(payload?.content || ""), "utf8");
     return { path: filePath };

@@ -60,7 +60,13 @@ marked.use({
       const safe = sanitizeHref(href);
       if (!safe) return escapeHtml(text);
       if (safe.startsWith("jingjian-wiki://")) {
-        const wiki = decodeURIComponent(safe.slice("jingjian-wiki://".length));
+        const raw = safe.slice("jingjian-wiki://".length);
+        let wiki = raw;
+        try {
+          wiki = decodeURIComponent(raw);
+        } catch {
+          // Hand-written % sequences must not crash the whole preview.
+        }
         return `<a class="wiki-link" href="#wiki" data-wiki="${escapeHtml(wiki)}">${escapeHtml(text)}</a>`;
       }
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";

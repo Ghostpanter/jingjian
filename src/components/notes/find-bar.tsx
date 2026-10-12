@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,13 +37,14 @@ export function FindBar({
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [index, setIndex] = useState(0);
+  const revealedKey = useRef("");
 
   const result = useMemo(
     () => findMatches(content, { query, regex, caseSensitive, wholeWord }),
     [content, query, regex, caseSensitive, wholeWord],
   );
   const error = isFindError(result) ? result.error : "";
-  const matches = isFindError(result) ? [] : result;
+  const matches = useMemo(() => (isFindError(result) ? [] : result), [result]);
   const current = matches[index] ?? null;
 
   useEffect(() => {
@@ -60,18 +61,38 @@ export function FindBar({
     }, 0);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const cursor = editorCaret() ?? 0;
-    setIndex(indexNear(matches, cursor));
-  }, [open, query, regex, caseSensitive, wholeWord, content, matches]);
-
   function selectMatch(range: TextRange | null) {
     if (!range) return;
     window.dispatchEvent(
       new CustomEvent("jingjian-reveal", { detail: { start: range.start, end: range.end } }),
     );
   }
+
+  // Typing in the find box should land on the nearest hit immediately. Enter
+  // then walks forward/back from there (previously only Enter moved, and the
+  // first Enter skipped the current hit). Re-running reveal on every content
+  // edit would yank the caret while the note is being typed with find still
+  // open, so content only refreshes the index — reveal is query/options only.
+  useEffect(() => {
+    if (!open) return;
+    const cursor = editorCaret() ?? 0;
+    setIndex(indexNear(matches, cursor));
+  }, [content, matches, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const cursor = editorCaret() ?? 0;
+    const near = indexNear(matches, cursor);
+    setIndex(near);
+    const hit = matches[near] ?? null;
+    const key = `${query}|${regex}|${caseSensitive}|${wholeWord}`;
+    if (key !== revealedKey.current) {
+      revealedKey.current = key;
+      selectMatch(hit);
+    }
+    // matches comes from the same render as the query/options change above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, query, regex, caseSensitive, wholeWord]);
 
   function jump(direction: 1 | -1) {
     if (matches.length === 0) return;
@@ -83,8 +104,16 @@ export function FindBar({
   function replaceOne() {
     if (!current) return;
     const next = applyReplacement(content, current, replacement, regex, query, caseSensitive);
-    const cursor = current.end + (next.length - content.length);
-    onReplace(next, { start: current.start, end: cursor });
+    const after = current.end + (next.length - content.length);
+    const again = findMatches(next, { query, regex, caseSensitive, wholeWord });
+    if (!isFindError(again) && again.length > 0) {
+      const near = indexNear(again, after);
+      const hit = again[near] ?? again[0];
+      setIndex(near);
+      onReplace(next, { start: hit.start, end: hit.end });
+      return;
+    }
+    onReplace(next, { start: after, end: after });
   }
 
   function replaceEvery() {

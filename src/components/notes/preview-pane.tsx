@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isBlankContent, EDITOR_WINDOW_CHARS, extendBounds, peekPendingReveal, PREVIEW_WINDOW_CHARS, previewWindow } from "@/lib/notes/format";
-import { countTasks, ensureKatex, upgradeMathNode } from "@/lib/notes/markdown-extra";
+import { countTasksBefore, ensureKatex, upgradeMathNode } from "@/lib/notes/markdown-extra";
 import { applyCachedMermaid, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { createSectionCache, renderSections, type SectionEntry } from "@/lib/notes/preview-blocks";
 import { resolveImageSrc } from "@/lib/notes/image-store";
@@ -181,7 +181,30 @@ export function PreviewPane({
   function patchPreview() {
     const root = articleRef.current;
     if (!root) return;
-    if (library.current.notes !== notes) library.current = { notes, version: library.current.version + 1 };
+    // Typing in this note rebuilds `notes` every keystroke. Only bump the embed
+    // cache when *other* notes change — otherwise every keystroke redraws embeds
+    // (and Mermaid) for no reason.
+    if (library.current.notes !== notes) {
+      const prev = library.current.notes ?? [];
+      const next = notes ?? [];
+      const prevOthers = new Map(
+        prev.filter((item) => item.id !== noteId).map((item) => [item.id, item.content]),
+      );
+      let libraryChanged = prevOthers.size !== next.filter((item) => item.id !== noteId).length;
+      if (!libraryChanged) {
+        for (const item of next) {
+          if (item.id === noteId) continue;
+          if (prevOthers.get(item.id) !== item.content) {
+            libraryChanged = true;
+            break;
+          }
+        }
+      }
+      library.current = {
+        notes,
+        version: libraryChanged ? library.current.version + 1 : library.current.version,
+      };
+    }
     const result = renderSections(windowed.text, {
       cache: sectionCache.current,
       library: notes,
@@ -345,7 +368,7 @@ export function PreviewPane({
       const index = Number(task.dataset.task);
       // Checkbox numbers restart at the top of the rendered window; the note
       // itself counts from its first line.
-      const before = windowed.start > 0 ? countTasks(contentRef.current.slice(0, windowed.start)) : 0;
+      const before = windowed.start > 0 ? countTasksBefore(contentRef.current, windowed.start) : 0;
       if (Number.isFinite(index)) onToggleTask?.(index + before);
       return;
     }
@@ -354,6 +377,30 @@ export function PreviewPane({
       event.preventDefault();
       const title = wiki.dataset.wiki?.trim();
       if (title) onOpenWiki?.(title);
+      return;
+    }
+    // Footnotes / in-note anchors: the preview scrolls inside its own div, so a
+    // raw hash navigation would scroll the WebView (or do nothing) instead.
+    const hashLink = target.closest("a[href^='#']") as HTMLAnchorElement | null;
+    if (hashLink) {
+      event.preventDefault();
+      const raw = hashLink.getAttribute("href")?.slice(1) ?? "";
+      if (!raw) return;
+      let id = raw;
+      try {
+        id = decodeURIComponent(raw);
+      } catch {
+        // keep raw
+      }
+      const root = scrollRef.current;
+      if (!root || !id) return;
+      let el: Element | null = null;
+      try {
+        el = root.querySelector(`#${CSS.escape(id)}`);
+      } catch {
+        el = root.querySelector(`[id="${id.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`);
+      }
+      if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
       return;
     }
     const copy = target.closest("button.code-copy") as HTMLButtonElement | null;
@@ -417,16 +464,29 @@ export function PreviewPane({
         if (!dir) return;
         growLock.current = requestAnimationFrame(() => {
           growLock.current = 0;
+          const content = contentRef.current;
           const next = extendBounds(
-            contentRef.current.length,
+            content.length,
             { start: windowed.start, end: baseEnd },
             dir,
             16_000,
             EDITOR_WINDOW_CHARS,
           );
           if (!next) return;
+          // Snap to line boundaries so heading seeds / task windows stay coherent.
+          let start = next.start;
+          let end = next.end;
+          if (start > 0) {
+            const nl = content.lastIndexOf("\n", start - 1);
+            start = nl >= 0 ? nl + 1 : 0;
+          }
+          if (end < content.length) {
+            const nl = content.indexOf("\n", end);
+            if (nl >= 0) end = nl + 1;
+          }
+          if (start >= end) return;
           preserveScroll.current = true;
-          setSpan(next);
+          setSpan({ start, end });
         });
       }}
     >
