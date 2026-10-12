@@ -31,7 +31,8 @@ marked.use({
     },
     code({ text, lang }) {
       if (isMermaidBlock(lang, text)) {
-        return `<div class="mermaid-block"><pre class="mermaid" data-source="${escapeHtml(text)}">${escapeHtml(text)}</pre></div>`;
+        const source = escapeHtml(text).replaceAll("\r", "&#13;").replaceAll("\n", "&#10;");
+        return `<div class="mermaid-block"><pre class="mermaid" data-source="${source}">${escapeHtml(text)}</pre></div>`;
       }
       const label = displayLang(lang);
       const highlighted = highlightCode(text, lang);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cachedMermaidSvg, isReadyMermaidSource } from "./mermaid-render.ts";
+import { cachedMermaidSvg, isReadyMermaidSource, mermaidBlockSource } from "./mermaid-render.ts";
 
 test("mermaid render waits until a diagram keyword is present", () => {
   assert.equal(isReadyMermaidSource(""), false);
@@ -13,4 +13,13 @@ test("mermaid render waits until a diagram keyword is present", () => {
 
 test("an undrawn diagram has no cached svg", () => {
   assert.equal(cachedMermaidSvg("flowchart LR\n  A --> B"), null);
+});
+
+test("a fence keeps its line breaks over a flattened data-source attribute", () => {
+  const node = {
+    tagName: "PRE",
+    textContent: "flowchart LR\n  A --> B",
+    getAttribute: () => "flowchart LR  A --> B",
+  } as unknown as HTMLElement;
+  assert.equal(mermaidBlockSource(node), "flowchart LR\n  A --> B");
 });

@@ -31,6 +31,13 @@ test("unclosed backticks stay fast and still render real code", () => {
   assert.ok(Date.now() - started < 1500);
 });
 
+test("mermaid fences keep line breaks for the diagram source", () => {
+  const html = renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```\n");
+  const arrow = "A --" + String.fromCharCode(38) + "gt; B";
+  assert.ok(html.includes(`data-source="flowchart LR&#10;  ${arrow}"`));
+  assert.match(html, /<pre class="mermaid"/);
+});
+
 test("keeps safe external links and images", () => {
   const html = renderMarkdown(
     "[静笺](https://example.com) 和 ![图](https://example.com/a.png)",

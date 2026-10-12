@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent 
 import { isBlankContent, EDITOR_WINDOW_CHARS, extendBounds, peekPendingReveal, PREVIEW_WINDOW_CHARS, previewWindow } from "@/lib/notes/format";
 import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { renderMarkdown } from "@/lib/notes/markdown";
-import { cachedMermaidSvg, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
+import { cachedMermaidSvg, mermaidBlockSource, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
 import { headingSeedBefore } from "@/lib/notes/outline";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
@@ -148,10 +148,10 @@ export function PreviewPane({
       });
     }
     const drawn = new Set(
-      [...root.querySelectorAll(".mermaid-svg")].map((node) => node.getAttribute("data-source") ?? ""),
+      [...root.querySelectorAll(".mermaid-svg")].map((node) => mermaidBlockSource(node as HTMLElement)),
     );
-    for (const node of [...root.querySelectorAll("pre.mermaid")]) {
-      const source = (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
+    for (const node of [...root.querySelectorAll<HTMLElement>("pre.mermaid")]) {
+      const source = mermaidBlockSource(node);
       if (drawn.has(source)) {
         node.parentElement?.remove();
         continue;
@@ -164,7 +164,9 @@ export function PreviewPane({
       wrap.setAttribute("data-source", source);
       wrap.innerHTML = cached;
       const svg = wrap.querySelector("svg");
-      if (svg) {
+      if (svg instanceof SVGSVGElement) {
+        const box = svg.viewBox?.baseVal;
+        if (box && box.width > 0 && box.height > 0) svg.style.aspectRatio = `${box.width} / ${box.height}`;
         svg.setAttribute("width", "100%");
         svg.removeAttribute("height");
         svg.style.width = "100%";
@@ -174,9 +176,7 @@ export function PreviewPane({
       node.replaceWith(wrap);
       drawn.add(source);
     }
-    const pending = [...root.querySelectorAll("pre.mermaid")].map(
-      (node) => (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n"),
-    );
+    const pending = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].map((node) => mermaidBlockSource(node));
     if (pending.length === 0) {
       return () => {
         cancelled = true;
