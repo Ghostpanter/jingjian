@@ -928,13 +928,23 @@ export function NoteApp() {
         return;
       }
 
+      // ⌘H is "Hide" on macOS app menus — use ⌘⌥F for replace there.
+      // Keep Ctrl+H on Windows/Linux; also accept mod+alt+f everywhere.
+      if (mod && event.altKey && key.toLowerCase() === "f") {
+        event.preventDefault();
+        openFind(true);
+        return;
+      }
+
       if (mod && key.toLowerCase() === "f") {
         event.preventDefault();
         openFind(false);
         return;
       }
 
-      if (mod && key.toLowerCase() === "h") {
+      const appleMod =
+        typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+      if (mod && !appleMod && key.toLowerCase() === "h") {
         event.preventDefault();
         openFind(true);
         return;

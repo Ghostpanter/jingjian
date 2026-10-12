@@ -303,17 +303,26 @@ export function ShortcutsDialog({
             <section key={group.title} className="mb-4 last:mb-0">
               <h3 className="pb-1 text-xs tracking-wide text-subtle">{group.title}</h3>
               <ul className="divide-y divide-border">
-                {group.items.map(([keys, label]) => (
-                  <li
-                    key={`${group.title}-${keys}`}
-                    className="flex items-center justify-between gap-4 py-2 text-sm"
-                  >
-                    <span className="text-fg">{label}</span>
-                    <kbd className="rounded-sm bg-overlay px-2 py-1 font-sans text-xs text-muted tabular-nums">
-                      {modLabel} + {keys}
-                    </kbd>
-                  </li>
-                ))}
+                {group.items.map(([keys, label]) => {
+                  // Browser steals Ctrl+H (history); macOS app menu steals ⌘H (hide).
+                  const shown =
+                    keys === "H" && label === "当前文档替换"
+                      ? apple
+                        ? "⌥ + F"
+                        : "Alt + F"
+                      : keys;
+                  return (
+                    <li
+                      key={`${group.title}-${keys}-${label}`}
+                      className="flex items-center justify-between gap-4 py-2 text-sm"
+                    >
+                      <span className="text-fg">{label}</span>
+                      <kbd className="rounded-sm bg-overlay px-2 py-1 font-sans text-xs text-muted tabular-nums">
+                        {modLabel} + {shown}
+                      </kbd>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ))}
