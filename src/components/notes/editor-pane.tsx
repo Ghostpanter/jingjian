@@ -17,7 +17,13 @@ import { defineLanguageFacet, HighlightStyle, Language, LanguageSupport, syntaxH
 import { highlightSelectionMatches } from "@codemirror/search";
 import { tags } from "@lezer/highlight";
 import { indentLines, looksLikeUrl, normalizeHref, wrapAsMarkup } from "@/lib/notes/insert-markup";
-import { insertImageAtCursor } from "@/lib/notes/image-insert";
+import {
+  clipboardImageDataUrls,
+  clipboardImageFiles,
+  filesFromDataUrls,
+  insertImageAtCursor,
+  shouldInsertClipboardImages,
+} from "@/lib/notes/image-insert";
 import { peekPendingReveal } from "@/lib/notes/format";
 import { classifyIncoming } from "@/lib/notes/open-incoming";
 import { Capacitor } from "@capacitor/core";
@@ -234,10 +240,17 @@ export function EditorPane({
           paste(event, view) {
             const data = event.clipboardData;
             if (!data) return false;
-            const files = [...data.files];
-            if (files.some((file) => file.type.startsWith("image/"))) {
+            // Android often puts the image on `items` or as a data: URL in
+            // text/html while `files` stays empty — catch all three.
+            const imageFiles = clipboardImageFiles(data);
+            const dataUrls = imageFiles.length ? [] : clipboardImageDataUrls(data);
+            if (shouldInsertClipboardImages(data, imageFiles, dataUrls)) {
               event.preventDefault();
-              void insertFiles(view, files);
+              void (async () => {
+                const fromHtml = dataUrls.length ? await filesFromDataUrls(dataUrls) : [];
+                const all = [...imageFiles, ...fromHtml];
+                if (all.length) await insertFiles(view, all);
+              })();
               return true;
             }
             const clip = data.getData("text/plain").trim();

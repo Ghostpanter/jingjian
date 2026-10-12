@@ -157,3 +157,9 @@ test("embed flatten leaves fenced sample tasks and headings alone", () => {
   assert.match(html, /\[ \]/); // fence sample keeps markdown checkbox syntax
   assert.doesNotMatch(html, /<h1[^>]*>真标题<\/h1>/);
 });
+
+test("malformed jingjian-wiki percent encoding does not crash preview", () => {
+  const html = renderMarkdown("[坏链](jingjian-wiki://%E0%A4%A)");
+  assert.match(html, /class="wiki-link"/);
+  assert.match(html, /坏链/);
+});

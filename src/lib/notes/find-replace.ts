@@ -10,13 +10,19 @@ export type TextRange = {
   end: number;
 };
 
-function isWordChar(ch: string | undefined): boolean {
+/** Latin / identifier characters only — not Han. Whole-word is a Latin concept. */
+function isAsciiWordChar(ch: string | undefined): boolean {
   if (!ch) return false;
-  return /[A-Za-z0-9_\u4e00-\u9fff]/.test(ch);
+  return /[A-Za-z0-9_]/.test(ch);
 }
 
+/**
+ * Whole-word boundaries for mixed CJK + Latin notes.
+ * Treating Han as word chars made 「笔记」 miss inside 「我的笔记应用」; Chinese
+ * has no spaces between words, so only ASCII word chars count as boundaries.
+ */
 function isWholeWord(text: string, start: number, end: number): boolean {
-  return !isWordChar(text[start - 1]) && !isWordChar(text[end]);
+  return !isAsciiWordChar(text[start - 1]) && !isAsciiWordChar(text[end]);
 }
 
 export function findMatches(text: string, options: FindOptions): TextRange[] | { error: string } {
