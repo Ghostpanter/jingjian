@@ -539,6 +539,7 @@ function registerIpc() {
   ipcMain.handle("library-write", async (_event, payload) => {
     const root = await libraryRootPath();
     const filePath = libraryJoin(root, payload?.relative);
+    if (filePath === root) throw new Error("路径不合法");
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, String(payload?.content || ""), "utf8");
     return { path: filePath };

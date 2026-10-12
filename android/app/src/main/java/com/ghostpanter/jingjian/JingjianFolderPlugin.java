@@ -327,7 +327,13 @@ public class JingjianFolderPlugin extends Plugin {
     public void rmdirLibrary(PluginCall call) {
         String relative = call.getString("relative", "");
         try {
+            File root = libraryRoot();
             File dir = libraryChild(relative, false);
+            // Never wipe Documents/jingjian itself (matches Electron library-rmdir).
+            if (dir.getCanonicalFile().equals(root.getCanonicalFile())) {
+                call.resolve();
+                return;
+            }
             if (dir.exists()) {
                 deleteRecursive(dir);
             }
@@ -342,6 +348,10 @@ public class JingjianFolderPlugin extends Plugin {
         String relative = call.getString("relative", "");
         String content = call.getString("content", "");
         try {
+            if (relative == null || relative.replace("\\", "/").trim().isEmpty()) {
+                call.reject("路径不合法");
+                return;
+            }
             File file = libraryChild(relative, true);
             File parent = file.getParentFile();
             if (parent != null && !parent.exists() && !parent.mkdirs()) {
@@ -367,8 +377,9 @@ public class JingjianFolderPlugin extends Plugin {
     public void removeLibrary(PluginCall call) {
         String relative = call.getString("relative", "");
         try {
+            File root = libraryRoot();
             File file = libraryChild(relative, true);
-            if (!file.equals(libraryRoot()) && file.exists()) {
+            if (!file.getCanonicalFile().equals(root.getCanonicalFile()) && file.exists()) {
                 deleteRecursive(file);
             }
             call.resolve();
@@ -392,7 +403,8 @@ public class JingjianFolderPlugin extends Plugin {
     }
 
     private File libraryChild(String relative, boolean file) throws IOException {
-        File current = libraryRoot();
+        File root = libraryRoot();
+        File current = root;
         String[] parts = relative == null ? new String[0] : relative.replace("\\", "/").split("/");
         for (String part : parts) {
             if (part == null) continue;
@@ -400,10 +412,30 @@ public class JingjianFolderPlugin extends Plugin {
             if (name.isEmpty() || ".".equals(name) || "..".equals(name)) continue;
             current = new File(current, name);
         }
-        if (!file && current.equals(libraryRoot())) {
-            return current;
+        File canonicalRoot = root.getCanonicalFile();
+        File canonical = current.getCanonicalFile();
+        String rootPath = canonicalRoot.getPath();
+        String childPath = canonical.getPath();
+        if (!childPath.equals(rootPath) && !childPath.startsWith(rootPath + File.separator)) {
+            throw new IOException("路径不合法");
+        }
+        if (file && childPath.equals(rootPath)) {
+            throw new IOException("路径不合法");
         }
         return current;
+    }
+
+    /** Flat sync-folder names only — DocumentFile createFile is display-name based. */
+    private String safeFileName(String name) {
+        if (name == null) return "未命名.md";
+        String cleaned = name.replace("\\", "/");
+        int slash = cleaned.lastIndexOf('/');
+        if (slash >= 0) cleaned = cleaned.substring(slash + 1);
+        cleaned = cleaned.trim();
+        if (cleaned.isEmpty() || ".".equals(cleaned) || "..".equals(cleaned)) {
+            return "未命名.md";
+        }
+        return cleaned;
     }
 
     private void deleteRecursive(File file) {
@@ -494,10 +526,10 @@ public class JingjianFolderPlugin extends Plugin {
 
     @PluginMethod
     public void write(PluginCall call) {
-        String name = call.getString("name");
+        String name = safeFileName(call.getString("name"));
         String content = call.getString("content", "");
         String shortId = call.getString("shortId", "");
-        if (name == null || name.isEmpty()) {
+        if (name.isEmpty()) {
             call.reject("缺少文件名");
             return;
         }
