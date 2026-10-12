@@ -48,11 +48,14 @@ function splitInlineCode(chunk: string): { code: boolean; text: string }[] {
       while (chunk[i + n] === "`") n += 1;
       const fence = "`".repeat(n);
       const end = chunk.indexOf(fence, i + n);
-      if (end !== -1) {
+      if (end !== -1 && end > i + n) {
         parts.push({ code: true, text: chunk.slice(i, end + n) });
         i = end + n;
         continue;
       }
+      parts.push({ code: false, text: fence });
+      i += n;
+      continue;
     }
     const next = chunk.indexOf("`", i);
     const end = next === -1 ? chunk.length : next;

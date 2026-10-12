@@ -853,8 +853,15 @@
     box-shadow: var(--shadow-border);
   }
 
+  .md-body .mermaid-svg {
+    width: 100%;
+    max-width: 100%;
+  }
+
   .md-body .mermaid-block svg,
+  .md-body .mermaid-svg svg,
   .md-body .mermaid-block img {
+    width: 100%;
     max-width: 100%;
     height: auto;
     display: block;

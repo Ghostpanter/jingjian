@@ -9,11 +9,26 @@ test("highlights fenced code by language", () => {
   assert.match(html, /javascript|hljs-keyword|hljs-number/);
 });
 
-test("renders mermaid fences as mermaid blocks", () => {
-  const html = renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```\n");
-  assert.match(html, /class="mermaid"/);
-  assert.match(html, /flowchart LR/);
-  assert.doesNotMatch(html, /hljs/);
+test("unclosed backticks stay fast and still render real code", () => {
+  const lone = renderMarkdown(`hello \` world\n${"文字\n".repeat(400)}`);
+  assert.match(lone, /hello/);
+  assert.match(lone, /文字/);
+  assert.doesNotMatch(lone, /<code>[^<]*文字/);
+  const empty = renderMarkdown("hello `` world");
+  assert.match(empty, /hello/);
+  assert.match(empty, /world/);
+  const code = renderMarkdown("见 `code` 和 ``literal ` tick``。");
+  assert.match(code, /<code>code<\/code>/);
+  assert.match(code, /<code>literal ` tick<\/code>/);
+  const fence = renderMarkdown("```js\nconst n = 1;\n```\n\n尾");
+  assert.match(fence, /language-js|hljs/);
+  assert.match(fence, /尾/);
+  const openFence = renderMarkdown("```js\nconst n = 1;\n\n后面 `code`");
+  assert.match(openFence, /后面/);
+  assert.match(openFence, /<code>code<\/code>/);
+  const started = Date.now();
+  renderMarkdown(`\`\`\`mermaid\nflowchart LR\n  A --> B\n\`\`\`\n${"`".repeat(30)}\n${"段落\n".repeat(200)}`);
+  assert.ok(Date.now() - started < 1500);
 });
 
 test("keeps safe external links and images", () => {

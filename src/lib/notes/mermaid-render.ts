@@ -2,6 +2,22 @@ import type { Palette } from "./theme";
 
 let mermaidMod: typeof import("mermaid")["default"] | null = null;
 let renderSerial = 0;
+const svgCache = new Map<string, string>();
+const SVG_CACHE_CAP = 24;
+
+export function cachedMermaidSvg(source: string): string | null {
+  return svgCache.get(source) ?? null;
+}
+
+function rememberSvg(source: string, svg: string): void {
+  if (svgCache.has(source)) svgCache.delete(source);
+  svgCache.set(source, svg);
+  while (svgCache.size > SVG_CACHE_CAP) {
+    const oldest = svgCache.keys().next().value;
+    if (oldest === undefined) break;
+    svgCache.delete(oldest);
+  }
+}
 
 function themeVariables(palette?: Palette) {
   const bg = palette?.paper ?? "#f7f3eb";
@@ -54,6 +70,30 @@ async function mermaidApi(palette?: Palette) {
     gantt: { useMaxWidth: true },
   });
   return mermaidMod;
+}
+
+const DIAGRAM_START =
+  /^(?:graph\s|flowchart\s|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt\b|pie\s|mindmap\b|gitGraph|journey\b|C4Context|timeline\b|quadrantChart|sankey-beta|xychart-beta|block-beta|packet-beta|architecture-beta|kanban\b|requirementDiagram)/;
+
+/** A half-typed fence has no diagram keyword yet. Rendering it pulls mermaid and then fails. */
+export function isReadyMermaidSource(source: string): boolean {
+  const text = source.trim();
+  if (text.length < 8 || text.length > 80_000) return false;
+  const head = text.slice(0, 160).trimStart();
+  return DIAGRAM_START.test(head);
+}
+
+function sizePreviewSvg(svg: SVGSVGElement): void {
+  if (!svg.getAttribute("viewBox")) {
+    const box = svgSize(svg);
+    svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
+  }
+  svg.removeAttribute("height");
+  svg.setAttribute("width", "100%");
+  svg.style.width = "100%";
+  svg.style.maxWidth = "100%";
+  svg.style.height = "auto";
+  svg.style.maxHeight = "none";
 }
 
 function isSvgElement(node: Element | null): node is SVGSVGElement {
@@ -200,7 +240,9 @@ export async function renderMermaidBlocks(
   options: MermaidRenderOptions = {},
 ): Promise<void> {
   const pending = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].filter(
-    (node) => node.getAttribute("data-processed") !== "true",
+    (node) =>
+      node.getAttribute("data-processed") !== "true" &&
+      isReadyMermaidSource((node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n")),
   );
   if (pending.length === 0) return;
   const batch = ++renderSerial;
@@ -208,7 +250,10 @@ export async function renderMermaidBlocks(
   if (batch !== renderSerial) return;
 
   const nodes = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].filter(
-    (node) => node.isConnected && node.getAttribute("data-processed") !== "true",
+    (node) =>
+      node.isConnected &&
+      node.getAttribute("data-processed") !== "true" &&
+      isReadyMermaidSource((node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n")),
   );
   const doc = root.ownerDocument ?? document;
   const background = options.palette?.paper ?? "#f7f3eb";
@@ -216,28 +261,34 @@ export async function renderMermaidBlocks(
   for (const [index, node] of nodes.entries()) {
     if (batch !== renderSerial) return;
     if (!node.isConnected) continue;
-    const source = node.textContent ?? "";
+    const source = (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
     const id = `jingjian-mmd-${Date.now().toString(36)}-${index}`;
     try {
-      const { svg } = await mermaid.render(id, source);
+      const cached = svgCache.get(source);
+      const svg = cached ?? (await mermaid.render(id, source)).svg;
+      if (!cached) rememberSvg(source, svg);
       if (batch !== renderSerial || !node.isConnected) continue;
       const wrap = doc.createElement("div");
       wrap.className = "mermaid-svg";
       wrap.setAttribute("data-processed", "true");
+      const remembered = node.getAttribute("data-source");
+      if (remembered) wrap.setAttribute("data-source", remembered);
       wrap.innerHTML = svg;
       node.replaceWith(wrap);
       const svgEl = [...wrap.querySelectorAll("svg")].find(isSvgElement) ?? null;
       if (svgEl) {
-        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-        const laidOut = svgSize(svgEl);
-        svgEl.setAttribute("width", String(laidOut.width));
-        svgEl.setAttribute("height", String(laidOut.height));
-        svgEl.style.width = `${laidOut.width}px`;
-        svgEl.style.height = `${laidOut.height}px`;
-        const maxWidth = Math.max(1, wrap.clientWidth || wrap.parentElement?.clientWidth || 640);
-        const maxHeight = options.maxHeight ?? Number.POSITIVE_INFINITY;
-        if (options.rasterize || Number.isFinite(maxHeight)) {
-          fitMermaidFigure(wrap, maxWidth, maxHeight);
+        const lockPixels = options.rasterize || Number.isFinite(options.maxHeight ?? Number.POSITIVE_INFINITY);
+        if (lockPixels) {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+          const laidOut = svgSize(svgEl);
+          svgEl.setAttribute("width", String(laidOut.width));
+          svgEl.setAttribute("height", String(laidOut.height));
+          svgEl.style.width = `${laidOut.width}px`;
+          svgEl.style.height = `${laidOut.height}px`;
+          const maxWidth = Math.max(1, wrap.clientWidth || wrap.parentElement?.clientWidth || 640);
+          fitMermaidFigure(wrap, maxWidth, options.maxHeight ?? Number.POSITIVE_INFINITY);
+        } else {
+          sizePreviewSvg(svgEl);
         }
       }
       if (options.rasterize && svgEl && wrap.isConnected) {

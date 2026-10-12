@@ -31,7 +31,7 @@ marked.use({
     },
     code({ text, lang }) {
       if (isMermaidBlock(lang, text)) {
-        return `<div class="mermaid-block"><pre class="mermaid">${escapeHtml(text)}</pre></div>`;
+        return `<div class="mermaid-block"><pre class="mermaid" data-source="${escapeHtml(text)}">${escapeHtml(text)}</pre></div>`;
       }
       const label = displayLang(lang);
       const highlighted = highlightCode(text, lang);
@@ -89,6 +89,87 @@ export function sanitizeInlineHtml(text: string): string {
   return "";
 }
 
+const OPEN_TICK = "\u02cb";
+
+function breakTicks(count: number): string {
+  return OPEN_TICK.repeat(count);
+}
+
+/**
+ * marked's codespan rule is `/^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/`.
+ * One unmatched backtick makes that lazy match scan the rest of the note and
+ * freeze the editor. Walk the source once and split only the runs that never
+ * close, so inline code and fenced blocks stay intact.
+ */
+export function tameBackticks(source: string): string {
+  let out = "";
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    if (source[i] === "\\" && i + 1 < n) {
+      out += source[i] + source[i + 1];
+      i += 2;
+      continue;
+    }
+    if (source[i] !== "`") {
+      out += source[i];
+      i += 1;
+      continue;
+    }
+    let ticks = 0;
+    while (i + ticks < n && source[i + ticks] === "`") ticks += 1;
+    const openAt = i;
+    i += ticks;
+    const lineStart = source.lastIndexOf("\n", openAt - 1) + 1;
+    const indent = source.slice(lineStart, openAt);
+    const lineEnd = source.indexOf("\n", openAt);
+    const info = lineEnd === -1 ? source.slice(i) : source.slice(i, lineEnd);
+    const fence = ticks >= 3 && /^[ \t]{0,3}$/.test(indent) && /^[^`\n]*$/.test(info);
+    if (fence) {
+      const afterLine = lineEnd === -1 ? n : lineEnd;
+      const rest = source.slice(afterLine);
+      const closeRe = new RegExp("(?:^|\\n)[ \\t]{0,3}`{" + ticks + ",}[ \\t]*(?:\\n|$)");
+      const found = closeRe.exec(rest);
+      if (found) {
+        const end = afterLine + found.index + found[0].length;
+        out += source.slice(openAt, end);
+        i = end;
+        continue;
+      }
+      // Leave the fence marker readable. Splitting it stops the runaway span
+      // without swallowing the paragraphs that follow an unfinished block.
+      out += breakTicks(ticks);
+      continue;
+    }
+    let j = i;
+    let closed = -1;
+    while (j < n) {
+      if (source[j] === "\\" && j + 1 < n) {
+        j += 2;
+        continue;
+      }
+      if (source[j] !== "`") {
+        j += 1;
+        continue;
+      }
+      let run = 0;
+      while (j + run < n && source[j + run] === "`") run += 1;
+      if (run === ticks) {
+        closed = j;
+        break;
+      }
+      j += run;
+    }
+    if (closed !== -1 && closed > i) {
+      out += source.slice(openAt, closed + ticks);
+      i = closed + ticks;
+      continue;
+    }
+    out += breakTicks(ticks);
+  }
+  return out;
+}
+
 export function sanitizeHref(href: string | null | undefined): string | null {
   if (!href) return null;
   const trimmed = href.trim();
@@ -127,7 +208,7 @@ export function renderMarkdown(
     for (const [key, count] of headingSeed) headingSeen.set(key, count);
   }
   taskIndex = 0;
-  const prepared = library?.length ? expandNoteEmbeds(source || "", library) : source || "";
+  const prepared = tameBackticks(library?.length ? expandNoteEmbeds(source || "", library) : source || "");
   const math = extractMath(prepared);
   const wiki = expandWikiLinks(math.source);
   const footnotes = extractFootnotes(wiki);

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent 
 import { isBlankContent, EDITOR_WINDOW_CHARS, extendBounds, peekPendingReveal, PREVIEW_WINDOW_CHARS, previewWindow } from "@/lib/notes/format";
 import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { renderMarkdown } from "@/lib/notes/markdown";
-import { renderMermaidBlocks } from "@/lib/notes/mermaid-render";
+import { cachedMermaidSvg, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
 import { headingSeedBefore } from "@/lib/notes/outline";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
@@ -141,17 +141,57 @@ export function PreviewPane({
         if (!cancelled && articleRef.current) upgradeMath(articleRef.current);
       });
     }
-    void renderMermaidBlocks(root, { palette: paletteFor(readThemeConfig()) });
     void resolvePreviewImages(root);
     if (typeof speakIndex === "number") {
       [...root.children].forEach((node, index) => {
         node.classList.toggle("is-speaking", index === speakIndex);
       });
     }
+    const drawn = new Set(
+      [...root.querySelectorAll(".mermaid-svg")].map((node) => node.getAttribute("data-source") ?? ""),
+    );
+    for (const node of [...root.querySelectorAll("pre.mermaid")]) {
+      const source = (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
+      if (drawn.has(source)) {
+        node.parentElement?.remove();
+        continue;
+      }
+      const cached = cachedMermaidSvg(source);
+      if (!cached) continue;
+      const wrap = node.ownerDocument.createElement("div");
+      wrap.className = "mermaid-svg";
+      wrap.setAttribute("data-processed", "true");
+      wrap.setAttribute("data-source", source);
+      wrap.innerHTML = cached;
+      const svg = wrap.querySelector("svg");
+      if (svg) {
+        svg.setAttribute("width", "100%");
+        svg.removeAttribute("height");
+        svg.style.width = "100%";
+        svg.style.maxWidth = "100%";
+        svg.style.height = "auto";
+      }
+      node.replaceWith(wrap);
+      drawn.add(source);
+    }
+    const pending = [...root.querySelectorAll("pre.mermaid")].map(
+      (node) => (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n"),
+    );
+    if (pending.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const timer = window.setTimeout(() => {
+      const live = articleRef.current;
+      if (cancelled || !live) return;
+      void renderMermaidBlocks(live, { palette: paletteFor(readThemeConfig()) });
+    }, 420);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  });
+  }, [html, format, speakIndex]);
 
   useLayoutEffect(() => {
     restored.current = false;
