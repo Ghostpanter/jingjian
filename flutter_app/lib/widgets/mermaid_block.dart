@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class MermaidBlock extends StatefulWidget {
@@ -15,7 +14,6 @@ class MermaidBlock extends StatefulWidget {
 class _MermaidBlockState extends State<MermaidBlock> {
   late final WebViewController _controller;
   double _height = 160;
-  static String? _cachedMermaidJs;
 
   @override
   void initState() {
@@ -39,26 +37,12 @@ class _MermaidBlockState extends State<MermaidBlock> {
     if (oldWidget.source != widget.source) _load();
   }
 
-  Future<String> _mermaidJs() async {
-    if (_cachedMermaidJs != null) return _cachedMermaidJs!;
-    try {
-      _cachedMermaidJs = await rootBundle.loadString('assets/preview/mermaid.min.js');
-    } catch (_) {
-      _cachedMermaidJs = '';
-    }
-    return _cachedMermaidJs!;
-  }
-
   Future<void> _load() async {
     final src = jsonEncode(widget.source);
-    final local = await _mermaidJs();
-    final scriptTag = local.isNotEmpty
-        ? '<script>${local.replaceAll('</', r'<\/')}</script>'
-        : '<script src="https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js"></script>';
     final html = '''
 <!DOCTYPE html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-$scriptTag
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js"></script>
 <style>body{margin:8px;background:#fff;font-family:sans-serif}.mermaid{display:flex;justify-content:center}</style>
 </head><body>
 <div class="mermaid" id="m"></div>
@@ -72,10 +56,7 @@ mermaid.run({nodes:[document.getElementById('m')]}).then(()=>{
 }).catch(()=>{ JingjianHeight.postMessage('80'); });
 </script></body></html>
 ''';
-    await _controller.loadHtmlString(
-      html,
-      baseUrl: local.isNotEmpty ? null : 'https://cdn.jsdelivr.net/',
-    );
+    await _controller.loadHtmlString(html, baseUrl: 'https://cdn.jsdelivr.net/');
   }
 
   @override
