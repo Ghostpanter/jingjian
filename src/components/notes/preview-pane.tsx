@@ -379,6 +379,30 @@ export function PreviewPane({
       if (title) onOpenWiki?.(title);
       return;
     }
+    // Footnotes / in-note anchors: the preview scrolls inside its own div, so a
+    // raw hash navigation would scroll the WebView (or do nothing) instead.
+    const hashLink = target.closest("a[href^='#']") as HTMLAnchorElement | null;
+    if (hashLink) {
+      event.preventDefault();
+      const raw = hashLink.getAttribute("href")?.slice(1) ?? "";
+      if (!raw) return;
+      let id = raw;
+      try {
+        id = decodeURIComponent(raw);
+      } catch {
+        // keep raw
+      }
+      const root = scrollRef.current;
+      if (!root || !id) return;
+      let el: Element | null = null;
+      try {
+        el = root.querySelector(`#${CSS.escape(id)}`);
+      } catch {
+        el = root.querySelector(`[id="${id.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`);
+      }
+      if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
     const copy = target.closest("button.code-copy") as HTMLButtonElement | null;
     if (copy) {
       event.preventDefault();

@@ -42,3 +42,11 @@ test("keeps tables inside a wrapping div and poem line breaks", () => {
   assert.match(md, /\| 春 \| 秋 \|/);
   assert.match(md, /床前明月光 {2}\n疑是地上霜/);
 });
+
+test("html checkboxes become markdown tasks", () => {
+  const md = htmlToMarkdown(
+    `<ul><li><input type="checkbox"> todo</li><li><input type="checkbox" checked> done</li></ul>`,
+  );
+  assert.match(md, /- \[ \] todo/);
+  assert.match(md, /- \[x\] done/);
+});
