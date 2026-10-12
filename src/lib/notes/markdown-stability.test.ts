@@ -127,3 +127,16 @@ test("task numbers match the checkboxes the preview draws", () => {
   assert.match(toggleTaskAt(source, 3), /- \[ \] 四/);
   assert.equal(toggleTaskAt(source, 9), source);
 });
+
+test("sanitizing drops handlers from tags but keeps the words in text", async () => {
+  const { sanitizeRenderedHtml } = await import("./markdown.ts");
+  const html = renderMarkdown("```mermaid\nflowchart LR\n  A[onclick=go] --> B[javascript: x]\n```\n\n写 onload=1 和 javascript: 文字");
+  assert.match(html, /A\[onclick=go\]/);
+  assert.match(html, /B\[javascript: x\]/);
+  assert.match(html, /写 onload=1 和 javascript: 文字/);
+  const cleaned = sanitizeRenderedHtml(
+    '<a href="jav&#x61;script:1" onclick="x" title="onclick=y">t</a><img src=x onerror=alert(1)><svg onload="1">',
+  );
+  assert.equal(cleaned, '<a title="onclick=y">t</a><img src=x><svg>');
+  assert.doesNotMatch(renderMarkdown("[x](javascript:alert(1))"), /href/);
+});

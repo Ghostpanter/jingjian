@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isBlankContent, EDITOR_WINDOW_CHARS, extendBounds, peekPendingReveal, PREVIEW_WINDOW_CHARS, previewWindow } from "@/lib/notes/format";
-import { countTasks, ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
-import { renderMarkdown } from "@/lib/notes/markdown";
+import { countTasks, ensureKatex, upgradeMathNode } from "@/lib/notes/markdown-extra";
 import { applyCachedMermaid, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
+import { createSectionCache, renderSections, type SectionEntry } from "@/lib/notes/preview-blocks";
 import { resolveImageSrc } from "@/lib/notes/image-store";
 import { headingSeedBefore } from "@/lib/notes/outline";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
@@ -68,10 +68,6 @@ export function PreviewPane({
     () => (windowed.start > 0 ? headingSeedBefore(content, windowed.start) : undefined),
     [content, windowed.start],
   );
-  const html = useMemo(
-    () => (format === "txt" ? "" : renderMarkdown(windowed.text, notes, headingSeed)),
-    [windowed.text, format, notes, headingSeed],
-  );
   const empty = isBlankContent(content);
   const articleRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,6 +98,183 @@ export function PreviewPane({
     return () => window.removeEventListener("jingjian-reveal", onReveal);
   }, [noteId]);
 
+  // --- Incremental preview -------------------------------------------------
+  // Blocks are rendered once and their DOM nodes kept; an edit swaps in only
+  // the blocks whose text (or numbering) changed. Math and Mermaid upgrade
+  // lazily when they scroll near the screen.
+  const sectionCache = useRef(createSectionCache());
+  const mounted = useRef<{ entry: SectionEntry; nodes: Node[] }[]>([]);
+  const library = useRef<{ notes: typeof notes; version: number }>({ notes, version: 0 });
+  const observer = useRef<IntersectionObserver | null>(null);
+  const visibleDiagrams = useRef(new Set<HTMLElement>());
+  const mermaidTimer = useRef(0);
+  const patchedKey = useRef("");
+  const [patchTick, setPatchTick] = useState(0);
+  const patchKey = `${noteId ?? ""}|${format}|${windowed.start}|${anchorKey ?? ""}`;
+
+  function scheduleMermaid() {
+    window.clearTimeout(mermaidTimer.current);
+    // Same 420 ms pause as before: diagrams draw once typing stops.
+    mermaidTimer.current = window.setTimeout(() => {
+      const live = articleRef.current;
+      const nodes = [...visibleDiagrams.current].filter(
+        (node) => node.isConnected && node.getAttribute("data-processed") !== "true",
+      );
+      if (!live || nodes.length === 0) return;
+      void renderMermaidBlocks(live, { palette: paletteFor(readThemeConfig()), only: nodes });
+    }, 420);
+  }
+
+  function lazyObserver(): IntersectionObserver | null {
+    if (observer.current || typeof IntersectionObserver === "undefined") return observer.current;
+    observer.current = new IntersectionObserver(
+      (entries) => {
+        let diagrams = false;
+        for (const item of entries) {
+          const el = item.target as HTMLElement;
+          if (el.classList.contains("math-pending")) {
+            if (!item.isIntersecting) continue;
+            observer.current?.unobserve(el);
+            void ensureKatex().then(() => upgradeMathNode(el));
+            continue;
+          }
+          if (item.isIntersecting) {
+            visibleDiagrams.current.add(el);
+            diagrams = true;
+          } else {
+            visibleDiagrams.current.delete(el);
+          }
+        }
+        if (diagrams) scheduleMermaid();
+      },
+      { root: scrollRef.current, rootMargin: "600px 0px" },
+    );
+    return observer.current;
+  }
+
+  function upgradeFresh(fresh: Element[]) {
+    if (fresh.length === 0) return;
+    const palette = paletteFor(readThemeConfig());
+    const io = lazyObserver();
+    let math = false;
+    let diagrams = false;
+    for (const el of fresh) {
+      applyCachedMermaid(el, palette);
+      const pendingMath = el.matches(".math-pending") ? [el] : [...el.querySelectorAll(".math-pending")];
+      for (const node of pendingMath) {
+        math = true;
+        if (io) io.observe(node);
+        else void ensureKatex().then(() => upgradeMathNode(node));
+      }
+      const diagramNodes = el.matches("pre.mermaid") ? [el as HTMLElement] : [...el.querySelectorAll<HTMLElement>("pre.mermaid")];
+      for (const node of diagramNodes) {
+        diagrams = true;
+        if (io) io.observe(node);
+        else visibleDiagrams.current.add(node);
+      }
+      void resolvePreviewImages(el);
+    }
+    if (math) void import("katex/dist/katex.min.css");
+    if (diagrams && !io) scheduleMermaid();
+  }
+
+  function patchPreview() {
+    const root = articleRef.current;
+    if (!root) return;
+    if (library.current.notes !== notes) library.current = { notes, version: library.current.version + 1 };
+    const result = renderSections(windowed.text, {
+      cache: sectionCache.current,
+      library: notes,
+      libraryVersion: library.current.version,
+      headingSeed,
+    });
+    const pool = new Map<SectionEntry, Node[][]>();
+    for (const item of mounted.current) {
+      const list = pool.get(item.entry);
+      if (list) list.push(item.nodes);
+      else pool.set(item.entry, [item.nodes]);
+    }
+    const next: { entry: SectionEntry; nodes: Node[] }[] = [];
+    const order: Node[] = [];
+    const fresh: Element[] = [];
+    const doc = root.ownerDocument;
+    for (const section of result.sections) {
+      let nodes = pool.get(section.entry)?.shift();
+      if (!nodes) {
+        const template = doc.createElement("template");
+        template.innerHTML = section.entry.html;
+        nodes = [...template.content.childNodes];
+        for (const node of nodes) if (node instanceof Element) fresh.push(node);
+      }
+      next.push({ entry: section.entry, nodes });
+      order.push(...nodes);
+    }
+    let cursor = root.firstChild;
+    for (const node of order) {
+      if (node === cursor) {
+        cursor = cursor.nextSibling;
+        continue;
+      }
+      root.insertBefore(node, cursor);
+    }
+    while (cursor) {
+      const after: ChildNode | null = cursor.nextSibling;
+      if (cursor instanceof Element) {
+        for (const node of cursor.querySelectorAll("pre.mermaid, .math-pending")) {
+          observer.current?.unobserve(node);
+          visibleDiagrams.current.delete(node as HTMLElement);
+        }
+      }
+      cursor.remove();
+      cursor = after;
+    }
+    mounted.current = next;
+    upgradeFresh(fresh);
+    setPatchTick((tick) => tick + 1);
+  }
+
+  useLayoutEffect(() => {
+    if (format === "txt" || empty) {
+      mounted.current = [];
+      patchedKey.current = "";
+      return;
+    }
+    const root = articleRef.current;
+    // Opening a note, moving the window or a fresh article: draw now.
+    if (patchedKey.current !== patchKey || !root || root.childNodes.length === 0) {
+      patchedKey.current = patchKey;
+      patchPreview();
+      return;
+    }
+    // Plain typing: keep it off the keystroke, render when the browser is idle.
+    const idle = typeof window.requestIdleCallback === "function";
+    const handle = idle
+      ? window.requestIdleCallback(() => patchPreview(), { timeout: 200 })
+      : window.setTimeout(() => patchPreview(), 16);
+    return () => {
+      if (idle) window.cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
+    // patchPreview reads the latest props through this render's closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowed.text, headingSeed, notes, format, empty, patchKey]);
+
+  useEffect(
+    () => () => {
+      observer.current?.disconnect();
+      window.clearTimeout(mermaidTimer.current);
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    const root = articleRef.current;
+    if (!root || typeof speakIndex !== "number") return;
+    [...root.children].forEach((node, index) => {
+      node.classList.toggle("is-speaking", index === speakIndex);
+    });
+  }, [speakIndex, patchTick]);
+
   useLayoutEffect(() => {
     const id = pendingHeading.current;
     if (!id || !scrollRef.current) return;
@@ -114,7 +287,7 @@ export function PreviewPane({
       scrollRef.current.scrollTop = Math.max(0, top - 8);
     }
     pendingHeading.current = null;
-  }, [html, anchor]);
+  }, [patchTick, anchor]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -130,40 +303,6 @@ export function PreviewPane({
       el.scrollTop = Math.max(0, el.scrollTop + delta * ratio);
     }
   }, [windowed.start, windowed.text]);
-
-  useLayoutEffect(() => {
-    const root = articleRef.current;
-    if (!root || format === "txt") return;
-    let cancelled = false;
-    if (root.querySelector(".math-pending")) {
-      void import("katex/dist/katex.min.css");
-      void ensureKatex().then(() => {
-        if (!cancelled && articleRef.current) upgradeMath(articleRef.current);
-      });
-    }
-    void resolvePreviewImages(root);
-    if (typeof speakIndex === "number") {
-      [...root.children].forEach((node, index) => {
-        node.classList.toggle("is-speaking", index === speakIndex);
-      });
-    }
-    const palette = paletteFor(readThemeConfig());
-    const pending = applyCachedMermaid(root, palette);
-    if (pending === 0) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    const timer = window.setTimeout(() => {
-      const live = articleRef.current;
-      if (cancelled || !live) return;
-      void renderMermaidBlocks(live, { palette });
-    }, 420);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [html, format, speakIndex]);
 
   useLayoutEffect(() => {
     restored.current = false;
@@ -315,7 +454,6 @@ export function PreviewPane({
           <article
             ref={articleRef}
             className={cn("md-body font-serif", focusMode && !reader && "is-focus")}
-            dangerouslySetInnerHTML={{ __html: html }}
             onClick={(event) => {
               onPreviewClick(event);
               onFocusBlock(event);
@@ -337,7 +475,7 @@ export function PreviewPane({
   );
 }
 
-async function resolvePreviewImages(root: HTMLElement) {
+async function resolvePreviewImages(root: Element) {
   const images = [...root.querySelectorAll("img")];
   await Promise.all(
     images.map(async (image) => {

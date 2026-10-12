@@ -144,6 +144,7 @@ export function applyCachedMermaid(root: ParentNode, palette?: Palette): number 
     wrap.setAttribute("data-processed", "true");
     wrap.setAttribute("data-source", source);
     wrap.innerHTML = cached;
+    stripUnsafeSvgAttributes(wrap);
     const svg = [...wrap.querySelectorAll("svg")].find(isSvgElement);
     if (svg) sizePreviewSvg(svg);
     node.replaceWith(wrap);
@@ -288,13 +289,31 @@ export type MermaidRenderOptions = {
   palette?: Palette;
   rasterize?: boolean;
   maxHeight?: number;
+  /** Only draw these nodes (the preview passes the diagrams on screen). */
+  only?: HTMLElement[];
 };
+
+/** Mermaid runs with securityLevel "strict"; still drop any handler or script URL that slips into the svg. */
+export function stripUnsafeSvgAttributes(root: Element): void {
+  for (const el of [root, ...root.querySelectorAll("*")]) {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.replace(/\s+/g, "").toLowerCase();
+      if (name.startsWith("on")) el.removeAttribute(attr.name);
+      else if ((name === "href" || name === "xlink:href" || name === "src") && /^(?:javascript|vbscript):/.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+}
 
 export async function renderMermaidBlocks(
   root: HTMLElement,
   options: MermaidRenderOptions = {},
 ): Promise<void> {
-  const pending = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].filter(
+  const candidates = () =>
+    options.only ? options.only.filter((node) => root.contains(node)) : [...root.querySelectorAll<HTMLElement>("pre.mermaid")];
+  const pending = candidates().filter(
     (node) =>
       node.getAttribute("data-processed") !== "true" &&
       isReadyMermaidSource(mermaidSourceOf(node)),
@@ -306,7 +325,7 @@ export async function renderMermaidBlocks(
   mermaidMod ??= (await import("mermaid")).default;
   if (stale()) return;
 
-  const nodes = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].filter(
+  const nodes = candidates().filter(
     (node) =>
       node.isConnected &&
       node.getAttribute("data-processed") !== "true" &&
@@ -332,6 +351,7 @@ export async function renderMermaidBlocks(
       const remembered = node.getAttribute("data-source");
       if (remembered) wrap.setAttribute("data-source", remembered);
       wrap.innerHTML = svg;
+      stripUnsafeSvgAttributes(wrap);
       node.replaceWith(wrap);
       const svgEl = [...wrap.querySelectorAll("svg")].find(isSvgElement) ?? null;
       if (svgEl) {

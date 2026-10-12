@@ -203,18 +203,21 @@ export function renderMathSlot(slot: MathSlot): string {
   return katexHtml(slot);
 }
 
+export function upgradeMathNode(node: Element): void {
+  if (!katexMod || !node.parentNode) return;
+  const shown = (node.textContent ?? "").trim();
+  const display = node.getAttribute("data-display") === "1";
+  const tex = display ? shown.replace(/^\$\$/, "").replace(/\$\$$/, "") : shown.replace(/^\$/, "").replace(/\$$/, "");
+  const html = katexHtml({ id: "", display, tex });
+  const doc = node.ownerDocument ?? document;
+  const wrap = doc.createElement("span");
+  wrap.innerHTML = html;
+  node.replaceWith(...wrap.childNodes);
+}
+
 export function upgradeMath(root: ParentNode): void {
   if (!katexMod) return;
-  for (const node of root.querySelectorAll(".math-pending")) {
-    const shown = (node.textContent ?? "").trim();
-    const display = node.getAttribute("data-display") === "1";
-    const tex = display ? shown.replace(/^\$\$/, "").replace(/\$\$$/, "") : shown.replace(/^\$/, "").replace(/\$$/, "");
-    const html = katexHtml({ id: "", display, tex });
-    const doc = node.ownerDocument ?? document;
-    const wrap = doc.createElement("span");
-    wrap.innerHTML = html;
-    node.replaceWith(...wrap.childNodes);
-  }
+  for (const node of root.querySelectorAll(".math-pending")) upgradeMathNode(node);
 }
 
 export function restoreMath(html: string, slots: MathSlot[]): string {
