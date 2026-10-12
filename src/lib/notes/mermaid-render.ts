@@ -1,17 +1,31 @@
 import type { Palette } from "./theme";
 
 let mermaidMod: typeof import("mermaid")["default"] | null = null;
-let renderSerial = 0;
+// Each preview / export root has its own serial, so a preview redraw can no
+// longer cancel an export or print that is drawing at the same time.
+const renderSerials = new WeakMap<ParentNode, number>();
 const svgCache = new Map<string, string>();
 const SVG_CACHE_CAP = 24;
 
-export function cachedMermaidSvg(source: string): string | null {
-  return svgCache.get(source) ?? null;
+function cacheKey(source: string, palette?: Palette): string {
+  // Colours are baked into the svg, so a theme switch must not reuse old drawings.
+  const colours = palette
+    ? [palette.paper, palette.surface, palette.fg, palette.accent, palette.overlay].join(",")
+    : "default";
+  return `${colours}\u0000${source}`;
 }
 
-function rememberSvg(source: string, svg: string): void {
-  if (svgCache.has(source)) svgCache.delete(source);
-  svgCache.set(source, svg);
+export function mermaidSourceOf(node: Element): string {
+  return (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
+}
+
+export function cachedMermaidSvg(source: string, palette?: Palette): string | null {
+  return svgCache.get(cacheKey(source, palette)) ?? null;
+}
+
+function rememberSvg(key: string, svg: string): void {
+  if (svgCache.has(key)) svgCache.delete(key);
+  svgCache.set(key, svg);
   while (svgCache.size > SVG_CACHE_CAP) {
     const oldest = svgCache.keys().next().value;
     if (oldest === undefined) break;
@@ -72,6 +86,20 @@ async function mermaidApi(palette?: Palette) {
   return mermaidMod;
 }
 
+// mermaid.initialize is global. Preview, export and print can draw at the same
+// time with different colours, so every initialize+render pair runs in turn.
+let drawQueue: Promise<unknown> = Promise.resolve();
+let drawSerial = 0;
+
+function drawMermaid(id: string, source: string, palette?: Palette): Promise<string> {
+  const job = drawQueue.then(async () => {
+    const mermaid = await mermaidApi(palette);
+    return (await mermaid.render(id, source)).svg;
+  });
+  drawQueue = job.catch(() => undefined);
+  return job;
+}
+
 const DIAGRAM_START =
   /^(?:graph\s|flowchart\s|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt\b|pie\s|mindmap\b|gitGraph|journey\b|C4Context|timeline\b|quadrantChart|sankey-beta|xychart-beta|block-beta|packet-beta|architecture-beta|kanban\b|requirementDiagram)/;
 
@@ -94,6 +122,33 @@ function sizePreviewSvg(svg: SVGSVGElement): void {
   svg.style.maxWidth = "100%";
   svg.style.height = "auto";
   svg.style.maxHeight = "none";
+}
+
+/**
+ * Swap every diagram that was already drawn (same source, same colours) in
+ * synchronously, so typing elsewhere in the note does not make it flash back
+ * to source text. Returns how many diagrams still need a real render.
+ */
+export function applyCachedMermaid(root: ParentNode, palette?: Palette): number {
+  let waiting = 0;
+  for (const node of [...root.querySelectorAll<HTMLElement>("pre.mermaid")]) {
+    if (node.getAttribute("data-processed") === "true") continue;
+    const source = mermaidSourceOf(node);
+    const cached = cachedMermaidSvg(source, palette);
+    if (!cached) {
+      waiting += 1;
+      continue;
+    }
+    const wrap = node.ownerDocument.createElement("div");
+    wrap.className = "mermaid-svg";
+    wrap.setAttribute("data-processed", "true");
+    wrap.setAttribute("data-source", source);
+    wrap.innerHTML = cached;
+    const svg = [...wrap.querySelectorAll("svg")].find(isSvgElement);
+    if (svg) sizePreviewSvg(svg);
+    node.replaceWith(wrap);
+  }
+  return waiting;
 }
 
 function isSvgElement(node: Element | null): node is SVGSVGElement {
@@ -242,32 +297,35 @@ export async function renderMermaidBlocks(
   const pending = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].filter(
     (node) =>
       node.getAttribute("data-processed") !== "true" &&
-      isReadyMermaidSource((node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n")),
+      isReadyMermaidSource(mermaidSourceOf(node)),
   );
   if (pending.length === 0) return;
-  const batch = ++renderSerial;
-  const mermaid = await mermaidApi(options.palette);
-  if (batch !== renderSerial) return;
+  const batch = (renderSerials.get(root) ?? 0) + 1;
+  renderSerials.set(root, batch);
+  const stale = () => renderSerials.get(root) !== batch;
+  mermaidMod ??= (await import("mermaid")).default;
+  if (stale()) return;
 
   const nodes = [...root.querySelectorAll<HTMLElement>("pre.mermaid")].filter(
     (node) =>
       node.isConnected &&
       node.getAttribute("data-processed") !== "true" &&
-      isReadyMermaidSource((node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n")),
+      isReadyMermaidSource(mermaidSourceOf(node)),
   );
   const doc = root.ownerDocument ?? document;
   const background = options.palette?.paper ?? "#f7f3eb";
 
   for (const [index, node] of nodes.entries()) {
-    if (batch !== renderSerial) return;
+    if (stale()) return;
     if (!node.isConnected) continue;
-    const source = (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
-    const id = `jingjian-mmd-${Date.now().toString(36)}-${index}`;
+    const source = mermaidSourceOf(node);
+    const id = `jingjian-mmd-${Date.now().toString(36)}-${index}-${(drawSerial += 1)}`;
     try {
-      const cached = svgCache.get(source);
-      const svg = cached ?? (await mermaid.render(id, source)).svg;
-      if (!cached) rememberSvg(source, svg);
-      if (batch !== renderSerial || !node.isConnected) continue;
+      const key = cacheKey(source, options.palette);
+      const cached = svgCache.get(key);
+      const svg = cached ?? (await drawMermaid(id, source, options.palette));
+      if (!cached) rememberSvg(key, svg);
+      if (stale() || !node.isConnected) continue;
       const wrap = doc.createElement("div");
       wrap.className = "mermaid-svg";
       wrap.setAttribute("data-processed", "true");

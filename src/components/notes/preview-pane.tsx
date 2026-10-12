@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { isBlankContent, EDITOR_WINDOW_CHARS, extendBounds, peekPendingReveal, PREVIEW_WINDOW_CHARS, previewWindow } from "@/lib/notes/format";
-import { ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
+import { countTasks, ensureKatex, upgradeMath } from "@/lib/notes/markdown-extra";
 import { renderMarkdown } from "@/lib/notes/markdown";
-import { cachedMermaidSvg, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
+import { applyCachedMermaid, renderMermaidBlocks } from "@/lib/notes/mermaid-render";
 import { resolveImageSrc } from "@/lib/notes/image-store";
 import { headingSeedBefore } from "@/lib/notes/outline";
 import { paletteFor, readThemeConfig } from "@/lib/notes/theme";
@@ -147,37 +147,9 @@ export function PreviewPane({
         node.classList.toggle("is-speaking", index === speakIndex);
       });
     }
-    const drawn = new Set(
-      [...root.querySelectorAll(".mermaid-svg")].map((node) => node.getAttribute("data-source") ?? ""),
-    );
-    for (const node of [...root.querySelectorAll("pre.mermaid")]) {
-      const source = (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
-      if (drawn.has(source)) {
-        node.parentElement?.remove();
-        continue;
-      }
-      const cached = cachedMermaidSvg(source);
-      if (!cached) continue;
-      const wrap = node.ownerDocument.createElement("div");
-      wrap.className = "mermaid-svg";
-      wrap.setAttribute("data-processed", "true");
-      wrap.setAttribute("data-source", source);
-      wrap.innerHTML = cached;
-      const svg = wrap.querySelector("svg");
-      if (svg) {
-        svg.setAttribute("width", "100%");
-        svg.removeAttribute("height");
-        svg.style.width = "100%";
-        svg.style.maxWidth = "100%";
-        svg.style.height = "auto";
-      }
-      node.replaceWith(wrap);
-      drawn.add(source);
-    }
-    const pending = [...root.querySelectorAll("pre.mermaid")].map(
-      (node) => (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n"),
-    );
-    if (pending.length === 0) {
+    const palette = paletteFor(readThemeConfig());
+    const pending = applyCachedMermaid(root, palette);
+    if (pending === 0) {
       return () => {
         cancelled = true;
       };
@@ -185,7 +157,7 @@ export function PreviewPane({
     const timer = window.setTimeout(() => {
       const live = articleRef.current;
       if (cancelled || !live) return;
-      void renderMermaidBlocks(live, { palette: paletteFor(readThemeConfig()) });
+      void renderMermaidBlocks(live, { palette });
     }, 420);
     return () => {
       cancelled = true;
@@ -232,7 +204,10 @@ export function PreviewPane({
     if (task) {
       event.preventDefault();
       const index = Number(task.dataset.task);
-      if (Number.isFinite(index)) onToggleTask?.(index);
+      // Checkbox numbers restart at the top of the rendered window; the note
+      // itself counts from its first line.
+      const before = windowed.start > 0 ? countTasks(contentRef.current.slice(0, windowed.start)) : 0;
+      if (Number.isFinite(index)) onToggleTask?.(index + before);
       return;
     }
     const wiki = target.closest("a.wiki-link") as HTMLAnchorElement | null;
