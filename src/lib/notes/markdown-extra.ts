@@ -5,37 +5,91 @@ import type { Note } from "./types.ts";
 
 export type MathSlot = { id: string; display: boolean; tex: string };
 
-const FENCE_LINE = /^(```|~~~)/;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+export type FenceScan = {
+  lines: string[];
+  /** true for the fence lines and the body of every fenced block that closes. */
+  code: boolean[];
+  /** Line numbers of fence openers that never close. */
+  unclosed: number[];
+};
+
+/**
+ * One pass over the note that finds CommonMark fenced code blocks.
+ * A fence only counts when a closing line exists: an opener the user is still
+ * typing stays prose, so it cannot swallow the rest of the note.
+ */
+export function scanFences(source: string): FenceScan {
+  const lines = source.split("\n");
+  const code = new Array<boolean>(lines.length).fill(false);
+  const unclosed: number[] = [];
+  // Shortest run per fence char already known to have no closer further down.
+  const noCloser: Record<string, number> = { "`": Number.POSITIVE_INFINITY, "~": Number.POSITIVE_INFINITY };
+  let i = 0;
+  while (i < lines.length) {
+    const open = FENCE_OPEN.exec(lines[i] ?? "");
+    if (!open) {
+      i += 1;
+      continue;
+    }
+    const run = open[1] ?? "";
+    const char = run[0] ?? "`";
+    if (char === "`" && (open[2] ?? "").includes("`")) {
+      i += 1;
+      continue;
+    }
+    let close = -1;
+    if (run.length < noCloser[char]) {
+      const closeRe = new RegExp(`^ {0,3}${char === "`" ? "`" : "~"}{${run.length},}[ \\t]*$`);
+      for (let j = i + 1; j < lines.length; j += 1) {
+        if (closeRe.test(lines[j] ?? "")) {
+          close = j;
+          break;
+        }
+      }
+    }
+    if (close === -1) {
+      noCloser[char] = Math.min(noCloser[char], run.length);
+      unclosed.push(i);
+      i += 1;
+      continue;
+    }
+    for (let k = i; k <= close; k += 1) code[k] = true;
+    i = close + 1;
+  }
+  return { lines, code, unclosed };
+}
+
+/**
+ * Escape the marker of every fence that never closes, e.g. a half-typed
+ * ```mermaid. Markdown would otherwise turn the whole rest of the note into
+ * one code (or Mermaid) block on every keystroke. The escaped marker still
+ * shows as real backticks.
+ */
+export function tameOpenFences(source: string): string {
+  const scan = scanFences(source);
+  if (scan.unclosed.length === 0) return source;
+  const lines = [...scan.lines];
+  for (const index of scan.unclosed) {
+    lines[index] = (lines[index] ?? "").replace(
+      /^( {0,3})(`{3,}|~{3,})/,
+      (_, indent: string, run: string) => indent + run.replace(/./g, (c) => `\\${c}`),
+    );
+  }
+  return lines.join("\n");
+}
 
 function splitFences(source: string): { code: boolean; text: string }[] {
-  const lines = source.split("\n");
+  const { lines, code } = scanFences(source);
   const parts: { code: boolean; text: string }[] = [];
-  let fence: string | null = null;
-  let buf: string[] = [];
-  const flush = (code: boolean) => {
-    if (buf.length === 0 && parts.length > 0) return;
-    parts.push({ code, text: buf.join("\n") });
-    buf = [];
-  };
-  for (const line of lines) {
-    const open = FENCE_LINE.exec(line);
-    if (fence) {
-      buf.push(line);
-      if (line.startsWith(fence)) {
-        flush(true);
-        fence = null;
-      }
-      continue;
+  let start = 0;
+  for (let i = 1; i <= lines.length; i += 1) {
+    if (i === lines.length || code[i] !== code[start]) {
+      parts.push({ code: code[start] ?? false, text: lines.slice(start, i).join("\n") });
+      start = i;
     }
-    if (open) {
-      flush(false);
-      fence = open[1];
-      buf.push(line);
-      continue;
-    }
-    buf.push(line);
   }
-  flush(Boolean(fence));
   return parts;
 }
 
@@ -83,6 +137,11 @@ export function extractMath(source: string): { source: string; slots: MathSlot[]
     let out = "";
     let i = 0;
     while (i < chunk.length) {
+      if (chunk[i] === "\\" && chunk[i + 1] === "$") {
+        out += "\\$";
+        i += 2;
+        continue;
+      }
       if (chunk.startsWith("$$", i)) {
         const end = chunk.indexOf("$$", i + 2);
         if (end !== -1) {
@@ -144,18 +203,21 @@ export function renderMathSlot(slot: MathSlot): string {
   return katexHtml(slot);
 }
 
+export function upgradeMathNode(node: Element): void {
+  if (!katexMod || !node.parentNode) return;
+  const shown = (node.textContent ?? "").trim();
+  const display = node.getAttribute("data-display") === "1";
+  const tex = display ? shown.replace(/^\$\$/, "").replace(/\$\$$/, "") : shown.replace(/^\$/, "").replace(/\$$/, "");
+  const html = katexHtml({ id: "", display, tex });
+  const doc = node.ownerDocument ?? document;
+  const wrap = doc.createElement("span");
+  wrap.innerHTML = html;
+  node.replaceWith(...wrap.childNodes);
+}
+
 export function upgradeMath(root: ParentNode): void {
   if (!katexMod) return;
-  for (const node of root.querySelectorAll(".math-pending")) {
-    const shown = (node.textContent ?? "").trim();
-    const display = node.getAttribute("data-display") === "1";
-    const tex = display ? shown.replace(/^\$\$/, "").replace(/\$\$$/, "") : shown.replace(/^\$/, "").replace(/\$$/, "");
-    const html = katexHtml({ id: "", display, tex });
-    const doc = node.ownerDocument ?? document;
-    const wrap = doc.createElement("span");
-    wrap.innerHTML = html;
-    node.replaceWith(...wrap.childNodes);
-  }
+  for (const node of root.querySelectorAll(".math-pending")) upgradeMathNode(node);
 }
 
 export function restoreMath(html: string, slots: MathSlot[]): string {
@@ -252,26 +314,31 @@ export function restoreFootnotes(html: string, notes: { id: string; body: string
   return `${out}<section class="footnotes"><ol>${items}</ol></section>`;
 }
 
+const TASK_LINE = /^((?:[ \t]*>)*[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]([ \t].*)?$/;
+
+/** Lines that the preview shows as task checkboxes, in preview order (fenced code is skipped). */
+function taskLines(source: string): { lines: string[]; tasks: number[] } {
+  const { lines, code } = scanFences(source);
+  const tasks: number[] = [];
+  lines.forEach((line, index) => {
+    if (!code[index] && TASK_LINE.test(line)) tasks.push(index);
+  });
+  return { lines, tasks };
+}
+
 export function toggleTaskAt(source: string, index: number): string {
-  const lines = source.split("\n");
-  let seen = 0;
-  return lines
-    .map((line) => {
-      const match = /^(\s*[-*+][ \t]+)\[([ xX])\]([ \t].*)?$/.exec(line);
-      if (!match) return line;
-      if (seen !== index) {
-        seen += 1;
-        return line;
-      }
-      seen += 1;
-      const next = match[2] === " " ? "x" : " ";
-      return `${match[1]}[${next}]${match[3] ?? ""}`;
-    })
-    .join("\n");
+  const { lines, tasks } = taskLines(source);
+  const at = tasks[index];
+  if (at === undefined) return source;
+  const match = TASK_LINE.exec(lines[at] ?? "");
+  if (!match) return source;
+  const next = match[2] === " " ? "x" : " ";
+  lines[at] = `${match[1]}[${next}]${match[3] ?? ""}`;
+  return lines.join("\n");
 }
 
 export function countTasks(source: string): number {
-  return source.split("\n").filter((line) => /^\s*[-*+][ \t]+\[[ xX]\]/.test(line)).length;
+  return taskLines(source).tasks.length;
 }
 
 export function findNoteByTitle(notes: Note[], title: string): Note | null {

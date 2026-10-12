@@ -45,40 +45,7 @@ export function wrapAsMarkup(
   };
 }
 
-export function readEditorSelection(): {
-  value: string;
-  start: number;
-  end: number;
-  selected: string;
-} | null {
-  const el = document.getElementById("note-editor");
-  if (!(el instanceof HTMLTextAreaElement)) return null;
-  return {
-    value: el.value,
-    start: el.selectionStart,
-    end: el.selectionEnd,
-    selected: el.value.slice(el.selectionStart, el.selectionEnd),
-  };
-}
-
-export function writeEditorValue(
-  next: string,
-  cursor: number | { start: number; end: number },
-  onChange: (value: string) => void,
-): void {
-  const start = typeof cursor === "number" ? cursor : cursor.start;
-  const end = typeof cursor === "number" ? cursor : cursor.end;
-  const el = document.getElementById("note-editor");
-  if (el instanceof HTMLTextAreaElement) {
-    el.value = next;
-    onChange(next);
-    const from = Math.max(0, Math.min(start, next.length));
-    const to = Math.max(from, Math.min(end, next.length));
-    requestAnimationFrame(() => el.setSelectionRange(from, to));
-    return;
-  }
-  onChange(next);
-}
+export { readEditorSelection, writeEditorValue } from "./editor-bridge.ts";
 
 function lineBounds(value: string, start: number, end: number) {
   const from = value.lastIndexOf("\n", Math.max(0, start) - 1) + 1;

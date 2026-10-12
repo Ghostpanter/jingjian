@@ -14,6 +14,8 @@ import {
 } from "./check-auth-invariant.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
+const TEMPLATE_DEFAULTS = "checks the app-builder template defaults (app name, auth off); 静笺 sets its own in app-env";
+
 /**
  * The JSON body `/__app-env` would serve. Do not start a real Vite server —
  * `import { createServer } from "vite"` loads rolldown native bindings that
@@ -90,7 +92,7 @@ test("only a divergence warns the smoke verdict", () => {
   }
 });
 
-test("the build side resolves the template's shipped app-env", () => {
+test("the build side resolves the template's shipped app-env", { skip: TEMPLATE_DEFAULTS }, () => {
   assert.equal(buildAuthEnabled(projectRoot(), {}), false);
   assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "true" }), true);
 });

@@ -300,14 +300,13 @@ export function speakTtsPreview(prefs: TtsPrefs) {
   stopTtsPreview();
   return new Promise<string | null>((resolve) => {
     let settled = false;
-    let controller: ReturnType<typeof createTtsController>;
     const done = (message: string | null) => {
       if (settled) return;
       settled = true;
       if (previewController === controller) previewController = null;
       resolve(message);
     };
-    controller = createTtsController(
+    const controller: ReturnType<typeof createTtsController> = createTtsController(
       {
         onIndex: () => undefined,
         onEnd: () => done(null),

@@ -9,8 +9,9 @@ import {
   parseCalloutOpen,
   restoreFootnotes,
   restoreMath,
+  tameOpenFences,
 } from "./markdown-extra.ts";
-import { headingIdFor } from "./outline.ts";
+import { headingIdFor, slugifyHeading } from "./outline.ts";
 
 const marked = new Marked({
   gfm: true,
@@ -19,11 +20,15 @@ const marked = new Marked({
 
 const headingSeen = new Map<string, number>();
 let taskIndex = 0;
+/** Base heading slugs used by the current render, for incremental preview caching. */
+let headingTrace: string[] = [];
 
 marked.use({
   renderer: {
     heading({ text, depth }) {
-      const id = headingIdFor(String(text).replace(/<[^>]+>/g, ""), headingSeen);
+      const plain = String(text).replace(/<[^>]+>/g, "");
+      headingTrace.push(slugifyHeading(plain));
+      const id = headingIdFor(plain, headingSeen);
       return `<h${depth} id="${escapeHtml(id)}">${text}</h${depth}>\n`;
     },
     html({ text }) {
@@ -90,91 +95,17 @@ export function sanitizeInlineHtml(text: string): string {
   return "";
 }
 
-const OPEN_TICK = "\u02cb";
-
-function breakTicks(count: number): string {
-  return OPEN_TICK.repeat(count);
-}
-
-/**
- * marked's codespan rule is `/^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/`.
- * One unmatched backtick makes that lazy match scan the rest of the note and
- * freeze the editor. Walk the source once and split only the runs that never
- * close, so inline code and fenced blocks stay intact.
- */
-export function tameBackticks(source: string): string {
-  let out = "";
-  let i = 0;
-  const n = source.length;
-  while (i < n) {
-    if (source[i] === "\\" && i + 1 < n) {
-      out += source[i] + source[i + 1];
-      i += 2;
-      continue;
-    }
-    if (source[i] !== "`") {
-      out += source[i];
-      i += 1;
-      continue;
-    }
-    let ticks = 0;
-    while (i + ticks < n && source[i + ticks] === "`") ticks += 1;
-    const openAt = i;
-    i += ticks;
-    const lineStart = source.lastIndexOf("\n", openAt - 1) + 1;
-    const indent = source.slice(lineStart, openAt);
-    const lineEnd = source.indexOf("\n", openAt);
-    const info = lineEnd === -1 ? source.slice(i) : source.slice(i, lineEnd);
-    const fence = ticks >= 3 && /^[ \t]{0,3}$/.test(indent) && /^[^`\n]*$/.test(info);
-    if (fence) {
-      const afterLine = lineEnd === -1 ? n : lineEnd;
-      const rest = source.slice(afterLine);
-      const closeRe = new RegExp("(?:^|\\n)[ \\t]{0,3}`{" + ticks + ",}[ \\t]*(?:\\n|$)");
-      const found = closeRe.exec(rest);
-      if (found) {
-        const end = afterLine + found.index + found[0].length;
-        out += source.slice(openAt, end);
-        i = end;
-        continue;
-      }
-      // Leave the fence marker readable. Splitting it stops the runaway span
-      // without swallowing the paragraphs that follow an unfinished block.
-      out += breakTicks(ticks);
-      continue;
-    }
-    let j = i;
-    let closed = -1;
-    while (j < n) {
-      if (source[j] === "\\" && j + 1 < n) {
-        j += 2;
-        continue;
-      }
-      if (source[j] !== "`") {
-        j += 1;
-        continue;
-      }
-      let run = 0;
-      while (j + run < n && source[j + run] === "`") run += 1;
-      if (run === ticks) {
-        closed = j;
-        break;
-      }
-      j += run;
-    }
-    if (closed !== -1 && closed > i) {
-      out += source.slice(openAt, closed + ticks);
-      i = closed + ticks;
-      continue;
-    }
-    out += breakTicks(ticks);
+function hasControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    if (value.charCodeAt(i) < 0x20) return true;
   }
-  return out;
+  return false;
 }
 
 export function sanitizeHref(href: string | null | undefined): string | null {
   if (!href) return null;
   const trimmed = href.trim();
-  if (!trimmed || /[\u0000-\u001f]/.test(trimmed)) return null;
+  if (!trimmed || hasControlChar(trimmed)) return null;
   const lower = trimmed.toLowerCase();
   if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) {
     return null;
@@ -199,25 +130,104 @@ export function sanitizeHref(href: string | null | undefined): string | null {
   return null;
 }
 
+export type RenderState = {
+  html: string;
+  /** Heading-id counts after this render (feed into the next section). */
+  seen: Map<string, number>;
+  /** Base slugs of the headings this render produced, in order. */
+  headings: string[];
+  /** Task checkboxes this render drew. */
+  tasks: number;
+};
+
+/**
+ * renderMarkdown plus the bookkeeping the incremental preview needs: where task
+ * numbering starts, and the heading-id state before and after.
+ */
+export function renderMarkdownState(
+  source: string,
+  options: {
+    library?: { id: string; content: string }[];
+    headingSeed?: Map<string, number>;
+    taskStart?: number;
+  } = {},
+): RenderState {
+  const html = renderMarkdown(source, options.library, options.headingSeed, options.taskStart ?? 0);
+  return {
+    html,
+    seen: new Map(headingSeen),
+    headings: [...headingTrace],
+    tasks: taskIndex - (options.taskStart ?? 0),
+  };
+}
+
+const UNSAFE_URL_ATTR = /^(?:href|src|xlink:href|action|formaction|srcdoc)$/i;
+const ATTRIBUTE = /\s+([^\s"'>/=]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/y;
+
+function decodeAttr(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);?/g, (_, dec: string) => String.fromCharCode(Number(dec)))
+    .replace(/&colon;/gi, ":")
+    .replace(/&tab;|&newline;/gi, "");
+}
+
+function isScriptUrl(raw: string): boolean {
+  const decoded = decodeAttr(raw.replace(/^["']|["']$/g, ""));
+  let value = "";
+  for (const char of decoded) if (char.charCodeAt(0) > 0x20) value += char;
+  value = value.toLowerCase();
+  return value.startsWith("javascript:") || value.startsWith("vbscript:");
+}
+
+/** Drop event-handler and script-URL attributes from one start tag. */
+function sanitizeStartTag(tag: string): string {
+  const head = /^<[a-zA-Z][^\s/>]*/.exec(tag);
+  if (!head) return tag;
+  let out = head[0];
+  let i = head[0].length;
+  ATTRIBUTE.lastIndex = i;
+  let match: RegExpExecArray | null;
+  while ((match = ATTRIBUTE.exec(tag))) {
+    const name = match[1] ?? "";
+    const value = match[2];
+    i = ATTRIBUTE.lastIndex;
+    if (/^on/i.test(name)) continue;
+    if (value !== undefined && UNSAFE_URL_ATTR.test(name) && isScriptUrl(value)) continue;
+    out += match[0];
+  }
+  return out + tag.slice(i);
+}
+
+/**
+ * Sanitize rendered HTML at the tag level. Text — including Mermaid source and
+ * code — is left alone, so writing `onclick=` or `javascript:` in a note no
+ * longer deletes those words from the preview.
+ */
+export function sanitizeRenderedHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<[a-zA-Z][^\s/>]*(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/g, sanitizeStartTag);
+}
+
 export function renderMarkdown(
   source: string,
   library?: { id: string; content: string }[],
   headingSeed?: Map<string, number>,
+  taskStart = 0,
 ): string {
   headingSeen.clear();
+  headingTrace = [];
   if (headingSeed) {
     for (const [key, count] of headingSeed) headingSeen.set(key, count);
   }
-  taskIndex = 0;
-  const prepared = tameBackticks(library?.length ? expandNoteEmbeds(source || "", library) : source || "");
+  taskIndex = taskStart;
+  const prepared = tameOpenFences(library?.length ? expandNoteEmbeds(source || "", library) : source || "");
   const math = extractMath(prepared);
   const wiki = expandWikiLinks(math.source);
   const footnotes = extractFootnotes(wiki);
   const html = marked.parse(footnotes.source || "", { async: false }) as string;
   const withMath = restoreMath(html, math.slots);
   const withNotes = restoreFootnotes(withMath, footnotes.notes);
-  return withNotes
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "");
+  return sanitizeRenderedHtml(withNotes);
 }

@@ -72,7 +72,7 @@ test("hugo and hexo front matter", () => {
   assert.match(hugo, /categories: \["写作"\]/);
   const hexo = buildFrontMatter("hexo", "标题", "随笔", now);
   assert.match(hexo, /date: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
-  assert.match(hexo, /categories:\n  - "随笔"/);
+  assert.match(hexo, /categories:\n {2}- "随笔"/);
   assert.doesNotMatch(hexo, /draft:/);
 });
 

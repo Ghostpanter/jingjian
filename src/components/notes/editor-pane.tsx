@@ -1,24 +1,26 @@
-import type { ClipboardEvent, DragEvent } from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
+import { Compartment, EditorSelection, EditorState, Transaction, type Extension } from "@codemirror/state";
 import {
-  indentLines,
-  looksLikeUrl,
-  normalizeHref,
-  wrapAsMarkup,
-} from "@/lib/notes/insert-markup";
+  Decoration,
+  EditorView,
+  keymap,
+  placeholder,
+  ViewPlugin,
+  type DecorationSet,
+  type ViewUpdate,
+} from "@codemirror/view";
+import { history, historyKeymap, standardKeymap } from "@codemirror/commands";
+import { parser as markdownParser, GFM } from "@lezer/markdown";
+import { defineLanguageFacet, HighlightStyle, Language, LanguageSupport, syntaxHighlighting } from "@codemirror/language";
+import { highlightSelectionMatches } from "@codemirror/search";
+import { tags } from "@lezer/highlight";
+import { indentLines, looksLikeUrl, normalizeHref, wrapAsMarkup } from "@/lib/notes/insert-markup";
 import { insertImageAtCursor } from "@/lib/notes/image-insert";
-import {
-  editorSlice,
-  editorSliceAround,
-  EDITOR_SLICE_CHARS,
-  EDITOR_WINDOW_CHARS,
-  extendBounds,
-  isLargeNote,
-  peekPendingReveal,
-} from "@/lib/notes/format";
-import { paragraphAt, typewriterScroll } from "@/lib/notes/focus-text";
+import { peekPendingReveal } from "@/lib/notes/format";
 import { classifyIncoming } from "@/lib/notes/open-incoming";
+import { setActiveEditor } from "@/lib/notes/editor-bridge";
+import { diffChange, markupTransaction } from "@/lib/notes/editor-transactions";
 import { cn } from "@/lib/utils";
 
 type EditorPaneProps = {
@@ -33,6 +35,92 @@ type EditorPaneProps = {
   onEditingChange?: (editing: boolean) => void;
 };
 
+// The Markdown + GFM grammar straight from @lezer/markdown. @codemirror/lang-markdown
+// would also pull in the HTML, CSS and JavaScript grammars (~0.5 MB) for
+// embedded code, which the APK does not need.
+const markdownSupport = new LanguageSupport(
+  new Language(defineLanguageFacet({ commentTokens: { block: { open: "<!--", close: "-->" } } }), markdownParser.configure(GFM), [], "markdown"),
+);
+
+const markdownHighlight = HighlightStyle.define([
+  { tag: tags.heading1, fontWeight: "700", fontSize: "1.3em" },
+  { tag: tags.heading2, fontWeight: "700", fontSize: "1.18em" },
+  { tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6], fontWeight: "700" },
+  { tag: tags.strong, fontWeight: "700" },
+  { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.strikethrough, textDecoration: "line-through" },
+  { tag: [tags.link, tags.url], color: "var(--color-accent)" },
+  { tag: tags.monospace, fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "0.92em" },
+  { tag: tags.quote, color: "var(--color-muted)" },
+  { tag: [tags.processingInstruction, tags.meta, tags.contentSeparator], color: "var(--color-subtle)" },
+]);
+
+const editorTheme = EditorView.theme({
+  "&": { height: "100%", backgroundColor: "transparent", color: "var(--color-fg)" },
+  "&.cm-focused": { outline: "none" },
+  ".cm-scroller": { fontFamily: "inherit", lineHeight: "1.75", overflowX: "hidden" },
+  ".cm-content": { caretColor: "var(--color-fg)", minHeight: "100%" },
+  ".cm-line": { padding: "0" },
+  ".cm-placeholder": { color: "var(--color-subtle)" },
+  ".cm-selectionMatch": { backgroundColor: "color-mix(in srgb, var(--color-mark) 55%, transparent)" },
+  ".cm-focus-dim": { opacity: "0.32", transition: "opacity 120ms ease-out" },
+});
+
+/** Paragraph (run of non-blank lines) around `pos`, by lines, without copying the doc. */
+function paragraphRange(state: EditorState, pos: number): { from: number; to: number } {
+  const doc = state.doc;
+  let first = doc.lineAt(pos);
+  let last = first;
+  if (first.text.trim() === "") return { from: first.from, to: first.to };
+  while (first.number > 1) {
+    const prev = doc.line(first.number - 1);
+    if (prev.text.trim() === "") break;
+    first = prev;
+  }
+  while (last.number < doc.lines) {
+    const next = doc.line(last.number + 1);
+    if (next.text.trim() === "") break;
+    last = next;
+  }
+  return { from: first.from, to: last.to };
+}
+
+const dimMark = Decoration.mark({ class: "cm-focus-dim" });
+
+function focusDecorations(state: EditorState): DecorationSet {
+  const { from, to } = paragraphRange(state, state.selection.main.head);
+  const ranges = [];
+  if (from > 0) ranges.push(dimMark.range(0, from));
+  if (to < state.doc.length) ranges.push(dimMark.range(to, state.doc.length));
+  return Decoration.set(ranges);
+}
+
+/** Focus mode: dim everything but the paragraph being written and keep the caret mid-screen. */
+function focusModeExtension(): Extension {
+  const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return [
+    ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+        constructor(view: EditorView) {
+          this.decorations = focusDecorations(view.state);
+        }
+        update(update: ViewUpdate) {
+          if (update.docChanged || update.selectionSet) this.decorations = focusDecorations(update.state);
+        }
+      },
+      { decorations: (plugin) => plugin.decorations },
+    ),
+    reduced
+      ? []
+      : EditorState.transactionExtender.of((tr) =>
+          tr.selection && tr.selection.main.empty
+            ? { effects: EditorView.scrollIntoView(tr.selection.main.head, { y: "center" }) }
+            : null,
+        ),
+  ];
+}
+
 export function EditorPane({
   noteId,
   epoch = 0,
@@ -44,418 +132,192 @@ export function EditorPane({
   onScroll,
   onEditingChange,
 }: EditorPaneProps) {
-  const large = isLargeNote(content);
-  const mirrorCap = 80_000;
-  const focusMirror = Boolean(focusMode) && content.length < mirrorCap;
-  const focusScroll = Boolean(focusMode);
-  const [cursor, setCursor] = useState(0);
-  const [sliceTick, setSliceTick] = useState(0);
-  const [windowRev, setWindowRev] = useState(0);
-  const mirrorRef = useRef<HTMLDivElement>(null);
-  const probeRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef(content);
-  const bounds = useRef({ key: "", start: 0, end: 0 });
-  const pendingSel = useRef<{ start: number; end: number } | null>(null);
-  const growing = useRef(false);
-  const sliceKey = `${noteId}-${epoch}`;
-  contentRef.current = content;
-  if (bounds.current.key !== sliceKey) {
-    const next = large ? editorSlice(content, 0) : { start: 0, end: content.length };
-    bounds.current = { key: sliceKey, ...next };
-  }
-  const windowText = large
-    ? content.slice(bounds.current.start, Math.min(content.length, bounds.current.end))
-    : content;
-  const range = paragraphAt(focusMirror ? content : windowText, cursor);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const focusSlot = useRef(new Compartment());
+  // Latest callbacks, read from inside CodeMirror without rebuilding it.
+  const props = useRef({ onChange, onImportFiles, onScroll, onEditingChange, content });
+  props.current = { onChange, onImportFiles, onScroll, onEditingChange, content };
 
-  function commit(nextWindow: string) {
-    if (!large) {
-      onChange(nextWindow);
-      return;
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const run = (view: EditorView, edit: { value: string; start: number; end: number }) => {
+      view.dispatch(markupTransaction(view.state, edit));
+      return true;
+    };
+
+    async function insertFiles(view: EditorView, files: File[]) {
+      const images = files.filter((file) => file.type.startsWith("image/"));
+      if (images.length === 0) return;
+      let value = view.state.doc.toString();
+      let cursor = view.state.selection.main.head;
+      try {
+        for (const file of images) {
+          const next = await insertImageAtCursor(value, cursor, cursor, file, file.name);
+          value = next.value;
+          cursor = next.cursor;
+        }
+        run(view, { value, start: cursor, end: cursor });
+        toast.message(images.length > 1 ? `已插入 ${images.length} 张图片` : "已插入图片");
+      } catch (error) {
+        toast.message(error instanceof Error ? error.message : "图片插入失败");
+      }
     }
-    const { start, end } = bounds.current;
-    const full = contentRef.current.slice(0, start) + nextWindow + contentRef.current.slice(end);
-    bounds.current.end = start + nextWindow.length;
-    contentRef.current = full;
-    onChange(full);
-  }
 
-  function moveSlice(dir: -1 | 1) {
-    if (!large) return;
-    const current = bounds.current;
-    let anchor = dir < 0 ? Math.max(0, current.start - EDITOR_SLICE_CHARS) : current.end;
-    if (dir < 0 && anchor > 0) {
-      const nl = content.lastIndexOf("\n", anchor - 1);
-      anchor = nl >= 0 ? nl + 1 : 0;
-    }
-    if (anchor >= content.length) return;
-    const next = editorSlice(content, anchor);
-    if (next.start === current.start && next.end === current.end) return;
-    bounds.current = { key: sliceKey, ...next };
-    setSliceTick((tick) => tick + 1);
-  }
+    const indent = (dir: 1 | -1) => (view: EditorView) => {
+      const { from, to } = view.state.selection.main;
+      const next = indentLines(view.state.doc.toString(), from, to, dir);
+      return run(view, next);
+    };
 
-  function growWindow(el: HTMLTextAreaElement, dir: -1 | 1) {
-    const full = contentRef.current;
-    const prev = { start: bounds.current.start, end: bounds.current.end };
-    const next = extendBounds(full.length, prev, dir, 16_000, EDITOR_WINDOW_CHARS);
-    if (!next) return false;
-    const selStart = el.selectionStart;
-    const selEnd = el.selectionEnd;
-    const delta = prev.start - next.start;
-    bounds.current = { key: sliceKey, start: next.start, end: next.end };
-    el.value = full.slice(next.start, next.end);
-    el.dataset.sliceStart = String(next.start);
-    const ratio = el.scrollHeight / Math.max(1, el.value.length);
-    el.scrollTop = Math.max(0, el.scrollTop + delta * ratio);
-    if (document.activeElement === el) {
-      const from = Math.max(0, Math.min(el.value.length, selStart + delta));
-      const to = Math.max(from, Math.min(el.value.length, selEnd + delta));
-      el.setSelectionRange(from, to);
-    }
-    setWindowRev((rev) => rev + 1);
-    return true;
-  }
-
-  function followScroll(el: HTMLTextAreaElement) {
-    if (focusScroll || !isLargeNote(contentRef.current) || growing.current) return;
-    const atTop = el.scrollTop <= 48 && bounds.current.start > 0;
-    const atBottom =
-      el.scrollTop + el.clientHeight >= el.scrollHeight - 64 &&
-      bounds.current.end < contentRef.current.length;
-    const dir = atTop ? -1 : atBottom ? 1 : 0;
-    if (!dir) return;
-    growing.current = true;
-    requestAnimationFrame(() => {
-      growing.current = false;
-      const current = document.getElementById("note-editor");
-      if (!(current instanceof HTMLTextAreaElement)) return;
-      if (!growWindow(current, dir)) return;
-      const stillTop = current.scrollTop <= 48 && bounds.current.start > 0;
-      const stillBottom =
-        current.scrollTop + current.clientHeight >= current.scrollHeight - 64 &&
-        bounds.current.end < contentRef.current.length;
-      if ((dir < 0 && stillTop) || (dir > 0 && stillBottom)) followScroll(current);
+    const state = EditorState.create({
+      doc: props.current.content,
+      extensions: [
+        history(),
+        markdownSupport,
+        syntaxHighlighting(markdownHighlight),
+        highlightSelectionMatches(),
+        EditorView.lineWrapping,
+        placeholder("从第一行开始写，它会成为标题…"),
+        editorTheme,
+        // App shortcuts (Ctrl+B/I/U/K/E/F/P, Ctrl+/ …) stay with the app, so
+        // only movement, editing and undo are bound here.
+        keymap.of([
+          { key: "Tab", run: indent(1), shift: indent(-1) },
+          ...standardKeymap,
+          ...historyKeymap.filter((binding) => binding.key !== "Mod-u" && binding.key !== "Alt-u"),
+        ]),
+        EditorView.contentAttributes.of({
+          id: "note-editor",
+          "aria-label": "笔记正文",
+          spellcheck: "true",
+          lang: "zh-CN",
+          autocapitalize: "sentences",
+          autocorrect: "on",
+          enterkeyhint: "enter",
+          class: "editor-surface font-serif text-editor text-fg",
+        }),
+        focusSlot.current.of(focusMode ? focusModeExtension() : []),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged && !update.transactions.some((tr) => tr.annotation(Transaction.remote))) {
+            const value = update.state.doc.toString();
+            props.current.content = value;
+            props.current.onChange(value);
+          }
+          if (update.focusChanged) props.current.onEditingChange?.(update.view.hasFocus);
+        }),
+        EditorView.domEventHandlers({
+          paste(event, view) {
+            const data = event.clipboardData;
+            if (!data) return false;
+            const files = [...data.files];
+            if (files.some((file) => file.type.startsWith("image/"))) {
+              event.preventDefault();
+              void insertFiles(view, files);
+              return true;
+            }
+            const clip = data.getData("text/plain").trim();
+            const { from, to } = view.state.selection.main;
+            if (!looksLikeUrl(clip) || from === to) return false;
+            event.preventDefault();
+            const value = view.state.doc.toString();
+            const next = wrapAsMarkup(value, from, to, value.slice(from, to), normalizeHref(clip), false);
+            return run(view, { value: next.value, start: next.cursor, end: next.cursor });
+          },
+          dragover(event) {
+            if ([...(event.dataTransfer?.types ?? [])].includes("Files")) event.preventDefault();
+            return false;
+          },
+          drop(event, view) {
+            const files = [...(event.dataTransfer?.files ?? [])];
+            const images = files.filter((file) => {
+              const kind = classifyIncoming(file.name, file.type);
+              return kind === "image" || file.type.startsWith("image/");
+            });
+            const docs = files.filter((file) => {
+              const kind = classifyIncoming(file.name, file.type);
+              return kind === "markdown" || kind === "txt" || kind === "ebook";
+            });
+            if (images.length === 0 && docs.length === 0) return false;
+            event.preventDefault();
+            if (images.length) void insertFiles(view, images);
+            if (docs.length) props.current.onImportFiles?.(docs);
+            return true;
+          },
+        }),
+      ],
     });
-  }
 
-  function placeSelection(start: number, end: number) {
-    const el = document.getElementById("note-editor");
-    if (!(el instanceof HTMLTextAreaElement)) return;
-    const active = document.activeElement;
-    const from = Math.max(0, Math.min(start, el.value.length));
-    const to = Math.max(from, Math.min(end, el.value.length));
-    el.focus();
-    el.setSelectionRange(from, to);
-    const max = el.scrollHeight - el.clientHeight;
-    if (max > 0) el.scrollTop = (from / Math.max(1, el.value.length)) * max;
-    if (
-      active instanceof HTMLElement &&
-      active !== el &&
-      (active.id === "note-find" || active.id === "note-replace")
-    ) {
-      active.focus();
-    }
-  }
+    const view = new EditorView({ state, parent: host });
+    viewRef.current = view;
+    setActiveEditor(view);
+    const onScrollDom = () => props.current.onScroll?.();
+    view.scrollDOM.addEventListener("scroll", onScrollDom, { passive: true });
+
+    const pending = peekPendingReveal(noteId);
+    if (pending) placeSelection(view, pending.start, pending.end);
+
+    return () => {
+      view.scrollDOM.removeEventListener("scroll", onScrollDom);
+      setActiveEditor(null);
+      view.destroy();
+      viewRef.current = null;
+    };
+    // A new note or an external reload (epoch) gets a fresh editor and history.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteId, epoch]);
+
+  // Content changed outside the editor (sync, a task ticked in the preview…).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    const change = diffChange(current, content);
+    if (!change) return;
+    view.dispatch({ changes: change, annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)] });
+  }, [content]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: focusSlot.current.reconfigure(focusMode ? focusModeExtension() : []),
+    });
+  }, [focusMode]);
 
   useEffect(() => {
     const onReveal = (event: Event) => {
       const detail = (event as CustomEvent<{ start?: number; end?: number; noteId?: string }>).detail;
-      if (!detail || typeof detail.start !== "number") return;
+      const view = viewRef.current;
+      if (!view || !detail || typeof detail.start !== "number") return;
       if (detail.noteId && detail.noteId !== noteId) return;
-      const start = detail.start;
-      const end = typeof detail.end === "number" ? detail.end : start;
-      const full = contentRef.current;
-      if (!isLargeNote(full)) {
-        placeSelection(start, end);
-        return;
-      }
-      const current = bounds.current;
-      if (start >= current.start && end <= current.end) {
-        placeSelection(start - current.start, end - current.start);
-        return;
-      }
-      const next = editorSliceAround(full, start);
-      bounds.current = { key: sliceKey, ...next };
-      pendingSel.current = {
-        start: Math.max(0, start - next.start),
-        end: Math.max(0, end - next.start),
-      };
-      setSliceTick((tick) => tick + 1);
+      placeSelection(view, detail.start, typeof detail.end === "number" ? detail.end : detail.start);
     };
     window.addEventListener("jingjian-reveal", onReveal);
     return () => window.removeEventListener("jingjian-reveal", onReveal);
-  }, [sliceKey, noteId]);
-
-  useLayoutEffect(() => {
-    const pending = peekPendingReveal(noteId);
-    if (!pending) return;
-    const start = pending.start;
-    const end = pending.end;
-    const full = contentRef.current;
-    if (!isLargeNote(full)) {
-      placeSelection(start, end);
-      return;
-    }
-    const next = editorSliceAround(full, start);
-    bounds.current = { key: sliceKey, ...next };
-    pendingSel.current = {
-      start: Math.max(0, start - next.start),
-      end: Math.max(0, end - next.start),
-    };
-    setSliceTick((tick) => tick + 1);
-  }, [noteId, sliceKey]);
-
-  useEffect(() => {
-    const el = document.getElementById("note-editor");
-    if (el instanceof HTMLTextAreaElement) el.dataset.sliceStart = String(bounds.current.start);
-    const sel = pendingSel.current;
-    if (!sel) return;
-    pendingSel.current = null;
-    placeSelection(sel.start, sel.end);
-  }, [sliceTick, sliceKey, windowText]);
-
-  useEffect(() => {
-    if (!large) return;
-    const el = document.getElementById("note-editor");
-    if (!(el instanceof HTMLTextAreaElement)) return;
-    const expected = content.slice(bounds.current.start, Math.min(content.length, bounds.current.end));
-    if (el.value === expected) return;
-    if (el.value === content || el.value.length > expected.length + 32) {
-      const next = editorSlice(content, Math.min(bounds.current.start, content.length));
-      bounds.current = { key: sliceKey, ...next };
-      el.value = content.slice(next.start, next.end);
-    }
-  }, [content, large, sliceKey, sliceTick]);
-
-  function syncMirror(el: HTMLTextAreaElement) {
-    const inner = mirrorRef.current;
-    if (!inner) return;
-    inner.style.width = `${el.clientWidth}px`;
-    inner.style.transform = `translateY(${-el.scrollTop}px)`;
-  }
-
-  function pinCaret(el: HTMLTextAreaElement) {
-    if (!focusScroll || el.selectionStart !== el.selectionEnd) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const probe = probeRef.current;
-    if (!probe) return;
-    probe.style.width = `${el.clientWidth}px`;
-    probe.textContent = "";
-    const pos = el.selectionStart;
-    const marker = document.createElement("span");
-    marker.textContent = "\u200b";
-    let top = 0;
-    if (el.value.length < mirrorCap) {
-      probe.append(document.createTextNode(el.value.slice(0, pos)));
-      probe.append(marker);
-      top = marker.offsetTop;
-    } else {
-      const para = paragraphAt(el.value, pos);
-      let lines = 0;
-      for (let index = 0; index < para.start; index += 1) {
-        if (el.value.charCodeAt(index) === 10) lines += 1;
-      }
-      const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight) || 28;
-      probe.append(document.createTextNode(el.value.slice(para.start, pos)));
-      probe.append(marker);
-      top = lines * lineHeight + marker.offsetTop;
-    }
-    const next = typewriterScroll(top, marker.offsetHeight || 24, el.clientHeight);
-    if (Math.abs(el.scrollTop - next) > 4) el.scrollTop = next;
-  }
-
-  function trackCaret(el: HTMLTextAreaElement, pin: boolean) {
-    if (!focusScroll) return;
-    setCursor(el.selectionStart);
-    requestAnimationFrame(() => {
-      if (pin) pinCaret(el);
-      if (focusMirror) syncMirror(el);
-    });
-  }
-
-  useEffect(() => {
-    if (!focusScroll) return;
-    const el = document.getElementById("note-editor") as HTMLTextAreaElement | null;
-    if (!el) return;
-    setCursor(el.selectionStart);
-    const frame = requestAnimationFrame(() => {
-      pinCaret(el);
-      if (focusMirror) syncMirror(el);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusScroll, focusMirror]);
-
-  async function insertFiles(
-    el: HTMLTextAreaElement,
-    files: File[],
-  ) {
-    const images = files.filter((file) => file.type.startsWith("image/"));
-    if (images.length === 0) return;
-    let value = el.value;
-    let cursor = el.selectionStart;
-    try {
-      for (const file of images) {
-        const next = await insertImageAtCursor(
-          value,
-          cursor,
-          cursor,
-          file,
-          file.name,
-        );
-        value = next.value;
-        cursor = next.cursor;
-      }
-      el.value = value;
-      commit(value);
-      requestAnimationFrame(() => el.setSelectionRange(cursor, cursor));
-      toast.message(images.length > 1 ? `已插入 ${images.length} 张图片` : "已插入图片");
-    } catch (error) {
-      toast.message(error instanceof Error ? error.message : "图片插入失败");
-    }
-  }
-
-  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const el = event.currentTarget;
-    const files = [...event.clipboardData.files];
-    if (files.some((file) => file.type.startsWith("image/"))) {
-      event.preventDefault();
-      void insertFiles(el, files);
-      return;
-    }
-    const clip = event.clipboardData.getData("text/plain").trim();
-    if (!looksLikeUrl(clip)) return;
-    if (el.selectionStart === el.selectionEnd) return;
-    event.preventDefault();
-    const href = normalizeHref(clip);
-    const next = wrapAsMarkup(
-      el.value,
-      el.selectionStart,
-      el.selectionEnd,
-      el.value.slice(el.selectionStart, el.selectionEnd),
-      href,
-      false,
-    );
-    el.value = next.value;
-    commit(next.value);
-    requestAnimationFrame(() => el.setSelectionRange(next.cursor, next.cursor));
-  }
-
-  function handleDrop(event: DragEvent<HTMLTextAreaElement>) {
-    const files = [...event.dataTransfer.files];
-    const images = files.filter((file) => {
-      const kind = classifyIncoming(file.name, file.type);
-      return kind === "image" || file.type.startsWith("image/");
-    });
-    const docs = files.filter((file) => {
-      const kind = classifyIncoming(file.name, file.type);
-      return kind === "markdown" || kind === "txt" || kind === "ebook";
-    });
-    if (images.length === 0 && docs.length === 0) return;
-    event.preventDefault();
-    if (images.length) void insertFiles(event.currentTarget, images);
-    if (docs.length) onImportFiles?.(docs);
-  }
+  }, [noteId]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      {large ? (
-        <div className="note-clip-banner flex flex-wrap items-center justify-between gap-2" role="status" data-window={windowRev}>
-          <p>文件较大，滚到边缘会继续展开这一段。</p>
-          <span className="flex gap-2">
-            <button
-              type="button"
-              className="btn-press rounded-md bg-paper px-2 py-1 text-fg disabled:opacity-40"
-              disabled={bounds.current.start <= 0}
-              onClick={() => moveSlice(-1)}
-            >
-              上一段
-            </button>
-            <button
-              type="button"
-              className="btn-press rounded-md bg-paper px-2 py-1 text-fg disabled:opacity-40"
-              disabled={bounds.current.end >= content.length}
-              onClick={() => moveSlice(1)}
-            >
-              下一段
-            </button>
-          </span>
-        </div>
-      ) : null}
-      <div className={cn("relative min-h-0 w-full flex-1", centered && "mx-auto max-w-prose")}>
-        {focusMirror ? (
-          <div className="editor-focus-mirror" aria-hidden="true">
-            <div
-              ref={mirrorRef}
-              className="editor-surface editor-focus-copy px-5 py-6 font-serif text-editor sm:px-8 sm:py-10"
-            >
-              <span className="editor-focus-dim">{windowText.slice(0, range.start)}</span>
-              <span>{windowText.slice(range.start, range.end)}</span>
-              <span className="editor-focus-dim">{windowText.slice(range.end)}</span>
-            </div>
-          </div>
-        ) : null}
-        <div
-          ref={probeRef}
-          className="editor-caret-probe editor-surface px-5 py-6 font-serif text-editor sm:px-8 sm:py-10"
-          aria-hidden="true"
-        />
-        <textarea
-          key={`${noteId}-${epoch}-${sliceTick}`}
-          id="note-editor"
-          defaultValue={windowText}
-          onChange={(event) => {
-            commit(event.target.value);
-            const composing =
-              event.nativeEvent instanceof InputEvent && event.nativeEvent.isComposing;
-            trackCaret(event.currentTarget, !composing);
-          }}
-        onFocus={() => onEditingChange?.(true)}
-        onBlur={() => onEditingChange?.(false)}
-        onKeyDown={(event) => {
-          if (event.key !== "Tab" || event.nativeEvent.isComposing) return;
-          event.preventDefault();
-          const el = event.currentTarget;
-          const next = indentLines(
-            el.value,
-            el.selectionStart,
-            el.selectionEnd,
-            event.shiftKey ? -1 : 1,
-          );
-          el.value = next.value;
-          commit(next.value);
-          requestAnimationFrame(() =>
-            el.setSelectionRange(next.start, next.end),
-          );
-        }}
-        onKeyUp={(event) => trackCaret(event.currentTarget, !event.nativeEvent.isComposing)}
-        onClick={(event) => trackCaret(event.currentTarget, true)}
-        onSelect={(event) => trackCaret(event.currentTarget, true)}
-        onPaste={handlePaste}
-        onDragOver={(event) => {
-          if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
-        }}
-        onDrop={handleDrop}
-        onScroll={(event) => {
-          if (focusMirror) syncMirror(event.currentTarget);
-          followScroll(event.currentTarget);
-          onScroll?.();
-        }}
-        placeholder="从第一行开始写，它会成为标题…"
-        spellCheck
-        lang="zh-CN"
-        autoCapitalize="sentences"
-        autoCorrect="on"
-        enterKeyHint="enter"
-        aria-label="笔记正文"
-        className={cn(
-          "editor-surface min-h-0 h-full w-full resize-none bg-transparent px-5 py-6 font-serif text-editor text-fg",
-          "placeholder:text-subtle",
-          "outline-none sm:px-8 sm:py-10",
-          focusMirror && "is-focus-input",
-        )}
-        />
-      </div>
+      <div
+        ref={hostRef}
+        className={cn("note-editor-host relative min-h-0 w-full flex-1", centered && "mx-auto max-w-prose")}
+      />
     </div>
   );
+}
+
+function placeSelection(view: EditorView, start: number, end: number) {
+  const length = view.state.doc.length;
+  const from = Math.max(0, Math.min(start, length));
+  const to = Math.max(from, Math.min(end, length));
+  const active = document.activeElement;
+  view.dispatch({
+    selection: EditorSelection.single(from, to),
+    effects: EditorView.scrollIntoView(from, { y: "center" }),
+  });
+  view.focus();
+  if (active instanceof HTMLElement && (active.id === "note-find" || active.id === "note-replace")) {
+    active.focus();
+  }
 }

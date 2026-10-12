@@ -47,6 +47,8 @@ export function base64ToBytes(value: string): Uint8Array {
 
 export function safeFilename(name: string, fallback = "未命名"): string {
   const cleaned = name
+    // File names must not carry control characters.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
     .replace(/\s+/g, " ")
     .trim()
