@@ -83,6 +83,7 @@ import { runSync, createAdapter } from "@/lib/notes/sync";
 import { applyTheme, readThemeConfig } from "@/lib/notes/theme";
 import { applyEditorPrefs } from "@/lib/notes/editor-prefs";
 import { findNoteByTitle, toggleTaskAt } from "@/lib/notes/markdown-extra";
+import { editorCaret, editorScroller } from "@/lib/notes/editor-bridge";
 import { templateById } from "@/lib/notes/templates";
 import { isTrashed } from "@/lib/notes/trash";
 import { FormatBar } from "@/components/notes/format-bar";
@@ -1389,7 +1390,7 @@ export function NoteApp() {
   }
 
   function headingAnchors() {
-    const editor = document.getElementById("note-editor") as HTMLTextAreaElement | null;
+    const editor = editorScroller();
     const preview = document.getElementById("note-preview");
     const article = preview?.querySelector("article");
     if (!editor || !preview || !activeNote) return { from: [] as number[], to: [] as number[] };
@@ -1428,7 +1429,7 @@ export function NoteApp() {
       return;
     }
     if (syncLock.current && syncLock.current !== from) return;
-    const editor = document.getElementById("note-editor") as HTMLTextAreaElement | null;
+    const editor = editorScroller();
     const preview = document.getElementById("note-preview");
     if (!editor || !preview) return;
     const anchors = headingAnchors();
@@ -2178,12 +2179,11 @@ export function NoteApp() {
               toast.message("先打开这一章，再把光标放在要分开的地方");
               return;
             }
-            const el = document.getElementById("note-editor");
-            if (!(el instanceof HTMLTextAreaElement)) {
+            const offset = editorCaret();
+            if (offset === null) {
               toast.message("先打开这一章，再把光标放在要分开的地方");
               return;
             }
-            const offset = el.selectionStart + Number(el.dataset.sliceStart || 0);
             const created = splitChapter(itemMenu.note.id, offset);
             toast.message(created ? "已拆成下一章" : "光标要放在章节中间才能拆开");
           }

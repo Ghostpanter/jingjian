@@ -11,6 +11,7 @@ import {
   replaceAllMatches,
   type TextRange,
 } from "@/lib/notes/find-replace";
+import { editorCaret, readEditorSelection } from "@/lib/notes/editor-bridge";
 import { cn } from "@/lib/utils";
 
 type FindBarProps = {
@@ -48,9 +49,7 @@ export function FindBar({
   useEffect(() => {
     if (!open) return;
     const selected = (() => {
-      const el = document.getElementById("note-editor");
-      if (!(el instanceof HTMLTextAreaElement)) return "";
-      const text = el.value.slice(el.selectionStart, el.selectionEnd);
+      const text = readEditorSelection()?.selected ?? "";
       return text && !text.includes("\n") ? text : "";
     })();
     if (selected) setQuery(selected);
@@ -63,10 +62,7 @@ export function FindBar({
 
   useEffect(() => {
     if (!open) return;
-    const el = document.getElementById("note-editor");
-    const base = el instanceof HTMLTextAreaElement ? Number(el.dataset.sliceStart || 0) : 0;
-    const cursor =
-      (el instanceof HTMLTextAreaElement ? el.selectionStart : 0) + (Number.isFinite(base) ? base : 0);
+    const cursor = editorCaret() ?? 0;
     setIndex(indexNear(matches, cursor));
   }, [open, query, regex, caseSensitive, wholeWord, content, matches]);
 
