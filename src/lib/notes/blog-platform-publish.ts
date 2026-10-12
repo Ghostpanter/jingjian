@@ -126,7 +126,7 @@ function coverFileName(url: string, mime: string): string {
         : "jpg";
   try {
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || "");
-    const clean = name.replace(/[^\w.\-]+/g, "_").slice(0, 80);
+    const clean = name.replace(/[^\w.-]+/g, "_").slice(0, 80);
     if (/\.(jpe?g|png|gif|webp)$/i.test(clean)) return clean;
   } catch {
     // keep the generated name

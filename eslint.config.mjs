@@ -15,6 +15,11 @@ export default tseslint.config(
       ".nitro/**",
       "node_modules/**",
       "src/routeTree.gen.ts",
+      "android-www/**",
+      "android/**",
+      "artifacts/**",
+      ".desktop-stage/**",
+      "desktop/dist/**",
     ],
   },
   js.configs.recommended,
@@ -44,4 +49,9 @@ export default tseslint.config(
   },
   // Disable rules that conflict with Prettier formatting.
   prettier,
+  {
+    // Electron preload scripts are CommonJS and must use require().
+    files: ["**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 );

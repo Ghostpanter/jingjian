@@ -15,6 +15,8 @@ export function noteExtension(note: Pick<Note, "format">): "md" | "txt" {
 
 export function filenameForNote(note: Note): string {
   const stem = firstLineTitle(note.content)
+    // File names must not carry control characters.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
     .replace(/\s+/g, " ")
     .trim()

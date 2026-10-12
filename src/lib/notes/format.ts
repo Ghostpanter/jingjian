@@ -152,7 +152,7 @@ export function snippetFromContent(content: string): string {
       start = index + 1;
     }
   }
-  const rest = lines.slice(1).join(" ").replace(/[#>*_`~\-\[\]()]/g, "");
+  const rest = lines.slice(1).join(" ").replace(/[#>*_`~\-[\]()]/g, "");
   const compact = rest.replace(/\s+/g, " ").trim();
   if (!compact) return "空白页";
   return compact.length > 48 ? `${compact.slice(0, 48)}…` : compact;

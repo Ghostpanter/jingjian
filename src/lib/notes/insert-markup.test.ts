@@ -89,6 +89,6 @@ test("wraps a fence and inserts a table", () => {
   const mid = wrapFence("上\n下", 2, 2);
   assert.equal(mid.value, "上\n```\n\n```\n下");
   const table = insertTable("前文", 2, 2);
-  assert.match(table.value, /前文\n\|  \|  \|/);
+  assert.match(table.value, /前文\n\| {2}\| {2}\|/);
   assert.match(table.value, /\| --- \| --- \|/);
 });

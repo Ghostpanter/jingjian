@@ -1,10 +1,21 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = "/workspace";
-const sdk = path.join(root, ".android-sdk");
+// Repo root, wherever the checkout lives.
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const { version } = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+const sdk =
+  process.env.ANDROID_HOME ||
+  process.env.ANDROID_SDK_ROOT ||
+  [path.join(root, ".android-sdk"), path.join(root, "..", ".android-sdk")].find((dir) => existsSync(dir));
+if (!sdk) {
+  console.error("Set ANDROID_HOME (or ANDROID_SDK_ROOT) to the Android SDK.");
+  process.exit(1);
+}
 const env = {
   ...process.env,
   ANDROID_SDK_ROOT: sdk,
@@ -42,12 +53,17 @@ function run(command, args, cwd = root) {
 patchCapacitorGradle();
 run("./gradlew", ["assembleRelease", "--no-daemon"], path.join(root, "android"));
 
-const built = path.join(
-  root,
-  "android/app/build/outputs/apk/release/app-release.apk",
-);
+const outputs = path.join(root, "android/app/build/outputs/apk/release");
+const signed = path.join(outputs, "app-release.apk");
 const destDir = path.join(root, "artifacts");
 mkdirSync(destDir, { recursive: true });
-const dest = path.join(destDir, "jingjian-v1.7.13.apk");
-copyFileSync(built, dest);
-console.log(`APK_READY ${dest}`);
+if (existsSync(signed)) {
+  const dest = path.join(destDir, `jingjian-v${version}.apk`);
+  copyFileSync(signed, dest);
+  console.log(`APK_READY ${dest}`);
+} else {
+  // No android/key.properties: Gradle leaves an unsigned build. Never publish it.
+  const dest = path.join(destDir, `jingjian-v${version}-unsigned.apk`);
+  copyFileSync(path.join(outputs, "app-release-unsigned.apk"), dest);
+  console.warn(`android/key.properties is missing, so this APK is UNSIGNED and cannot be released: ${dest}`);
+}

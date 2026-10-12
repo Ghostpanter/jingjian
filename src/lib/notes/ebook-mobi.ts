@@ -120,7 +120,9 @@ function decompressHuffCdic(records: Uint8Array[], huffIndex: number, huffCount:
         n += 32;
       }
       const code = Number((packed >> BigInt(n)) & 0xffffffffn);
-      let { len, term, max } = dict1[code >>> 24] ?? { len: 0, term: true, max: 0 };
+      const dictEntry = dict1[code >>> 24] ?? { len: 0, term: true, max: 0 };
+      const term = dictEntry.term;
+      let { len, max } = dictEntry;
       if (!term) {
         while (code < mincode[len]) len += 1;
         max = maxcode[len];

@@ -65,6 +65,8 @@ function filenameFor(note) {
     .replace(/^#{1,6}\s+/, "")
     .replace(/[*_`~]/g, "")
     .trim()
+    // File names must not carry control characters.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
     .slice(0, 42) || "未命名笔记";
   const shortId = String(note.id).replace(/-/g, "").slice(0, 8);
