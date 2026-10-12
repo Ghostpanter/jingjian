@@ -9,7 +9,7 @@ import { uploadImage } from "./image-upload.ts";
 import { wrapAsMarkup } from "./insert-markup.ts";
 
 const DATA_IMAGE_SRC =
-  /(?:src|SRC)\s*=\s*["'](data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+)["']/g;
+  /(?:src)\s*=\s*(?:["']|&quot;)(data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+)(?:["']|&quot;)/gi;
 
 /** Files already on the clipboard (FileList or DataTransferItem list). */
 export function clipboardImageFiles(data: DataTransfer): File[] {
@@ -34,8 +34,12 @@ export function imageDataUrlsFromHtml(html: string): string[] {
   while ((match = DATA_IMAGE_SRC.exec(html))) {
     const url = (match[1] ?? "").replace(/\s+/g, "");
     if (!url || seen.has(url)) continue;
+    // Browsers accept DATA:IMAGE/…; keep a canonical lowercase form for dedupe/fetch.
+    const canonical = url.replace(/^data:image\/([a-z0-9+.-]+)/i, (_all, type: string) => `data:image/${type.toLowerCase()}`);
+    if (seen.has(canonical)) continue;
     seen.add(url);
-    urls.push(url);
+    seen.add(canonical);
+    urls.push(canonical);
     if (urls.length >= 8) break;
   }
   return urls;

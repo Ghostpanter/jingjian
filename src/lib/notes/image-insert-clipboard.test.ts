@@ -44,3 +44,11 @@ test("filesFromDataUrls builds image Files", async () => {
   assert.match(files[0]!.type, /^image\//);
   assert.ok(files[0]!.size > 0);
 });
+
+test("imageDataUrlsFromHtml accepts uppercase and &quot; wrappers", () => {
+  const html =
+    "<img SRC=&quot;DATA:IMAGE/PNG;BASE64,aGVsbG8=&quot; alt=x>";
+  const urls = imageDataUrlsFromHtml(html);
+  assert.equal(urls.length, 1);
+  assert.match(urls[0]!, /^data:image\/png;base64,aGVsbG8=$/i);
+});

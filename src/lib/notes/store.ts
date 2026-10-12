@@ -242,6 +242,10 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     set({ notes, activeId: id, sidebarOpen: false, editorEpoch: get().editorEpoch + 1 });
   },
   updateNote: (id, content) => {
+    const current = get().notes.find((note) => note.id === id);
+    // Avoid bumping updatedAt / re-persisting / syncing when nothing changed
+    // (e.g. replace-with-same, redundant writes).
+    if (current && current.content === content) return;
     set({
       notes: get().notes.map((note) =>
         note.id === id
