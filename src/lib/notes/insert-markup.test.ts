@@ -98,3 +98,14 @@ test("bare http:// is not a pasteable url", () => {
   assert.equal(looksLikeUrl("https://"), false);
   assert.equal(looksLikeUrl("https://ok.test"), true);
 });
+
+test("CRLF line edges match LF for fence, heading and lists", () => {
+  const crlf = "hello\r\nworld\r\n";
+  const fence = wrapFence(crlf, 0, 5);
+  assert.equal(fence.value, "```\nhello\n```\r\nworld\r\n");
+  assert.equal(setHeading(crlf, 0, 5, 1).value, "# hello\r\nworld\r\n");
+  assert.equal(toggleUnorderedList(crlf, 0, 5).value, "- hello\r\nworld\r\n");
+  const atEnd = wrapFence(crlf, 5, 5);
+  assert.equal(atEnd.value, "hello\n```\n\n```\r\nworld\r\n");
+  assert.match(insertTable(crlf, 5, 5).value, /^\| {2}\| {2}\|/m);
+});

@@ -3,12 +3,21 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  dedupeNotes,
+  filenameFor,
+  isInsideDir,
+  parseNote,
+  serialize,
+} from "./note-file.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 const TOKEN = process.env.JINGJIAN_TOKEN || process.env.TOKEN || "";
 const NOTES_DIR = path.resolve(process.env.NOTES_DIR || "/data/notes");
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+function isInsideNotes(target) {
+  return isInsideDir(NOTES_DIR, target);
+}
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -34,45 +43,6 @@ function authorized(req) {
   return timingSafeEqual(left, right);
 }
 
-function parseNote(raw, fallbackId) {
-  const match = raw.match(FRONTMATTER);
-  if (!match) {
-    const now = Date.now();
-    return { id: fallbackId, content: raw, createdAt: now, updatedAt: now, file: "" };
-  }
-  const meta = {};
-  for (const line of match[1].split("\n")) {
-    const index = line.indexOf(":");
-    if (index <= 0) continue;
-    meta[line.slice(0, index).trim()] = line.slice(index + 1).trim();
-  }
-  return {
-    id: meta.id || fallbackId,
-    createdAt: Number(meta.createdAt) || Date.now(),
-    updatedAt: Number(meta.updatedAt) || Date.now(),
-    content: raw.slice(match[0].length),
-    file: "",
-  };
-}
-
-function serialize(note) {
-  return `---\nid: ${note.id}\ncreatedAt: ${note.createdAt}\nupdatedAt: ${note.updatedAt}\n---\n${note.content}`;
-}
-
-function filenameFor(note) {
-  const line = note.content.split("\n").find((entry) => entry.trim())?.trim() ?? "";
-  const title = line
-    .replace(/^#{1,6}\s+/, "")
-    .replace(/[*_`~]/g, "")
-    .trim()
-    // File names must not carry control characters.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
-    .slice(0, 42) || "未命名笔记";
-  const shortId = String(note.id).replace(/-/g, "").slice(0, 8);
-  return `${title}.${shortId}.md`;
-}
-
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value,
@@ -81,7 +51,13 @@ function isUuid(value) {
 
 async function readBody(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  const max = 20 * 1024 * 1024;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > max) throw new Error("请求体过大");
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
@@ -96,24 +72,26 @@ async function loadNotes() {
     const raw = await readFile(abs, "utf8");
     const note = parseNote(raw, randomUUID());
     note.file = entry.name;
-    note.raw = raw;
+    note.raw = raw.replace(/^\uFEFF/, "");
     notes.push(note);
   }
-  return notes;
+  return dedupeNotes(notes);
 }
 
 async function writeNote(note, raw) {
   await mkdir(NOTES_DIR, { recursive: true });
   const target = filenameFor(note);
-  const abs = path.join(NOTES_DIR, target);
-  if (!abs.startsWith(NOTES_DIR)) throw new Error("invalid path");
+  const abs = path.resolve(NOTES_DIR, target);
+  if (!isInsideNotes(abs)) throw new Error("invalid path");
   const existing = await loadNotes();
   const previous = existing.find((item) => item.id === note.id);
-  const text = typeof raw === "string" && raw.startsWith("---") ? raw : serialize(note);
+  const text = typeof raw === "string" && raw.replace(/^\uFEFF/, "").startsWith("---")
+    ? raw.replace(/^\uFEFF/, "")
+    : serialize(note);
   await writeFile(abs, text, "utf8");
   if (previous?.file && previous.file !== target) {
-    const stale = path.join(NOTES_DIR, previous.file);
-    if (stale.startsWith(NOTES_DIR)) await rm(stale, { force: true });
+    const stale = path.resolve(NOTES_DIR, path.basename(previous.file));
+    if (isInsideNotes(stale) && stale !== abs) await rm(stale, { force: true });
   }
   return target;
 }
@@ -197,7 +175,9 @@ const server = createServer(async (req, res) => {
           createdAt: Number(body.createdAt) || Date.now(),
           updatedAt: Number(body.updatedAt) || Date.now(),
         };
-        const raw = typeof body.raw === "string" && body.raw.startsWith("---") ? body.raw : "";
+        const raw = typeof body.raw === "string" && body.raw.replace(/^\uFEFF/, "").startsWith("---")
+          ? body.raw.replace(/^\uFEFF/, "")
+          : "";
         const file = await writeNote(note, raw);
         json(res, 200, { ok: true, file });
         return;
@@ -207,7 +187,8 @@ const server = createServer(async (req, res) => {
         const notes = await loadNotes();
         const note = notes.find((item) => item.id === id);
         if (note?.file) {
-          await rm(path.join(NOTES_DIR, note.file), { force: true });
+          const target = path.resolve(NOTES_DIR, path.basename(note.file));
+          if (isInsideNotes(target)) await rm(target, { force: true });
         }
         json(res, 200, { ok: true });
         return;
