@@ -178,3 +178,12 @@ test("CRLF fenced closers are recognized so tasks after a fence count", () => {
   assert.equal(countTasks(src), 1);
   assert.match(toggleTaskAt(src, 0), /- \[x\] after/);
 });
+
+test("embed setext headings do not steal parent heading ids", () => {
+  const src = "![[Same]]\n\n# Same\n";
+  const html = renderMarkdown(src, [{ id: "1", content: "Same\n====\n\nbody\n" }]);
+  const quote = html.match(/<blockquote[\s\S]*?<\/blockquote>/)?.[0] ?? "";
+  assert.doesNotMatch(quote, /<h[1-6]\b/);
+  assert.match(html, /<h1 id="same">Same<\/h1>/);
+  assert.equal((html.match(/id="same"/g) ?? []).length, 1);
+});

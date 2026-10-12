@@ -249,7 +249,18 @@ function flattenEmbedMarkup(source: string): string {
         /^((?:[ \t]*>)*[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]/gm,
         (_all, pre: string, mark: string) => `${pre}${mark === " " ? "☐" : "☑"}`,
       )
-      .replace(/^(\s{0,3})#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm, "$1**$2**"),
+      .replace(/^(\s{0,3})#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm, "$1**$2**")
+      // Setext headings also become real <h1>/<h2> inside the quote and would
+      // steal heading ids from the parent note during render.
+      .replace(
+        /^([^\n]+)\n {0,3}(=+|-+)[ \t]*$/gm,
+        (all, text: string) => {
+          const trimmed = text.trimStart();
+          if (/^#{1,6}[ \t]/.test(trimmed)) return all;
+          if (/^(`{3,}|~{3,})/.test(trimmed)) return all;
+          return `**${text.trim()}**`;
+        },
+      ),
   );
 }
 
