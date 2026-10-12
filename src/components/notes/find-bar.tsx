@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,13 +37,14 @@ export function FindBar({
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [index, setIndex] = useState(0);
+  const revealedKey = useRef("");
 
   const result = useMemo(
     () => findMatches(content, { query, regex, caseSensitive, wholeWord }),
     [content, query, regex, caseSensitive, wholeWord],
   );
   const error = isFindError(result) ? result.error : "";
-  const matches = isFindError(result) ? [] : result;
+  const matches = useMemo(() => (isFindError(result) ? [] : result), [result]);
   const current = matches[index] ?? null;
 
   useEffect(() => {
@@ -60,18 +61,37 @@ export function FindBar({
     }, 0);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const cursor = editorCaret() ?? 0;
-    setIndex(indexNear(matches, cursor));
-  }, [open, query, regex, caseSensitive, wholeWord, content, matches]);
-
   function selectMatch(range: TextRange | null) {
     if (!range) return;
     window.dispatchEvent(
       new CustomEvent("jingjian-reveal", { detail: { start: range.start, end: range.end } }),
     );
   }
+
+  // Typing in the find box should land on the nearest hit immediately. Enter
+  // then walks forward/back from there (previously only Enter moved, and the
+  // first Enter skipped the current hit). Re-running on every content edit
+  // would yank the caret while the note is being typed with find still open,
+  // so content only refreshes the index.
+  useEffect(() => {
+    if (!open) return;
+    const cursor = editorCaret() ?? 0;
+    const near = indexNear(matches, cursor);
+    setIndex(near);
+  }, [content, matches, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const cursor = editorCaret() ?? 0;
+    const near = indexNear(matches, cursor);
+    setIndex(near);
+    const hit = matches[near];
+    const key = hit ? `${query}|${regex}|${caseSensitive}|${wholeWord}|${hit.start}:${hit.end}` : `${query}|empty`;
+    if (key !== revealedKey.current) {
+      revealedKey.current = key;
+      selectMatch(hit ?? null);
+    }
+  }, [open, query, regex, caseSensitive, wholeWord, matches]);
 
   function jump(direction: 1 | -1) {
     if (matches.length === 0) return;

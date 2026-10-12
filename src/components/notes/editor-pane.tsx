@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Compartment, EditorSelection, EditorState, Transaction, type Extension } from "@codemirror/state";
 import {
   Decoration,
+  drawSelection,
   EditorView,
   keymap,
   placeholder,
@@ -19,8 +20,11 @@ import { indentLines, looksLikeUrl, normalizeHref, wrapAsMarkup } from "@/lib/no
 import { insertImageAtCursor } from "@/lib/notes/image-insert";
 import { peekPendingReveal } from "@/lib/notes/format";
 import { classifyIncoming } from "@/lib/notes/open-incoming";
+import { Capacitor } from "@capacitor/core";
+import { Keyboard } from "@capacitor/keyboard";
 import { setActiveEditor } from "@/lib/notes/editor-bridge";
 import { diffChange, markupTransaction } from "@/lib/notes/editor-transactions";
+import { shouldApplyExternalContent } from "@/lib/notes/editor-sync";
 import { cn } from "@/lib/utils";
 
 type EditorPaneProps = {
@@ -136,8 +140,14 @@ export function EditorPane({
   const viewRef = useRef<EditorView | null>(null);
   const focusSlot = useRef(new Compartment());
   // Latest callbacks, read from inside CodeMirror without rebuilding it.
-  const props = useRef({ onChange, onImportFiles, onScroll, onEditingChange, content });
-  props.current = { onChange, onImportFiles, onScroll, onEditingChange, content };
+  const props = useRef({ onChange, onImportFiles, onScroll, onEditingChange });
+  props.current = { onChange, onImportFiles, onScroll, onEditingChange };
+  // Last doc we pushed via onChange. Must not be reset from the content prop —
+  // a stale parent render would otherwise look like an external edit and wipe
+  // keystrokes that landed between dispatch and re-render (IME suffers most).
+  const lastEmitted = useRef(content);
+  const contentRef = useRef(content);
+  contentRef.current = content;
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -151,15 +161,26 @@ export function EditorPane({
     async function insertFiles(view: EditorView, files: File[]) {
       const images = files.filter((file) => file.type.startsWith("image/"));
       if (images.length === 0) return;
-      let value = view.state.doc.toString();
-      let cursor = view.state.selection.main.head;
       try {
         for (const file of images) {
-          const next = await insertImageAtCursor(value, cursor, cursor, file, file.name);
-          value = next.value;
-          cursor = next.cursor;
+          // Resolve the image first, then insert at the *current* caret. Building
+          // a whole new document from a snapshot taken before the await would
+          // wipe anything the user typed while compress/upload was running.
+          const snapshot = view.state.doc.toString();
+          const caret = view.state.selection.main.head;
+          const next = await insertImageAtCursor(snapshot, caret, caret, file, file.name);
+          if (!view.dom.isConnected) return;
+          const live = view.state.doc.toString();
+          const liveCaret = view.state.selection.main.head;
+          if (live === snapshot) {
+            run(view, { value: next.value, start: next.cursor, end: next.cursor });
+          } else {
+            const snippet = next.value.slice(caret, next.cursor);
+            const value = live.slice(0, liveCaret) + snippet + live.slice(liveCaret);
+            const cursor = liveCaret + snippet.length;
+            run(view, { value, start: cursor, end: cursor });
+          }
         }
-        run(view, { value, start: cursor, end: cursor });
         toast.message(images.length > 1 ? `已插入 ${images.length} 张图片` : "已插入图片");
       } catch (error) {
         toast.message(error instanceof Error ? error.message : "图片插入失败");
@@ -173,9 +194,10 @@ export function EditorPane({
     };
 
     const state = EditorState.create({
-      doc: props.current.content,
+      doc: content,
       extensions: [
         history(),
+        drawSelection(),
         markdownSupport,
         syntaxHighlighting(markdownHighlight),
         highlightSelectionMatches(),
@@ -203,7 +225,7 @@ export function EditorPane({
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some((tr) => tr.annotation(Transaction.remote))) {
             const value = update.state.doc.toString();
-            props.current.content = value;
+            lastEmitted.current = value;
             props.current.onChange(value);
           }
           if (update.focusChanged) props.current.onEditingChange?.(update.view.hasFocus);
@@ -252,14 +274,36 @@ export function EditorPane({
 
     const view = new EditorView({ state, parent: host });
     viewRef.current = view;
+    lastEmitted.current = view.state.doc.toString();
     setActiveEditor(view);
     const onScrollDom = () => props.current.onScroll?.();
     view.scrollDOM.addEventListener("scroll", onScrollDom, { passive: true });
+
+    // Android soft keyboard: body resize alone still leaves the caret under the
+    // keyboard until we ask CodeMirror to scroll it into the visible area.
+    let removeKeyboard: (() => void) | undefined;
+    if (Capacitor.isNativePlatform()) {
+      let handle: { remove: () => Promise<void> } | undefined;
+      void Keyboard.addListener("keyboardDidShow", () => {
+        const live = viewRef.current;
+        if (!live) return;
+        live.dispatch({
+          effects: EditorView.scrollIntoView(live.state.selection.main.head, { y: "center" }),
+        });
+        live.requestMeasure();
+      }).then((listener) => {
+        handle = listener;
+      });
+      removeKeyboard = () => {
+        void handle?.remove();
+      };
+    }
 
     const pending = peekPendingReveal(noteId);
     if (pending) placeSelection(view, pending.start, pending.end);
 
     return () => {
+      removeKeyboard?.();
       view.scrollDOM.removeEventListener("scroll", onScrollDom);
       setActiveEditor(null);
       view.destroy();
@@ -273,10 +317,31 @@ export function EditorPane({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    // Read the latest prop through a ref so a stale effect from an older
+    // render cannot overwrite newer keystrokes.
+    const target = contentRef.current;
     const current = view.state.doc.toString();
-    const change = diffChange(current, content);
-    if (!change) return;
-    view.dispatch({ changes: change, annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)] });
+    if (
+      !shouldApplyExternalContent({
+        content: target,
+        lastEmitted: lastEmitted.current,
+        doc: current,
+        composing: view.composing,
+      })
+    ) {
+      if (target === current) lastEmitted.current = target;
+      return;
+    }
+    const change = diffChange(current, target);
+    if (!change) {
+      lastEmitted.current = target;
+      return;
+    }
+    view.dispatch({
+      changes: change,
+      annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
+    });
+    lastEmitted.current = target;
   }, [content]);
 
   useEffect(() => {
