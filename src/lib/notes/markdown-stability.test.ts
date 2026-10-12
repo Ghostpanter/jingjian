@@ -56,7 +56,7 @@ test("a half-written mermaid block stays text until it closes", () => {
   assert.doesNotMatch(typing, /class="mermaid"/);
   assert.match(typing, /下一段/);
   const done = renderMarkdown("```mermaid\nflowchart LR\n  A --> B\n```\n\n下一段");
-  assert.match(done, /<pre class="mermaid" data-source="flowchart LR\n {2}A --&gt; B">/);
+  assert.match(done, /<pre class="mermaid" data-source="flowchart LR&#10; {2}A --&gt; B">/);
   assert.match(done, /<p>下一段<\/p>/);
 });
 

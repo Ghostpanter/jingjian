@@ -16,7 +16,7 @@ function cacheKey(source: string, palette?: Palette): string {
 }
 
 export function mermaidSourceOf(node: Element): string {
-  return (node.getAttribute("data-source") || node.textContent || "").replaceAll("&#10;", "\n");
+  return mermaidBlockSource(node as HTMLElement);
 }
 
 export function cachedMermaidSvg(source: string, palette?: Palette): string | null {
@@ -71,6 +71,7 @@ async function mermaidApi(palette?: Palette) {
   mermaidMod.initialize({
     startOnLoad: false,
     securityLevel: "strict",
+    suppressErrorRendering: true,
     theme: "base",
     fontFamily: '"Noto Sans SC", "Noto Sans CJK SC", sans-serif',
     themeVariables: themeVariables(palette),
@@ -94,7 +95,7 @@ let drawSerial = 0;
 function drawMermaid(id: string, source: string, palette?: Palette): Promise<string> {
   const job = drawQueue.then(async () => {
     const mermaid = await mermaidApi(palette);
-    return (await mermaid.render(id, source)).svg;
+    return (await mermaid.render(id, source, mermaidRenderHost())).svg;
   });
   drawQueue = job.catch(() => undefined);
   return job;
@@ -111,9 +112,34 @@ export function isReadyMermaidSource(source: string): boolean {
   return DIAGRAM_START.test(head);
 }
 
+/**
+ * The visible fence text keeps line breaks. The data-source attribute does not:
+ * a raw newline in HTML becomes a space, so a finished diagram was parsed as one
+ * broken line, flashed, then stuck as code.
+ */
+export function mermaidBlockSource(node: HTMLElement): string {
+  const visible = node.tagName === "PRE" ? (node.textContent ?? "") : "";
+  const attr = (node.getAttribute("data-source") ?? "").replaceAll("&#10;", "\n").replaceAll("&#13;", "\r");
+  if (visible.includes("\n")) return visible;
+  return attr || visible;
+}
+
+let renderHost: HTMLDivElement | null = null;
+
+function mermaidRenderHost(): HTMLDivElement {
+  if (renderHost?.isConnected) return renderHost;
+  const host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:960px;visibility:hidden;pointer-events:none;";
+  document.body.appendChild(host);
+  renderHost = host;
+  return host;
+}
+
 function sizePreviewSvg(svg: SVGSVGElement): void {
+  const box = svgSize(svg);
   if (!svg.getAttribute("viewBox")) {
-    const box = svgSize(svg);
     svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
   }
   svg.removeAttribute("height");
@@ -122,6 +148,7 @@ function sizePreviewSvg(svg: SVGSVGElement): void {
   svg.style.maxWidth = "100%";
   svg.style.height = "auto";
   svg.style.maxHeight = "none";
+  svg.style.aspectRatio = `${box.width} / ${box.height}`;
 }
 
 /**
@@ -307,6 +334,19 @@ export function stripUnsafeSvgAttributes(root: Element): void {
   }
 }
 
+
+function placeMermaidSvg(node: HTMLElement, source: string, svg: string, doc: Document): void {
+  const wrap = doc.createElement("div");
+  wrap.className = "mermaid-svg";
+  wrap.setAttribute("data-processed", "true");
+  wrap.setAttribute("data-source", source);
+  wrap.innerHTML = svg;
+  stripUnsafeSvgAttributes(wrap);
+  node.replaceWith(wrap);
+  const svgEl = [...wrap.querySelectorAll("svg")].find(isSvgElement) ?? null;
+  if (svgEl) sizePreviewSvg(svgEl);
+}
+
 export async function renderMermaidBlocks(
   root: HTMLElement,
   options: MermaidRenderOptions = {},
@@ -334,40 +374,46 @@ export async function renderMermaidBlocks(
   const doc = root.ownerDocument ?? document;
   const background = options.palette?.paper ?? "#f7f3eb";
 
-  for (const [index, node] of nodes.entries()) {
+  for (const node of nodes) {
     if (stale()) return;
     if (!node.isConnected) continue;
     const source = mermaidSourceOf(node);
-    const id = `jingjian-mmd-${Date.now().toString(36)}-${index}-${(drawSerial += 1)}`;
+    const id = `jjmmd${(drawSerial += 1)}`;
     try {
       const key = cacheKey(source, options.palette);
       const cached = svgCache.get(key);
       const svg = cached ?? (await drawMermaid(id, source, options.palette));
       if (!cached) rememberSvg(key, svg);
-      if (stale() || !node.isConnected) continue;
+      if (!root.isConnected) return;
+      const live =
+        node.isConnected && mermaidSourceOf(node) === source
+          ? node
+          : candidates().find(
+              (item) => item.isConnected && mermaidSourceOf(item) === source && item.getAttribute("data-processed") !== "true",
+            );
+      if (!live) continue;
+      const lockPixels = options.rasterize || Number.isFinite(options.maxHeight ?? Number.NaN);
+      if (!lockPixels) {
+        placeMermaidSvg(live, source, svg, doc);
+        continue;
+      }
       const wrap = doc.createElement("div");
       wrap.className = "mermaid-svg";
       wrap.setAttribute("data-processed", "true");
-      const remembered = node.getAttribute("data-source");
-      if (remembered) wrap.setAttribute("data-source", remembered);
+      wrap.setAttribute("data-source", source);
       wrap.innerHTML = svg;
       stripUnsafeSvgAttributes(wrap);
-      node.replaceWith(wrap);
+      live.replaceWith(wrap);
       const svgEl = [...wrap.querySelectorAll("svg")].find(isSvgElement) ?? null;
       if (svgEl) {
-        const lockPixels = options.rasterize || Number.isFinite(options.maxHeight ?? Number.POSITIVE_INFINITY);
-        if (lockPixels) {
-          await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-          const laidOut = svgSize(svgEl);
-          svgEl.setAttribute("width", String(laidOut.width));
-          svgEl.setAttribute("height", String(laidOut.height));
-          svgEl.style.width = `${laidOut.width}px`;
-          svgEl.style.height = `${laidOut.height}px`;
-          const maxWidth = Math.max(1, wrap.clientWidth || wrap.parentElement?.clientWidth || 640);
-          fitMermaidFigure(wrap, maxWidth, options.maxHeight ?? Number.POSITIVE_INFINITY);
-        } else {
-          sizePreviewSvg(svgEl);
-        }
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+        const laidOut = svgSize(svgEl);
+        svgEl.setAttribute("width", String(laidOut.width));
+        svgEl.setAttribute("height", String(laidOut.height));
+        svgEl.style.width = `${laidOut.width}px`;
+        svgEl.style.height = `${laidOut.height}px`;
+        const maxWidth = Math.max(1, wrap.clientWidth || wrap.parentElement?.clientWidth || 640);
+        fitMermaidFigure(wrap, maxWidth, options.maxHeight ?? Number.POSITIVE_INFINITY);
       }
       if (options.rasterize && svgEl && wrap.isConnected) {
         const fitted = [...wrap.querySelectorAll("svg")].find(isSvgElement);
@@ -395,9 +441,9 @@ export async function renderMermaidBlocks(
         }
       }
     } catch {
-      if (!node.isConnected) continue;
-      node.setAttribute("data-processed", "true");
-      node.classList.add("mermaid-failed");
+      // Leave the fence as code. A later edit can try again. Marking it processed
+      // made a failed first draw stay as code for the rest of the session.
+      if (node.isConnected) node.classList.add("mermaid-failed");
     }
   }
 }
