@@ -547,7 +547,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     if (!mounted) return;
     final lines = [
       for (final o in r.ok) '✓ ${o.label}${o.updated ? '（已更新）' : ''}：${o.detail}',
-      for (final f in r.failed) '✗ ${f.$1}：${f.$2}',
+      for (final f in r.failed) '× ${f.$1}：${f.$2}',
     ];
     await showDialog<void>(
       context: context,
