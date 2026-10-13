@@ -7,6 +7,7 @@ import 'services/app_prefs.dart';
 import 'services/image_store.dart';
 import 'services/note_history.dart';
 import 'services/note_store.dart';
+import 'services/web_fonts.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -17,6 +18,7 @@ Future<void> main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  final cjk = loadWebCjkFont(); // web only; runs alongside storage init
   await AppPrefs.instance.init();
   await ImageStore.instance.init();
   await NoteHistory.instance.init();
@@ -24,6 +26,8 @@ Future<void> main() async {
   final migrated = await LegacyMigration.runIfNeeded();
   // New installs start in dark mode with OLED pure black.
   await ThemeController.instance.init(newInstall: NoteStore.instance.firstRun && migrated == 0);
+  // Don't hold the first frame for long on slow links; it finishes in the background.
+  await Future.any([cjk, Future<void>.delayed(const Duration(seconds: 3))]);
   runApp(const JingjianApp());
 }
 
