@@ -169,4 +169,21 @@ void main() {
     expect(find.text('输入命令…'), findsNothing);
     expect(c.text, before);
   });
+
+  testWidgets('focus mode keeps a collapsed sidebar collapsed after exit', (t) async {
+    await open(t);
+    await t.tap(find.byTooltip('收起文件夹栏'));
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('展开文件夹栏'), findsOneWidget);
+    await t.tap(editorField);
+    await t.sendKeyEvent(LogicalKeyboardKey.f11);
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('展开文件夹栏'), findsNothing);
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('展开文件夹栏'), findsOneWidget);
+    expect(ThemeController.instance.sidebarCollapsed, isTrue);
+    await t.tap(find.byTooltip('展开文件夹栏'));
+    await t.pump(const Duration(seconds: 5));
+  });
 }
