@@ -356,7 +356,7 @@ ThemeData buildJingjianTheme() {
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: p.overlay,
-      contentTextStyle: TextStyle(color: p.ink),
+      contentTextStyle: TextStyle(color: p.ink, fontFamily: 'sans-serif', fontFamilyFallback: kIsWeb ? const ['JJCJK'] : null),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: borderSide),
       behavior: SnackBarBehavior.floating,
     ),

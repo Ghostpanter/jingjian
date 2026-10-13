@@ -75,6 +75,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _formatBar = true;
   bool _imageBusy = false;
   bool _focusMode = false;
+  _Pane? _paneBeforeFocus;
   final _bodyKey = GlobalKey(debugLabel: 'editor-body'); // keeps caret when toggling 专注模式
 
   /// Text shown in the preview. Big notes refresh it on the save debounce
@@ -753,7 +754,13 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   void _toggleFocusMode() {
     setState(() => _focusMode = !_focusMode);
     widget.onFocusMode?.call(_focusMode);
-    if (_focusMode && _pane == _Pane.split) setState(() => _pane = _Pane.edit);
+    if (_focusMode) {
+      _paneBeforeFocus = _pane;
+      if (_pane == _Pane.split) setState(() => _pane = _Pane.edit);
+    } else if (_paneBeforeFocus != null) {
+      setState(() => _pane = _paneBeforeFocus!);
+      _paneBeforeFocus = null;
+    }
     if (_focusMode) _snack('专注模式：按 Esc 或 F11 退出');
     // The layout changes around the editor; put the caret back.
     WidgetsBinding.instance.addPostFrameCallback((_) {

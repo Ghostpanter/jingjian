@@ -13,7 +13,7 @@ Future<bool> loadWebCjkFont({Duration timeout = const Duration(seconds: 30)}) as
     final res = await http.get(Uri.base.resolve('fonts/jj-cjk-sc.otf')).timeout(timeout);
     if (res.statusCode != 200 || res.bodyBytes.length < 100000) return false;
     final data = ByteData.sublistView(res.bodyBytes);
-    for (final family in const ['sans-serif', 'serif', 'JJCJK']) {
+    for (final family in const ['sans-serif', 'serif', 'Roboto', 'JJCJK']) {
       final loader = FontLoader(family)..addFont(Future.value(data));
       await loader.load();
     }
