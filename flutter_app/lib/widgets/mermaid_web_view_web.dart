@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
 import '../theme/app_theme.dart';
+import 'mermaid_html.dart';
 
 /// Web: render Mermaid in a sandboxed iframe (scripts only, no same-origin).
 class MermaidIframe extends StatefulWidget {
@@ -24,6 +25,8 @@ class _MermaidIframeState extends State<MermaidIframe> {
   web.HTMLIFrameElement? _frame;
   double _height = 160;
   JSFunction? _listener;
+  String _renderedKey = '';
+  String get _themeKey => '${JingjianColors.cssHex(JingjianColors.paper)}${JingjianColors.dark}';
 
   @override
   void initState() {
@@ -45,8 +48,17 @@ class _MermaidIframeState extends State<MermaidIframe> {
       if (d == null || !d.isA<JSString>()) return;
       final s = (d as JSString).toDart;
       if (!s.startsWith('$_token:')) return;
-      final h = double.tryParse(s.substring(_token.length + 1));
-      if (h != null && h > 40 && mounted) setState(() => _height = h + 16);
+      final body = s.substring(_token.length + 1);
+      if (body.startsWith('w:')) {
+        final dy = double.tryParse(body.substring(2));
+        final pos = mounted ? Scrollable.maybeOf(context)?.position : null;
+        if (dy != null && pos != null) {
+          pos.jumpTo((pos.pixels + dy).clamp(pos.minScrollExtent, pos.maxScrollExtent));
+        }
+        return;
+      }
+      final h = double.tryParse(body.startsWith('h:') ? body.substring(2) : body);
+      if (h != null && h > 24 && mounted && (h - _height).abs() > 1) setState(() => _height = h);
     }).toJS;
     web.window.addEventListener('message', _listener);
   }
@@ -70,26 +82,32 @@ class _MermaidIframeState extends State<MermaidIframe> {
     final fg = JingjianColors.cssHex(JingjianColors.ink);
     final dark = JingjianColors.dark;
     final base = Uri.base.resolve('assets/assets/preview/mermaid.min.js').toString();
-    f.srcdoc = '''
-<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<script src="$base"></script>
-<style>html,body{margin:0;padding:8px;background:$bg;color:$fg;font-family:sans-serif}.mermaid{display:flex;justify-content:center}</style>
-</head><body><div class="mermaid" id="m"></div><script>
-const post = (h) => parent.postMessage(${jsonEncode(_token)} + ':' + h, '*');
-try {
-  mermaid.initialize({startOnLoad:false,theme:'${dark ? 'dark' : 'neutral'}',securityLevel:'strict'});
-  document.getElementById('m').textContent = ${jsonEncode(widget.source)};
-  mermaid.run({nodes:[document.getElementById('m')]}).then(() => post(document.documentElement.scrollHeight)).catch(() => post(80));
-} catch (e) { document.body.textContent = 'Mermaid 渲染失败'; post(80); }
-</script></body></html>'''.toJS;
+    f.srcdoc = buildMermaidHtml(
+      source: widget.source,
+      scriptTag: '<script src="$base"></script>',
+      postJs: 'parent.postMessage(${jsonEncode(_token)} + ":" + msg, "*");',
+      bg: bg,
+      fg: fg,
+      muted: JingjianColors.cssHex(JingjianColors.muted),
+      dark: dark,
+      forwardWheel: true,
+    ).toJS;
+    _renderedKey = _themeKey;
   }
 
   @override
   Widget build(BuildContext context) {
+    // Theme switch (incl. OLED/light) rebuilds us; re-render with new colors.
+    if (_renderedKey.isNotEmpty && _renderedKey != _themeKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _render(); });
+      _renderedKey = _themeKey;
+    }
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       height: _height,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
+        color: JingjianColors.paper,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: JingjianColors.border),
       ),
