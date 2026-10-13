@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../models/note.dart';
 import '../models/sync_config.dart';
+import '../services/backlinks.dart';
 import '../services/app_prefs.dart';
 import '../services/ebook_service.dart';
 import '../services/export_service.dart';
@@ -54,6 +55,9 @@ class _HomeShellState extends State<HomeShell> {
     final list = _sorted(_store.notes);
     if (list.isNotEmpty) _activeId = list.first.id;
     _maybeAutoSync();
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      if (mounted) warmLinkCache(_store.notes);
+    });
   }
 
   void _snack(String msg) {

@@ -40,6 +40,14 @@ _LinkInfo _info(Note n) {
 
 void clearLinkCache() => _linkCache.clear();
 
+/// Parse notes in small slices when idle, so the first 双链 panel opens fast.
+Future<void> warmLinkCache(List<Note> all) async {
+  for (var i = 0; i < all.length; i++) {
+    _info(all[i]);
+    if (i % 200 == 199) await Future<void>.delayed(const Duration(milliseconds: 16));
+  }
+}
+
 Map<String, String> _titleIndex(List<Note> all) {
   final idByTitle = <String, String>{};
   void put(String title, String id) {
