@@ -7,6 +7,7 @@ import '../../models/note.dart';
 import '../../models/sync_config.dart';
 import '../note_file.dart';
 import 'sync_adapter.dart';
+import 'sync_images.dart';
 
 Future<Directory> _resolveDir(SyncConfig config) async {
   final configured = config.folderPath.trim();
@@ -40,10 +41,10 @@ class _FolderAdapter implements SyncAdapter {
       if (entity is! File) continue;
       final name = p.basename(entity.path);
       if (!RegExp(r'\.(md|markdown|txt)$', caseSensitive: false).hasMatch(name)) continue;
-      final raw = await entity.readAsString();
+      final raw = decodeUtf8Body(await entity.readAsBytes());
       final idMatch = RegExp(r'\.([a-f0-9]{8})\.(md|txt)$', caseSensitive: false).firstMatch(name);
       final fallback = idMatch?.group(1) ?? name.hashCode.toRadixString(16);
-      notes.add(parseNoteFile(raw, fallback));
+      notes.add(await parseSyncedNote(raw, fallback));
     }
     return notes;
   }
@@ -52,7 +53,7 @@ class _FolderAdapter implements SyncAdapter {
   Future<void> upsert(Note note) async {
     final dir = await _resolveDir(config);
     final file = File(p.join(dir.path, filenameForNote(note)));
-    await file.writeAsString(serializeNote(note));
+    await file.writeAsString(await serializeNoteWithImages(note));
   }
 
   @override

@@ -36,7 +36,7 @@ Future<http.Response> syncRequest(
     if (headers != null) req.headers.addAll(headers);
     if (body != null) {
       if (body is String) {
-        req.body = body;
+        req.bodyBytes = utf8.encode(body);
       } else if (body is List<int>) {
         req.bodyBytes = body;
       } else {

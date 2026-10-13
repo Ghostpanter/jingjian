@@ -68,9 +68,10 @@ class SyncService {
     }
   }
 
-  Future<void> syncAndApply({String? activeId}) async {
+  /// Returns unresolved conflicts (local kept for now) so UI can ask the user.
+  Future<List<({Note local, Note remote})>> syncAndApply({String? activeId}) async {
     final config = AppPrefs.instance.readSyncConfig();
-    if (config.provider == SyncProvider.off) return;
+    if (config.provider == SyncProvider.off) return const [];
     final store = NoteStore.instance;
     final result = await runSync(
       config: config,
@@ -78,5 +79,6 @@ class SyncService {
       activeId: activeId,
     );
     await store.replaceAll(result.notes);
+    return result.conflicts;
   }
 }
