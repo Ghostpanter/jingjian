@@ -258,7 +258,7 @@ class EbookService {
     return ParsedEbook(title: title, author: author.isEmpty ? null : author, chapters: chapters, images: images, coverHref: coverHref);
   }
 
-  static const supportedExtensions = ['txt', 'md', 'markdown', 'html', 'htm', 'epub', 'mobi', 'azw', 'prc', 'fb2'];
+  static const supportedExtensions = ['txt', 'md', 'markdown', 'html', 'htm', 'epub', 'mobi', 'azw', 'azw3', 'prc', 'fb2'];
 
   ParsedEbook parse(Uint8List bytes, String filename) {
     final lower = filename.toLowerCase();
@@ -266,7 +266,6 @@ class EbookService {
       return parseEpub(bytes, filename);
     }
     if (looksLikeMobi(bytes, filename)) return parseMobiBook(bytes, filename);
-    if (lower.endsWith('.azw3')) throw Exception('AZW3（KF8）暂不支持，请先转成 EPUB');
     if (lower.endsWith('.fb2')) return parseFb2(bytes, filename);
     if (lower.endsWith('.html') || lower.endsWith('.htm')) return parseHtml(bytes, filename);
     return parseTxt(bytes, filename);

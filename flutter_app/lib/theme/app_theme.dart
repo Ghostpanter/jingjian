@@ -147,6 +147,8 @@ class ThemeController extends ChangeNotifier {
   static const _kFont = 'jingjian.editor.font.v1';
   static const _kSize = 'jingjian.editor.size.v1';
   static const _kSort = 'jingjian.sort.v1';
+  static const _kSidebarW = 'jingjian.sidebar.width.v1';
+  static const _kListW = 'jingjian.list.width.v1';
 
   SharedPreferences? _prefs;
   ThemeId themeId = ThemeId.system;
@@ -154,6 +156,8 @@ class ThemeController extends ChangeNotifier {
   EditorFont font = EditorFont.sans;
   String size = 'sm';
   NoteSort sort = NoteSort.updated;
+  double sidebarWidth = 230;
+  double listWidth = 300;
   Brightness _platform = Brightness.light;
 
   Future<void> init() async {
@@ -167,6 +171,8 @@ class ThemeController extends ChangeNotifier {
     size = editorSizes.containsKey(s) ? s! : 'sm';
     final so = _prefs!.getString(_kSort);
     sort = NoteSort.values.firstWhere((e) => e.name == so, orElse: () => NoteSort.updated);
+    sidebarWidth = (_prefs!.getDouble(_kSidebarW) ?? 230).clamp(sidebarMin, sidebarMax);
+    listWidth = (_prefs!.getDouble(_kListW) ?? 300).clamp(listMin, listMax);
     _platform = WidgetsBinding.instance.platformDispatcher.platformBrightness;
     _recompute();
   }
@@ -248,6 +254,20 @@ class ThemeController extends ChangeNotifier {
     size = s;
     await _prefs?.setString(_kSize, s);
     notifyListeners();
+  }
+
+  static const sidebarMin = 160.0, sidebarMax = 420.0, listMin = 220.0, listMax = 560.0;
+
+  /// Persist pane widths (no notify: the shell already rebuilt while dragging).
+  Future<void> saveWidths({double? sidebar, double? list}) async {
+    if (sidebar != null) {
+      sidebarWidth = sidebar.clamp(sidebarMin, sidebarMax);
+      await _prefs?.setDouble(_kSidebarW, sidebarWidth);
+    }
+    if (list != null) {
+      listWidth = list.clamp(listMin, listMax);
+      await _prefs?.setDouble(_kListW, listWidth);
+    }
   }
 
   Future<void> setSort(NoteSort s) async {

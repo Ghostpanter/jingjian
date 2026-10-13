@@ -12,6 +12,9 @@ import '../services/folder_tree.dart';
 import '../services/import_service.dart';
 import '../services/note_store.dart';
 import '../services/note_text.dart';
+import '../services/collab/collab_session.dart';
+import '../services/publish/blog_platforms.dart';
+import '../widgets/collab_dialog.dart';
 import '../services/sync/sync_service.dart';
 import '../theme/app_theme.dart';
 import 'editor_screen.dart';
@@ -398,6 +401,74 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  Future<void> _joinCollab() async {
+    final mgr = CollabManager.instance;
+    if (mgr.session != null) {
+      _snack('已经在协作中，请先结束当前协作');
+      return;
+    }
+    final s = await showJoinDialog(context);
+    if (s == null || !mounted) return;
+    final title = s.title.isEmpty ? '协作笔记' : s.title;
+    final note = await _store.create(content: s.text.isEmpty ? '# $title\n\n' : s.text, folder: '协作');
+    mgr.attach(s, note.id);
+    _snack('已加入「$title」，编辑会实时同步');
+    _openNote(note.id);
+  }
+
+  Future<void> _pullFromBlog() async {
+    final prefs = await readPlatformPrefs();
+    final ids = [
+      for (final id in PlatformId.values.skip(1))
+        if (prefs.sites[id]!.enabled && prefs.sites[id]!.ready) id,
+    ];
+    if (!mounted) return;
+    if (ids.isEmpty) {
+      _snack('先在 设置 → 博客平台 启用 WordPress / Typecho / Halo / Ghost / 语雀');
+      return;
+    }
+    final id = ids.length == 1
+        ? ids.first
+        : await showDialog<PlatformId>(
+            context: context,
+            builder: (ctx) => SimpleDialog(title: const Text('从哪个平台拉回'), children: [
+              for (final i in ids) SimpleDialogOption(onPressed: () => Navigator.pop(ctx, i), child: Text(platformLabel(i))),
+            ]),
+          );
+    if (id == null || !mounted) return;
+    List<({String remoteId, String title, String url, String hint})> posts;
+    try {
+      _snack('正在读取 ${platformLabel(id)} 文章列表…');
+      posts = await BlogPlatformService.instance.listRemote(id, prefs);
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''));
+      return;
+    }
+    if (!mounted) return;
+    final pick = await showDialog<({String remoteId, String title, String url, String hint})>(
+      context: context,
+      builder: (ctx) => SimpleDialog(title: Text('${platformLabel(id)} 文章（${posts.length}）'), children: [
+        if (posts.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('没有文章')),
+        for (final p in posts)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, p),
+            child: ListTile(dense: true, title: Text(p.title), subtitle: Text('${p.hint} · ${p.url}', maxLines: 1)),
+          ),
+      ]),
+    );
+    if (pick == null) return;
+    try {
+      final md = await BlogPlatformService.instance.readRemote(id, prefs, pick.remoteId);
+      final note = await _store.create(content: md, folder: _folderFilter);
+      await rememberTarget(note.id, id, pick.remoteId, pick.url);
+      if (!mounted) return;
+      _snack('已拉回「${pick.title}」，再次发布会更新原文');
+      _openNote(note.id);
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
   Future<void> _quickOpen() async {
     final id = await showDialog<String>(context: context, builder: (_) => _QuickOpen(notes: _sorted(_store.notes)));
     if (id != null && mounted) _openNote(id);
@@ -668,6 +739,10 @@ class _HomeShellState extends State<HomeShell> {
                 await _exportNotes(_filtered, title: _folderFilter?.split('/').last ?? '静笺笔记');
               case 'trash':
                 await _openTrash();
+              case 'join':
+                await _joinCollab();
+              case 'pull':
+                await _pullFromBlog();
               case 'settings':
                 await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
             }
@@ -685,8 +760,10 @@ class _HomeShellState extends State<HomeShell> {
             const PopupMenuItem(value: 'folder', child: Text('新建文件夹')),
             const PopupMenuItem(value: 'images', child: Text('图片库')),
             const PopupMenuItem(value: 'import', child: Text('导入 Markdown / TXT / ZIP')),
-            const PopupMenuItem(value: 'ebook', child: Text('导入电子书（EPUB/MOBI/FB2/TXT）')),
+            const PopupMenuItem(value: 'ebook', child: Text('导入电子书（EPUB/MOBI/AZW3/FB2/TXT）')),
             const PopupMenuItem(value: 'exportAll', child: Text('导出当前列表…')),
+            if (collabAvailable()) const PopupMenuItem(value: 'join', child: Text('加入协作…')),
+            const PopupMenuItem(value: 'pull', child: Text('从博客拉回文章…')),
             const PopupMenuItem(value: 'trash', child: Text('回收站')),
             const PopupMenuItem(value: 'settings', child: Text('设置')),
           ],
@@ -710,13 +787,31 @@ class _HomeShellState extends State<HomeShell> {
         Expanded(child: _noteList()),
       ]);
     } else {
+      // Keep at least 320px for the editor when restoring saved widths.
+      var sw = _theme.sidebarWidth, lw = _theme.listWidth;
+      final spare = width - 320 - (veryWide ? sw : 0) - lw;
+      if (spare < 0) {
+        lw = (lw + spare).clamp(ThemeController.listMin, ThemeController.listMax);
+        final spare2 = width - 320 - (veryWide ? sw : 0) - lw;
+        if (spare2 < 0 && veryWide) sw = (sw + spare2).clamp(ThemeController.sidebarMin, ThemeController.sidebarMax);
+      }
       body = Row(children: [
         if (veryWide) ...[
-          SizedBox(width: 230, child: _folderPane()),
-          VerticalDivider(width: 1, color: JingjianColors.border),
+          SizedBox(width: sw, child: _folderPane()),
+          _ResizeHandle(
+            onDrag: (dx) => setState(() => _theme.sidebarWidth =
+                (_theme.sidebarWidth + dx).clamp(ThemeController.sidebarMin, ThemeController.sidebarMax)),
+            onEnd: () => _theme.saveWidths(sidebar: _theme.sidebarWidth),
+            onReset: () => setState(() => _theme.saveWidths(sidebar: 230)),
+          ),
         ],
-        SizedBox(width: 300, child: _noteList()),
-        VerticalDivider(width: 1, color: JingjianColors.border),
+        SizedBox(width: lw, child: _noteList()),
+        _ResizeHandle(
+          onDrag: (dx) => setState(() =>
+              _theme.listWidth = (_theme.listWidth + dx).clamp(ThemeController.listMin, ThemeController.listMax)),
+          onEnd: () => _theme.saveWidths(list: _theme.listWidth),
+          onReset: () => setState(() => _theme.saveWidths(list: 300)),
+        ),
         Expanded(
           child: active == null
               ? Center(child: Text('选择或新建一篇笔记', style: TextStyle(color: JingjianColors.muted)))
@@ -820,6 +915,52 @@ class _QuickOpenState extends State<_QuickOpen> {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+
+/// 1px divider with a wider invisible drag area; double-click resets width.
+class _ResizeHandle extends StatefulWidget {
+  const _ResizeHandle({required this.onDrag, required this.onEnd, required this.onReset});
+  final void Function(double dx) onDrag;
+  final VoidCallback onEnd;
+  final VoidCallback onReset;
+
+  @override
+  State<_ResizeHandle> createState() => _ResizeHandleState();
+}
+
+class _ResizeHandleState extends State<_ResizeHandle> {
+  bool _hover = false, _drag = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _hover || _drag;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (_) => setState(() => _drag = true),
+        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
+        onHorizontalDragEnd: (_) {
+          setState(() => _drag = false);
+          widget.onEnd();
+        },
+        onDoubleTap: widget.onReset,
+        child: Tooltip(
+          message: '拖动调整宽度，双击恢复默认',
+          waitDuration: const Duration(seconds: 1),
+          child: SizedBox(
+            width: 9,
+            child: Center(
+              child: Container(width: active ? 3 : 1, color: active ? JingjianColors.accent : JingjianColors.border),
+            ),
+          ),
+        ),
       ),
     );
   }

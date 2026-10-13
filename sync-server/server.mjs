@@ -10,6 +10,7 @@ import {
   parseNote,
   serialize,
 } from "./note-file.mjs";
+import { handleCollabUpgrade } from "./collab.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 const TOKEN = process.env.JINGJIAN_TOKEN || process.env.TOKEN || "";
@@ -31,12 +32,12 @@ function json(res, status, payload) {
   res.end(body);
 }
 
-function authorized(req) {
+function authorized(req, queryToken = "") {
   if (!TOKEN) return false;
   const header = req.headers.authorization || "";
   const bearer = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   const alt = String(req.headers["x-jingjian-token"] || "").trim();
-  const provided = bearer || alt;
+  const provided = bearer || alt || String(queryToken || "").trim();
   if (!provided) return false;
   const left = createHash("sha256").update(provided).digest();
   const right = createHash("sha256").update(TOKEN).digest();
@@ -124,6 +125,7 @@ const server = createServer(async (req, res) => {
       const notes = await loadNotes();
       json(res, 200, {
         ok: true,
+        collab: 2,
         notesDir: NOTES_DIR,
         noteCount: notes.length,
       });
@@ -199,6 +201,11 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     json(res, 500, { error: error instanceof Error ? error.message : "server error" });
   }
+});
+
+server.on("upgrade", (req, socket) => {
+  socket.on("error", () => {});
+  if (!handleCollabUpgrade(req, socket, { authorized })) socket.destroy();
 });
 
 await mkdir(NOTES_DIR, { recursive: true });

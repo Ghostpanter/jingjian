@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../models/blog_config.dart';
 import '../models/sync_config.dart';
 import '../services/app_prefs.dart';
 import '../services/sync/sync_oss.dart';
 import '../services/sync/sync_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
+import 'blog_platforms_screen.dart';
+import 'image_host_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,7 +18,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late SyncConfig _sync;
-  late BlogConfig _blog;
   String _msg = '';
   bool _busy = false;
 
@@ -31,12 +31,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() {});
     });
     _sync = AppPrefs.instance.readSyncConfig().copy();
-    _blog = AppPrefs.instance.readBlogConfig().copy();
   }
 
   Future<void> _save() async {
     await AppPrefs.instance.writeSyncConfig(_sync);
-    await AppPrefs.instance.writeBlogConfig(_blog);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
     }
@@ -241,40 +239,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Text(_msg, style: TextStyle(color: JingjianColors.muted)),
             ),
           const Divider(height: 32),
-          const Text('博客发布', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<BlogHost>(
-            value: _blog.host,
-            decoration: const InputDecoration(labelText: '平台', border: OutlineInputBorder()),
-            items: const [
-              DropdownMenuItem(value: BlogHost.github, child: Text('GitHub')),
-              DropdownMenuItem(value: BlogHost.gitee, child: Text('Gitee')),
-            ],
-            onChanged: (v) => setState(() => _blog.host = v ?? BlogHost.github),
+          const Text('图床与博客', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cloud_upload_outlined),
+            title: const Text('图床'),
+            subtitle: const Text('SM.MS、Imgur、PicGo、兰空、GitHub、Gitee、自定义'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ImageHostScreen())),
           ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<BlogEngine>(
-            value: _blog.engine,
-            decoration: const InputDecoration(labelText: '引擎', border: OutlineInputBorder()),
-            items: const [
-              DropdownMenuItem(value: BlogEngine.hugo, child: Text('Hugo')),
-              DropdownMenuItem(value: BlogEngine.hexo, child: Text('Hexo')),
-            ],
-            onChanged: (v) {
-              setState(() {
-                _blog.engine = v ?? BlogEngine.hugo;
-                _blog.postsDir =
-                    _blog.engine == BlogEngine.hugo ? 'content/posts' : 'source/_posts';
-              });
-            },
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.public),
+            title: const Text('博客平台'),
+            subtitle: const Text('静态博客（Hugo/Hexo）、WordPress、Typecho、Halo、Ghost、语雀'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlogPlatformsScreen())),
           ),
-          const SizedBox(height: 8),
-          _field('仓库 owner/repo', _blog.repo, (v) => _blog.repo = v),
-          _field('Token', _blog.token, (v) => _blog.token = v, obscure: true),
-          _field('分支', _blog.branch, (v) => _blog.branch = v),
-          _field('文章目录', _blog.postsDir, (v) => _blog.postsDir = v),
-          _field('额外 Front Matter', _blog.extraFrontMatter, (v) => _blog.extraFrontMatter = v,
-              maxLines: 3),
           const SizedBox(height: 24),
           Text(
             '桌面 / Web：可用 flutter run -d linux / chrome 或对应平台打包。',
@@ -285,8 +266,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('关于静笺'),
-            subtitle: const Text('版本 1.8.1 · 本地优先的 Markdown 笔记与阅读器\nhttps://github.com/Ghostpanter/jingjian'),
-            onTap: () => showLicensePage(context: context, applicationName: '静笺', applicationVersion: '1.8.1'),
+            subtitle: const Text('版本 1.8.2 · 本地优先的 Markdown 笔记与阅读器\nhttps://github.com/Ghostpanter/jingjian'),
+            onTap: () => showLicensePage(context: context, applicationName: '静笺', applicationVersion: '1.8.2'),
           ),
         ],
       ),

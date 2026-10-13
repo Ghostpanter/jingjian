@@ -112,9 +112,10 @@ class BlogService {
           '${_apiBase(cfg.host)}/repos/${parts.owner}/${parts.name}/contents/$encodedPath';
       String? sha;
       final get = await http.get(Uri.parse(
-          '$url?access_token=${Uri.encodeQueryComponent(cfg.token.trim())}cfg.token.trim()}&ref=ref=${cfg.branch}'));
+          '$url?access_token=${Uri.encodeQueryComponent(cfg.token.trim())}&ref=${Uri.encodeQueryComponent(cfg.branch)}'));
       if (get.statusCode == 200) {
-        sha = (jsonDecode(get.body) as Map)['sha'] as String?;
+        final d = jsonDecode(utf8.decode(get.bodyBytes));
+        if (d is Map) sha = d['sha'] as String?;
       }
       final payload = {
         'access_token': cfg.token.trim(),
@@ -123,7 +124,8 @@ class BlogService {
         'branch': cfg.branch,
         if (sha != null) 'sha': sha,
       };
-      final put = await http.put(
+      // Gitee: create = POST, update existing = PUT with sha.
+      final put = await (sha == null ? http.post : http.put)(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
@@ -134,5 +136,20 @@ class BlogService {
     }
     await AppPrefs.instance.rememberPublished(note.id, path);
     return path;
+  }
+
+  Future<String> test({BlogConfig? config}) async {
+    final cfg = config ?? AppPrefs.instance.readBlogConfig();
+    if (!cfg.isConfigured) throw Exception('请先填写博客仓库与 Token');
+    final parts = githubParts(cfg.repo);
+    final res = cfg.host == BlogHost.github
+        ? await http.get(Uri.parse('${_apiBase(cfg.host)}/repos/${parts.owner}/${parts.name}'),
+            headers: {'Authorization': 'Bearer ${cfg.token.trim()}', 'Accept': 'application/vnd.github+json'})
+        : await http.get(Uri.parse(
+            '${_apiBase(cfg.host)}/repos/${parts.owner}/${parts.name}?access_token=${Uri.encodeQueryComponent(cfg.token.trim())}'));
+    if (res.statusCode == 401 || res.statusCode == 403) throw Exception('Token 不对或没有权限');
+    if (res.statusCode == 404) throw Exception('找不到仓库 ${parts.owner}/${parts.name}');
+    if (res.statusCode != 200) throw Exception('连接失败（${res.statusCode}）');
+    return '已连接 ${parts.owner}/${parts.name}';
   }
 }

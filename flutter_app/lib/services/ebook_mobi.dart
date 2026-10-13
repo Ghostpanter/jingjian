@@ -222,14 +222,17 @@ MobiBook parseMobi(Uint8List bytes, String name) {
   final isMobi = r0.length >= 24 && latin1.decode(r0.sublist(16, 20)) == 'MOBI';
   final mobiLen = isMobi ? _u32(r0, 20) : 0;
   final encoding = isMobi && r0.length >= 32 ? _u32(r0, 28) : 65001;
-  final extraFlags = mobiLen > 0xf0 && r0.length >= 16 + 0xf4 ? _u16(r0, 16 + 0xf2) : 0;
-  final version = mobiLen > 36 && r0.length >= 56 ? _u32(r0, 16 + 36) : 0;
-  final firstImage = mobiLen > 108 && r0.length >= 128 ? _u32(r0, 16 + 108) : 0;
-  final huffStart = mobiLen > 116 && r0.length >= 136 ? _u32(r0, 16 + 112) : 0;
-  final huffCount = mobiLen > 116 && r0.length >= 136 ? _u32(r0, 16 + 116) : 0;
-  final nameOff = mobiLen > 68 && r0.length >= 88 ? _u32(r0, 16 + 64) : 0;
-  final nameLen = mobiLen > 68 && r0.length >= 88 ? _u32(r0, 16 + 68) : 0;
-  final exthFlags = mobiLen > 128 && r0.length >= 148 ? _u32(r0, 16 + 128) : 0;
+  // All offsets below are relative to the start of record 0 (MobileRead /
+  // calibre convention); a field exists when it lies inside the MOBI header.
+  bool has(int off, int size) => isMobi && off + size <= 16 + mobiLen && off + size <= r0.length;
+  final extraFlags = has(0xF2, 2) ? _u16(r0, 0xF2) : 0;
+  final version = has(36, 4) ? _u32(r0, 36) : 0;
+  final firstImage = has(108, 4) ? _u32(r0, 108) : 0;
+  final huffStart = has(112, 4) ? _u32(r0, 112) : 0;
+  final huffCount = has(116, 4) ? _u32(r0, 116) : 0;
+  final nameOff = has(84, 4) ? _u32(r0, 84) : 0;
+  final nameLen = has(88, 4) ? _u32(r0, 88) : 0;
+  final exthFlags = has(128, 4) ? _u32(r0, 128) : 0;
   final exth = exthFlags & 0x40 != 0 ? _readExth(r0, mobiLen) : (title: '', author: '', coverOffset: -1);
   final headerTitle = nameLen > 0 && nameOff + nameLen <= r0.length
       ? _decodeText(r0.sublist(nameOff, nameOff + nameLen), encoding).trim()
@@ -254,7 +257,24 @@ MobiBook parseMobi(Uint8List bytes, String name) {
   for (var i = 1; i <= textRecords && i < records.length; i++) {
     merged.add(unpack(_stripTrailing(records[i], extraFlags)));
   }
-  var html = _decodeText(merged.takeBytes(), encoding)
+  var textBytes = merged.takeBytes();
+  if (version >= 8) {
+    // KF8 / AZW3: text = several "flows"; flow 0 is the XHTML (skeletons +
+    // fragments stored in reading order), the rest are CSS/SVG. FDST lists them.
+    final fdstIdx = has(0xC0, 4) ? _u32(r0, 0xC0) : 0;
+    if (fdstIdx > 0 && fdstIdx < records.length) {
+      final f = records[fdstIdx];
+      if (f.length >= 20 && latin1.decode(f.sublist(0, 4)) == 'FDST') {
+        final n = _u32(f, 8);
+        if (n >= 1) {
+          final s = _u32(f, 12).clamp(0, textBytes.length);
+          final e = _u32(f, 16).clamp(s, textBytes.length);
+          if (e > s) textBytes = Uint8List.sublistView(textBytes, s, e);
+        }
+      }
+    }
+  }
+  var html = _decodeText(textBytes, version >= 8 ? 65001 : encoding)
       .replaceAll('\x00', '')
       .replaceAll(RegExp(r'<idx:entry[\s\S]*?</idx:entry>', caseSensitive: false), '')
       .replaceAll(RegExp(r'<guide[\s\S]*?</guide>', caseSensitive: false), '');
@@ -262,10 +282,32 @@ MobiBook parseMobi(Uint8List bytes, String name) {
     RegExp(r'''<img([^>]*?)recindex=["']0*([0-9]+)["']([^>]*)>''', caseSensitive: false),
     (m) => '<img${m[1]}src="mobi-image-${int.parse(m[2]!)}"${m[3]}>',
   );
+  if (version < 8) {
+    // MOBI6 (calibre/kindlegen) writes headings as <font size="6|7|+N"><b>..</b></font>
+    html = html
+        .replaceAll(RegExp(r'</mbp:pagebreak>', caseSensitive: false), '')
+        .replaceAllMapped(
+          RegExp(r'''<p\b[^>]*>\s*<font\s+size=["']?(?:[5-7]|\+[1-4])["']?[^>]*>\s*<b>([\s\S]{1,120}?)</b>\s*</font>\s*</p>''',
+              caseSensitive: false),
+          (m) => '<h2>${m[1]}</h2>',
+        );
+  }
+  if (version >= 8) {
+    html = html
+        .replaceAll(RegExp(r'<\?xml[^>]*\?>'), '')
+        .replaceAll(RegExp(r'<head[\s\S]*?</head>', caseSensitive: false), '')
+        .replaceAll(RegExp(r'<!DOCTYPE[^>]*>|</?html\b[^>]*>|</?body\b[^>]*>', caseSensitive: false), '');
+    html = '<html><body>$html</body></html>';
+    html = html
+        .replaceAllMapped(
+          RegExp(r'kindle:embed:([0-9A-Va-v]{4})(?:\?[^"\x27)\s>]*)?'),
+          (m) => 'mobi-image-${int.parse(m[1]!, radix: 32)}',
+        );
+  }
   final plain = html.replaceAll(RegExp(r'<[^>]+>'), '').trim();
   final flow = RegExp(r'<(?:html|body|head|p|div|h[1-6]|mbp:pagebreak|font|span|img|br|a)\b', caseSensitive: false).hasMatch(html);
-  if (plain.isEmpty || (version >= 8 && !flow)) {
-    throw Exception('无法解析这本 Kindle 书（KF8/AZW3），可先转成 EPUB 再导入');
+  if (plain.isEmpty || !flow) {
+    throw Exception('无法解析这本 Kindle 书，可先转成 EPUB 再导入');
   }
   final images = <String, Uint8List>{};
   String? cover;
