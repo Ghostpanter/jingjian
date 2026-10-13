@@ -186,8 +186,9 @@ class CollabSession extends ChangeNotifier {
     _queue.clear();
     _welcome = Completer<String>();
     _welcome.future.ignore();
+    WebSocketChannel? ch;
     try {
-      final ch = WebSocketChannel.connect(server.wsUri);
+      ch = WebSocketChannel.connect(server.wsUri);
       _ch = ch;
       await ch.ready.timeout(const Duration(seconds: 8));
       _sub = ch.stream.listen(_onData, onDone: _onDone, onError: (_) => _onDone());
@@ -198,6 +199,12 @@ class CollabSession extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       if (_welcome.isCompleted && state == CollabState.live) return;
+      // Drop the half-open attempt so its late onDone can't schedule a 2nd retry.
+      await _sub?.cancel();
+      _sub = null;
+      try {
+        await ch?.sink.close();
+      } catch (_) {}
       _onDone();
     }
   }
