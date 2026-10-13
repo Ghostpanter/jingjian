@@ -304,3 +304,13 @@ String replaceAllMatches(String text, String query, String replacement,
   final rep = regex ? expandReplacement(m, replacement) : replacement;
   return (text: text.replaceRange(m.start, m.end, rep), end: m.start + rep.length);
 }
+
+/// Today's daily note ("今日日记"): the newest non-trashed note whose title is
+/// the date stamp (what the 日记 template writes), or null.
+Note? findDailyNote(List<Note> notes, DateTime day) {
+  final stamp = dateStamp(day);
+  for (final n in notes) {
+    if (!n.isTrashed && n.title == stamp) return n;
+  }
+  return null;
+}

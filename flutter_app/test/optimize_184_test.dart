@@ -74,6 +74,16 @@ void main() {
     expect(highlightSpans('无匹配', ['x'], const Color(0xff00ff00)).children, isNull);
   });
 
+  test('daily note lookup matches the 日记 template title', () {
+    final day = DateTime(2026, 10, 14, 9);
+    final daily = noteTemplates.firstWhere((t) => t.id == 'daily').build(day);
+    final notes = [n('a', '# 别的'), n('b', daily)];
+    expect(findDailyNote(notes, day)?.id, 'b');
+    expect(findDailyNote(notes, DateTime(2026, 10, 15)), isNull);
+    notes[1].trashedAt = 5;
+    expect(findDailyNote(notes, day), isNull);
+  });
+
   test('long notes are chunked at headings; refs, lists and fences stay whole', () {
     final big = List.generate(400, (i) => i % 40 == 0 ? '\n## 第$i节\n' : '段落 $i 的内容，足够长足够长足够长。' * 4).join('\n');
     final blocks = splitPreviewBlocks(big, splitInlineMath: false);

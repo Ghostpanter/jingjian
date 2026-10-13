@@ -122,6 +122,19 @@ class _HomeShellState extends State<HomeShell> {
     _openNote(note.id);
   }
 
+  /// Open today's 日记 note, creating it (in the 日记 folder) if needed.
+  Future<void> _openDaily() async {
+    final now = DateTime.now();
+    var note = findDailyNote(_store.notes, now);
+    note ??= await _store.create(
+      content: noteTemplates.firstWhere((t) => t.id == 'daily').build(now),
+      folder: '日记',
+    );
+    if (!mounted) return;
+    setState(() {});
+    _openNote(note.id);
+  }
+
   Future<void> _pickTemplate() async {
     final t = await showModalBottomSheet<NoteTemplate>(
       context: context,
@@ -755,6 +768,8 @@ class _HomeShellState extends State<HomeShell> {
                 await _themeMenu();
               case 'quick':
                 await _quickOpen();
+              case 'daily':
+                await _openDaily();
               case 'folder':
                 await _addFolder();
               case 'images':
@@ -785,6 +800,7 @@ class _HomeShellState extends State<HomeShell> {
             const PopupMenuItem(value: 'theme', child: Text('主题…')),
             const PopupMenuDivider(),
             const PopupMenuItem(value: 'quick', child: Text('快速打开  Ctrl+P')),
+            const PopupMenuItem(value: 'daily', child: Text('今日日记  Ctrl+Shift+D')),
             const PopupMenuItem(value: 'folder', child: Text('新建文件夹')),
             const PopupMenuItem(value: 'images', child: Text('图片库')),
             const PopupMenuItem(value: 'import', child: Text('导入 Markdown / TXT / ZIP')),
@@ -909,6 +925,7 @@ class _HomeShellState extends State<HomeShell> {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyP, meta: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyO, control: true): _quickOpen,
+        const SingleActivator(LogicalKeyboardKey.keyD, control: true, shift: true): _openDaily,
         const SingleActivator(LogicalKeyboardKey.backslash, control: true): () {
           ThemeController.instance.setCollapsed(sidebar: !ThemeController.instance.sidebarCollapsed);
           setState(() {});
