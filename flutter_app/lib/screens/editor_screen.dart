@@ -55,6 +55,7 @@ class EditorScreen extends StatefulWidget {
 }
 
 const _livePreviewLimit = 20000;
+const _webHeavyChars = 150000;
 
 class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
   final _store = NoteStore.instance;
@@ -75,6 +76,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _formatBar = true;
   bool _imageBusy = false;
   bool _focusMode = false;
+  Widget? _previewWidget;
+  String _previewWidgetKey = '';
   final _listFormatter = ListContinuationFormatter();
   _Pane? _paneBeforeFocus;
   final _bodyKey = GlobalKey(debugLabel: 'editor-body'); // keeps caret when toggling 专注模式
@@ -110,6 +113,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       final narrow = MediaQuery.sizeOf(context).width < 720;
       if (!widget.embedded && narrow) {
         setState(() => _pane = (note?.bookId != null) ? _Pane.preview : _Pane.edit);
+      }
+      // Web lays out the whole TextField text on every keystroke; very large
+      // notes (≈10k+ lines) take ~1s per key there. Open them in preview.
+      if (kIsWeb && (note?.content.length ?? 0) > _webHeavyChars) {
+        setState(() => _pane = _Pane.preview);
+        _snack('笔记很大（${((note!.content.length) / 1024).round()} KB），网页版先以预览打开；编辑会较慢，建议用「在光标处拆分章节」拆小，或用桌面/手机版');
       }
       final n = _store.byId(widget.noteId);
       if (n != null) {
@@ -1174,11 +1183,20 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
             child: editor,
           );
 
-    final preview = MarkdownPreview(
-      content: _previewText,
-      plain: note.format == NoteFormat.txt,
-      onWikiTap: _openWiki,
-    );
+    // Reuse the same preview widget while its inputs are unchanged, so a
+    // keystroke in a big note does not rebuild (and re-split) the preview.
+    final th = ThemeController.instance;
+    final previewKey = '${identityHashCode(_previewText)}|${_previewText.length}|${note.format}|'
+        '${JingjianColors.paper.toARGB32()}|${th.fontSize}|${th.fontFamily}|${th.oledActive}';
+    if (_previewWidget == null || previewKey != _previewWidgetKey) {
+      _previewWidgetKey = previewKey;
+      _previewWidget = MarkdownPreview(
+        content: _previewText,
+        plain: note.format == NoteFormat.txt,
+        onWikiTap: _openWiki,
+      );
+    }
+    final preview = _previewWidget!;
 
     Widget body;
     switch (_pane) {
