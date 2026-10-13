@@ -52,6 +52,11 @@ class NoteStore {
       }
     }
     firstRun = _notes.isEmpty;
+    if (NoteHistory.instance.ready && _notes.isNotEmpty) {
+      try {
+        await NoteHistory.instance.prune({for (final n in _notes) _key(n.id)});
+      } catch (_) {}
+    }
     if (_notes.isEmpty) {
       await create(
         content: '# 欢迎使用静笺\n\n在左侧新建笔记，右侧预览 Markdown。\n\n'
@@ -115,6 +120,7 @@ class NoteStore {
     for (final existing in List<Note>.from(_notes)) {
       if (!keep.contains(existing.id)) {
         await _blobs!.delete(_key(existing.id));
+        await NoteHistory.instance.clear(_key(existing.id));
       }
     }
     final before = {for (final n in _notes) n.id: jsonEncode(n.toJson())};

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'storage/blob_store.dart';
 
 /// One saved version of a note.
@@ -79,6 +81,55 @@ class NoteHistory {
     }
     _lastAuto[noteKey] = t;
     await blobs.write(_key(noteKey), bytes);
+  }
+
+  /// Total budget for all history; web keeps every blob in memory, so smaller.
+  static int get maxTotalBytes => kIsWeb ? 12000000 : 40000000;
+
+  /// Startup cleanup: drop history of notes that no longer exist, then, while
+  /// over [maxTotalBytes], halve the versions of the biggest history file.
+  /// Returns bytes freed.
+  Future<int> prune(Set<String> liveNoteKeys, {int? budget}) async {
+    final blobs = _blobs;
+    if (blobs == null) return 0;
+    var freed = 0;
+    final sizes = <String, int>{};
+    for (final k in blobs.keys.where((k) => k.endsWith('.hist.json'))) {
+      final size = blobs.sizeOf(k) ?? 0;
+      if (!liveNoteKeys.contains(k.replaceAll('.hist.json', '.json'))) {
+        await blobs.delete(k);
+        freed += size;
+      } else {
+        sizes[k] = size;
+      }
+    }
+    final cap = budget ?? maxTotalBytes;
+    var total = sizes.values.fold(0, (a, b) => a + b);
+    while (total > cap && sizes.isNotEmpty) {
+      final k = sizes.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+      final noteKey = k.replaceAll('.hist.json', '.json');
+      final list = versions(noteKey);
+      final before = sizes.remove(k)!;
+      if (list.length <= 1) {
+        await blobs.delete(k);
+        total -= before;
+        freed += before;
+        continue;
+      }
+      final keep = list.sublist(0, list.length ~/ 2);
+      final bytes = utf8.encode(jsonEncode([for (final v in keep) v.toJson()]));
+      await blobs.write(k, bytes);
+      total -= before - bytes.length;
+      freed += before - bytes.length;
+      sizes[k] = bytes.length;
+    }
+    return freed;
+  }
+
+  int get totalBytes {
+    final blobs = _blobs;
+    if (blobs == null) return 0;
+    return blobs.keys.where((k) => k.endsWith('.hist.json')).fold(0, (a, k) => a + (blobs.sizeOf(k) ?? 0));
   }
 
   Future<void> clear(String noteKey) async {
