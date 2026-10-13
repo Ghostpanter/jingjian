@@ -186,4 +186,22 @@ void main() {
     await t.tap(find.byTooltip('展开文件夹栏'));
     await t.pump(const Duration(seconds: 5));
   });
+
+  for (final size in [const Size(360, 740), const Size(1280, 800)]) {
+    testWidgets('large system font (2.0x) does not overflow at ${size.width}', (t) async {
+      t.view.physicalSize = size;
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await ThemeController.instance.init();
+      await t.pumpWidget(MaterialApp(
+        builder: (c, w) => MediaQuery(data: MediaQuery.of(c).copyWith(textScaler: const TextScaler.linear(2.0)), child: w!),
+        home: const HomeShell(),
+      ));
+      await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('专注测试').first);
+      await t.pump(const Duration(milliseconds: 800));
+      expect(t.takeException(), isNull);
+      await t.pump(const Duration(seconds: 5));
+    });
+  }
 }
