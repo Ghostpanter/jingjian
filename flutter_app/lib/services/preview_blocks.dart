@@ -7,12 +7,26 @@ class PreviewBlock {
   final bool displayMath;
 }
 
+final _fenceOpen = RegExp(r'^(\s*)(`{3,}|~{3,})\s*(\w*)\s*$');
+final _refDef = RegExp(r'^\s{0,3}\[[^\]]+\]:', multiLine: true);
+final _headingStart = RegExp(r'^#{1,6}\s');
+final _listOrQuote = RegExp(r'^(\s|[-*+>|]|\d+[.)]|\[)');
+
+/// A blank line followed by a heading always starts a new block; past 20k
+/// chars any plain paragraph does (never inside lists, quotes, tables, refs).
+bool _safeChunkStart(String line, int size) {
+  if (_headingStart.hasMatch(line)) return true;
+  return size > 20000 && line.isNotEmpty && !_listOrQuote.hasMatch(line);
+}
+
 /// Split source into markdown / math / mermaid fence blocks for native render.
 List<PreviewBlock> splitPreviewBlocks(String source, {bool splitInlineMath = true}) {
   final blocks = <PreviewBlock>[];
   final lines = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   final md = StringBuffer();
   var i = 0;
+  // Reference links / footnotes need their definitions in the same block.
+  final allowChunk = source.length > 6000 && !_refDef.hasMatch(source);
 
   void flushMd() {
     final t = md.toString();
@@ -26,7 +40,7 @@ List<PreviewBlock> splitPreviewBlocks(String source, {bool splitInlineMath = tru
 
   while (i < lines.length) {
     final line = lines[i];
-    final fence = RegExp(r'^(\s*)(`{3,}|~{3,})\s*(\w*)\s*$').firstMatch(line);
+    final fence = (line.contains('```') || line.contains('~~~')) ? _fenceOpen.firstMatch(line) : null;
     if (fence != null) {
       final mark = fence.group(2)!;
       final lang = (fence.group(3) ?? '').toLowerCase();
@@ -80,6 +94,11 @@ List<PreviewBlock> splitPreviewBlocks(String source, {bool splitInlineMath = tru
       }
     }
 
+    // Long notes: cut the markdown into chunks at safe boundaries so the
+    // preview list can build lazily (one 50k-line MarkdownBody froze the UI).
+    if (allowChunk && md.length > 6000 && i > 0 && lines[i - 1].trim().isEmpty && _safeChunkStart(line, md.length)) {
+      flushMd();
+    }
     if (md.isNotEmpty) md.writeln();
     md.write(line);
     i += 1;

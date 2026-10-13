@@ -7,40 +7,71 @@ final _fence = RegExp(r'^\s*(```|~~~)');
 /// #标签 / #a/b nested tags outside code, same spirit as old tags.ts.
 final _tagRe = RegExp(r'(^|[^\p{L}\p{N}_/:?&=%.#])#([\p{L}\p{N}_/-]{1,64})', unicode: true);
 
+final _headingLine = RegExp(r'^\s{0,3}#{1,6}\s');
+final _inlineCode = RegExp(r'`[^`]*`');
+final _linkTarget = RegExp(r'\]\([^)]*\)');
+final _trailingSlash = RegExp(r'/+$');
+final _hasLetter = RegExp(r'\p{L}', unicode: true);
+final _frontMatter = RegExp(r'^---\n([\s\S]*?)\n---');
+final _fmTags = RegExp(r'^tags:\s*(.+)$', multiLine: true);
+
 List<String> tagsIn(String content) {
   final out = <String>{};
-  var inFence = false;
-  for (final raw in content.split('\n')) {
-    if (_fence.hasMatch(raw)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    if (RegExp(r'^\s{0,3}#{1,6}\s').hasMatch(raw)) continue; // heading, not tag
-    final line = raw.replaceAll(RegExp(r'`[^`]*`'), ' ').replaceAll(RegExp(r'\]\([^)]*\)'), ']');
-    for (final m in _tagRe.allMatches(line)) {
-      final tag = m[2]!.replaceAll(RegExp(r'/+$'), '');
-      if (tag.isEmpty || !RegExp(r'\p{L}', unicode: true).hasMatch(tag)) continue;
-      out.add(tag);
+  final hasHash = content.contains('#');
+  if (hasHash) {
+    var inFence = false;
+    var start = 0;
+    while (start <= content.length) {
+      var end = content.indexOf('\n', start);
+      if (end < 0) end = content.length;
+      final raw = content.substring(start, end);
+      start = end + 1;
+      if (raw.contains('```') || raw.contains('~~~')) {
+        if (_fence.hasMatch(raw)) {
+          inFence = !inFence;
+          continue;
+        }
+      }
+      if (inFence || !raw.contains('#')) continue;
+      if (_headingLine.hasMatch(raw)) continue; // heading, not tag
+      final line = raw.replaceAll(_inlineCode, ' ').replaceAll(_linkTarget, ']');
+      for (final m in _tagRe.allMatches(line)) {
+        final tag = m[2]!.replaceAll(_trailingSlash, '');
+        if (tag.isEmpty || !_hasLetter.hasMatch(tag)) continue;
+        out.add(tag);
+      }
     }
   }
   // front matter `tags: [a, b]`
-  final fm = RegExp(r'^---\n([\s\S]*?)\n---').firstMatch(content);
-  if (fm != null) {
-    final line = RegExp(r'^tags:\s*(.+)$', multiLine: true).firstMatch(fm[1]!);
-    if (line != null) {
-      for (final t in line[1]!.replaceAll(RegExp(r'[\[\]"]'), '').split(RegExp(r'[,，]'))) {
-        if (t.trim().isNotEmpty) out.add(t.trim());
+  if (content.startsWith('---')) {
+    final fm = _frontMatter.firstMatch(content);
+    if (fm != null) {
+      final line = _fmTags.firstMatch(fm[1]!);
+      if (line != null) {
+        for (final t in line[1]!.replaceAll(RegExp(r'[\[\]"]'), '').split(RegExp(r'[,，]'))) {
+          if (t.trim().isNotEmpty) out.add(t.trim());
+        }
       }
     }
   }
   return out.toList();
 }
 
+/// Tags of a note, cached until its content changes (sidebar rebuilds after
+/// every autosave, so re-parsing all notes there made big libraries stutter).
+final Map<String, (String, List<String>)> _tagCache = {};
+List<String> tagsOf(Note n) {
+  final c = _tagCache[n.id];
+  if (c != null && identical(c.$1, n.content)) return c.$2;
+  final tags = tagsIn(n.content);
+  _tagCache[n.id] = (n.content, tags);
+  return tags;
+}
+
 Map<String, int> tagIndex(List<Note> notes) {
   final counts = <String, int>{};
   for (final n in notes) {
-    for (final t in tagsIn(n.content)) {
+    for (final t in tagsOf(n)) {
       counts[t] = (counts[t] ?? 0) + 1;
     }
   }
@@ -48,7 +79,7 @@ Map<String, int> tagIndex(List<Note> notes) {
 }
 
 bool noteHasTag(Note n, String tag) =>
-    tagsIn(n.content).any((t) => t == tag || t.startsWith('$tag/'));
+    tagsOf(n).any((t) => t == tag || t.startsWith('$tag/'));
 
 class Heading {
   Heading(this.level, this.text, this.offset);
@@ -56,6 +87,8 @@ class Heading {
   final String text;
   final int offset;
 }
+
+final _headingRe = RegExp(r'^(#{1,6})\s+(.+?)\s*#*\s*$');
 
 List<Heading> extractHeadings(String content) {
   final out = <Heading>[];
@@ -65,7 +98,7 @@ List<Heading> extractHeadings(String content) {
     if (_fence.hasMatch(line)) {
       inFence = !inFence;
     } else if (!inFence) {
-      final m = RegExp(r'^(#{1,6})\s+(.+?)\s*#*\s*$').firstMatch(line);
+      final m = line.startsWith('#') ? _headingRe.firstMatch(line) : null;
       if (m != null) out.add(Heading(m[1]!.length, m[2]!, offset));
     }
     offset += line.length + 1;
@@ -75,10 +108,29 @@ List<Heading> extractHeadings(String content) {
 
 /// Characters excluding whitespace (old app's countChars) and CJK-aware words.
 ({int chars, int words, int lines}) countText(String content) {
-  final chars = content.replaceAll(RegExp(r'\s'), '').length;
-  final cjk = RegExp(r'[\u3400-\u9fff\uf900-\ufaff]').allMatches(content).length;
-  final latin = RegExp(r'[A-Za-z0-9]+(?:[\x27-][A-Za-z0-9]+)*').allMatches(content).length;
-  return (chars: chars, words: cjk + latin, lines: content.isEmpty ? 0 : '\n'.allMatches(content).length + 1);
+  // Single pass over code units: this runs while typing, so no regexes.
+  var chars = 0, cjk = 0, latin = 0, lines = content.isEmpty ? 0 : 1;
+  var inWord = false;
+  final n = content.length;
+  for (var i = 0; i < n; i++) {
+    final c = content.codeUnitAt(i);
+    if (c == 10) lines++;
+    final space = c == 32 || (c >= 9 && c <= 13) || c == 0xA0 || c == 0x3000 || (c >= 0x2000 && c <= 0x200A) ||
+        c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0xFEFF || c == 0x1680 || c == 0x85;
+    if (!space) chars++;
+    if ((c >= 0x3400 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff)) cjk++;
+    final alnum = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    if (alnum) {
+      if (!inWord) latin++;
+      inWord = true;
+    } else if ((c == 0x27 || c == 0x2d) && inWord && i + 1 < n) {
+      final d = content.codeUnitAt(i + 1);
+      inWord = (d >= 48 && d <= 57) || (d >= 65 && d <= 90) || (d >= 97 && d <= 122);
+    } else {
+      inWord = false;
+    }
+  }
+  return (chars: chars, words: cjk + latin, lines: lines);
 }
 
 class NoteTemplate {

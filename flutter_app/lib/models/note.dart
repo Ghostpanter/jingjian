@@ -45,27 +45,32 @@ class Note {
     return trashedAt! > restoredAt!;
   }
 
-  String get title {
-    for (final raw in content.split('\n')) {
-      final line = raw.trim();
-      if (line.isEmpty) continue;
-      return line
-          .replaceFirst(RegExp(r'^#{1,6}\s+'), '')
-          .replaceAll(RegExp(r'[*_`~]'), '')
-          .trim();
+  static final _headingPrefix = RegExp(r'^#{1,6}\s+');
+  static final _inlineMarks = RegExp(r'[*_`~]');
+
+  /// First few non-empty trimmed lines, without splitting the whole body
+  /// (title/preview run for every list row; notes can be 50k lines).
+  List<String> _leadLines(int count) {
+    final out = <String>[];
+    var start = 0;
+    final c = content;
+    while (start <= c.length && out.length < count) {
+      var end = c.indexOf('\n', start);
+      if (end < 0) end = c.length;
+      final line = c.substring(start, end).trim();
+      if (line.isNotEmpty) out.add(line);
+      start = end + 1;
     }
-    return '未命名笔记';
+    return out;
   }
 
-  String get preview {
-    final lines = content
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .skip(1)
-        .take(2);
-    return lines.join(' · ');
+  String get title {
+    final lead = _leadLines(1);
+    if (lead.isEmpty) return '未命名笔记';
+    return lead.first.replaceFirst(_headingPrefix, '').replaceAll(_inlineMarks, '').trim();
   }
+
+  String get preview => _leadLines(3).skip(1).join(' · ');
 
   Map<String, dynamic> toJson() => {
         'id': id,

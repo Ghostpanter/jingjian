@@ -49,6 +49,8 @@ class EditorScreen extends StatefulWidget {
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
+const _livePreviewLimit = 20000;
+
 class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
   final _store = NoteStore.instance;
   late final TextEditingController _controller;
@@ -67,6 +69,20 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   int _findIndex = 0;
   bool _formatBar = true;
   bool _imageBusy = false;
+
+  /// Text shown in the preview. Big notes refresh it on the save debounce
+  /// instead of every keystroke, so typing stays smooth in split view.
+  String _previewText = '';
+  String? _countFor;
+  ({int chars, int words, int lines}) _count = (chars: 0, words: 0, lines: 0);
+  ({int chars, int words, int lines}) get _liveCount {
+    final t = _controller.text;
+    if (!identical(t, _countFor)) {
+      _countFor = t;
+      _count = countText(t);
+    }
+    return _count;
+  }
   final _collab = CollabManager.instance;
 
   @override
@@ -74,6 +90,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     super.initState();
     final note = _store.byId(widget.noteId);
     _controller = TextEditingController(text: note?.content ?? '');
+    _previewText = _controller.text;
     _focus = FocusNode();
     _ttsSub = TtsService.instance.onComplete.listen((_) => _onSpeakDone());
     _collab.addListener(_onCollab);
@@ -165,10 +182,13 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   void _onText(String value) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 280), () async {
+      if (mounted) setState(() => _previewText = _controller.text);
       await _save(value);
       if (mounted) setState(() {});
     });
-    setState(() {});
+    setState(() {
+      if (value.length < _livePreviewLimit) _previewText = value;
+    });
   }
 
   void _setValue(TextEditingValue v) {
@@ -265,6 +285,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
     await _store.update(note.copyWith(content: head, updatedAt: now));
     _controller.text = head;
+    _previewText = head;
     final created = await _store.create(content: tail, folder: note.folder);
     await _store.update(created.copyWith(
       bookId: note.bookId,
@@ -290,6 +311,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     await _store.update(note.copyWith(content: merged, updatedAt: DateTime.now().millisecondsSinceEpoch));
     await _store.moveToTrash(next.id);
     _controller.text = merged;
+    _previewText = merged;
     widget.onChanged?.call();
     setState(() {});
     _snack('已合并下一章（原章节移入回收站）');
@@ -999,7 +1021,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
           );
 
     final preview = MarkdownPreview(
-      content: _controller.text,
+      content: _previewText,
       plain: note.format == NoteFormat.txt,
       onWikiTap: _openWiki,
     );
@@ -1029,7 +1051,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         );
     }
 
-    final count = countText(_controller.text);
+    final count = _liveCount;
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

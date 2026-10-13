@@ -12,6 +12,7 @@ import '../services/folder_tree.dart';
 import '../services/import_service.dart';
 import '../services/note_store.dart';
 import '../services/note_text.dart';
+import '../services/search_index.dart';
 import '../services/collab/collab_session.dart';
 import '../services/publish/blog_platforms.dart';
 import '../widgets/collab_dialog.dart';
@@ -90,10 +91,7 @@ class _HomeShellState extends State<HomeShell> {
     if (_folderFilter != null) all = notesInFolder(all, _folderFilter, includeNested: true);
     if (_starredOnly) all = all.where((n) => n.starred).toList();
     if (_tagFilter != null) all = all.where((n) => noteHasTag(n, _tagFilter!)).toList();
-    final q = _query.trim().toLowerCase();
-    if (q.isNotEmpty) {
-      all = all.where((n) => n.title.toLowerCase().contains(q) || n.content.toLowerCase().contains(q)).toList();
-    }
+    if (_query.trim().isNotEmpty) all = SearchIndex.instance.search(all, _query);
     return _sorted(all);
   }
 
@@ -669,13 +667,17 @@ class _HomeShellState extends State<HomeShell> {
                         selected: note.id == _activeId,
                         selectedTileColor: JingjianColors.overlay,
                         leading: note.starred ? Icon(Icons.star, size: 18, color: JingjianColors.accent) : null,
-                        title: Text(note.title,
+                        title: Text.rich(
+                            highlightSpans(note.title, SearchIndex.terms(_query), JingjianColors.accent),
                             maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                          [
+                        subtitle: Text.rich(
+                          highlightSpans([
                             if (note.folder != null && note.folder!.isNotEmpty && _folderFilter == null) note.folder!,
-                            if (note.preview.isNotEmpty) note.preview,
-                          ].join(' · '),
+                            if (_query.trim().isNotEmpty)
+                              SearchIndex.instance.snippet(note, _query)
+                            else if (note.preview.isNotEmpty)
+                              note.preview,
+                          ].where((s) => s.isNotEmpty).join(' · '), SearchIndex.terms(_query), JingjianColors.accent),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: JingjianColors.muted, fontSize: 12),
@@ -950,7 +952,7 @@ class _QuickOpenState extends State<_QuickOpen> {
         starts.add(n);
       } else if (t.contains(s)) {
         contains.add(n);
-      } else if (n.content.toLowerCase().contains(s)) {
+      } else if (SearchIndex.instance.matches(n, [s])) {
         body.add(n);
       }
     }
