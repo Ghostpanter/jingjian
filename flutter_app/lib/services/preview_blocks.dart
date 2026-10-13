@@ -8,7 +8,7 @@ class PreviewBlock {
 }
 
 /// Split source into markdown / math / mermaid fence blocks for native render.
-List<PreviewBlock> splitPreviewBlocks(String source) {
+List<PreviewBlock> splitPreviewBlocks(String source, {bool splitInlineMath = true}) {
   final blocks = <PreviewBlock>[];
   final lines = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   final md = StringBuffer();
@@ -86,6 +86,7 @@ List<PreviewBlock> splitPreviewBlocks(String source) {
   }
   flushMd();
 
+  if (!splitInlineMath) return blocks;
   // Split inline $...$ out of markdown blocks into alternating pieces
   final refined = <PreviewBlock>[];
   final inline = RegExp(r'(^|[^\\\$])\$([^\n\$]+?)\$');

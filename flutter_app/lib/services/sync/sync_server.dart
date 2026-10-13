@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import '../../models/note.dart';
 import '../../models/sync_config.dart';
-import '../note_file.dart';
 import 'sync_adapter.dart';
 import 'sync_http.dart';
+import 'sync_images.dart';
 
 class _ServerAdapter implements SyncAdapter {
   _ServerAdapter(this.config);
@@ -24,7 +24,7 @@ class _ServerAdapter implements SyncAdapter {
       throw Exception('服务器返回 ${response.statusCode}');
     }
     try {
-      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final payload = jsonDecode(decodeUtf8Body(response.bodyBytes)) as Map<String, dynamic>;
       final dir = payload['notesDir'] != null ? '，保存路径 ${payload['notesDir']}' : '';
       return '已连接$dir';
     } catch (_) {
@@ -38,18 +38,20 @@ class _ServerAdapter implements SyncAdapter {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('拉取失败（${response.statusCode}）');
     }
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    final payload = jsonDecode(decodeUtf8Body(response.bodyBytes)) as Map<String, dynamic>;
     final notes = payload['notes'] as List? ?? [];
-    return notes.map((entry) {
+    final out = <Note>[];
+    for (final entry in notes) {
       final map = entry as Map<String, dynamic>;
       final raw = map['raw'] as String?;
       final id = map['id'] as String? ?? DateTime.now().millisecondsSinceEpoch.toString();
-      if (raw != null && raw.startsWith('---')) return parseNoteFile(raw, id);
-      if (map['content'] is String && map['id'] is String) {
-        return Note.fromJson(Map<String, dynamic>.from(map));
+      if (raw != null && raw.isNotEmpty) {
+        out.add(await parseSyncedNote(raw, id));
+      } else if (map['content'] is String && map['id'] is String) {
+        out.add(Note.fromJson(Map<String, dynamic>.from(map)));
       }
-      return parseNoteFile(raw ?? '', id);
-    }).toList();
+    }
+    return out;
   }
 
   @override
@@ -58,7 +60,7 @@ class _ServerAdapter implements SyncAdapter {
       joinUrl([_base, 'api/notes', note.id]),
       method: 'PUT',
       headers: _headers,
-      body: jsonEncode({...note.toJson(), 'raw': serializeNote(note)}),
+      body: jsonEncode({...note.toJson(), 'raw': await serializeNoteWithImages(note)}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('上传失败（${response.statusCode}）');

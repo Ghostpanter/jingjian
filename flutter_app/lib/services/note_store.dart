@@ -90,6 +90,12 @@ class NoteStore {
     return note;
   }
 
+  Future<void> insert(Note note) async {
+    _notes.removeWhere((n) => n.id == note.id);
+    _notes.add(note);
+    await _persist(note);
+  }
+
   Future<void> update(Note note) async {
     final i = _notes.indexWhere((n) => n.id == note.id);
     if (i < 0) return;
@@ -191,5 +197,46 @@ class NoteStore {
     } catch (_) {
       return null;
     }
+  }
+
+  bool _inFolder(String? folder, String path) =>
+      folder != null && (folder == path || folder.startsWith('$path/'));
+
+  /// Rename/move a folder (and its subfolders).
+  Future<int> renameFolder(String from, String to) async {
+    final a = normalizeFolder(from), b = normalizeFolder(to);
+    if (a.isEmpty || b.isEmpty || a == b) return 0;
+    var n = 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final note in List<Note>.from(_notes)) {
+      if (_inFolder(note.folder, a)) {
+        await update(note.copyWith(folder: b + note.folder!.substring(a.length), updatedAt: now));
+        n++;
+      }
+    }
+    final extras = List<String>.from(_extraFolders);
+    for (final e in extras) {
+      if (_inFolder(e, a)) {
+        await removeExtraFolder(e);
+        await addExtraFolder(b + e.substring(a.length));
+      }
+    }
+    return n;
+  }
+
+  /// Move every note of a folder to trash and forget the folder.
+  Future<int> trashFolder(String path) async {
+    final a = normalizeFolder(path);
+    var n = 0;
+    for (final note in List<Note>.from(_notes)) {
+      if (!note.isTrashed && _inFolder(note.folder, a)) {
+        await moveToTrash(note.id);
+        n++;
+      }
+    }
+    for (final e in List<String>.from(_extraFolders)) {
+      if (_inFolder(e, a)) await removeExtraFolder(e);
+    }
+    return n;
   }
 }

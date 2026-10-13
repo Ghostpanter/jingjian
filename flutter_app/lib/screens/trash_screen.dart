@@ -19,14 +19,14 @@ class _TrashScreenState extends State<TrashScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('回收站')),
       body: items.isEmpty
-          ? const Center(child: Text('回收站是空的', style: TextStyle(color: JingjianColors.muted)))
+          ? Center(child: Text('回收站是空的', style: TextStyle(color: JingjianColors.muted)))
           : ListView.builder(
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final note = items[index];
                 return ListTile(
                   title: Text(note.title),
-                  subtitle: const Text('已删除', style: TextStyle(color: JingjianColors.muted)),
+                  subtitle: Text('已删除', style: TextStyle(color: JingjianColors.muted)),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -42,7 +42,7 @@ class _TrashScreenState extends State<TrashScreen> {
                           await _store.purge(note.id);
                           setState(() {});
                         },
-                        child: const Text('彻底删除', style: TextStyle(color: JingjianColors.danger)),
+                        child: Text('彻底删除', style: TextStyle(color: JingjianColors.danger)),
                       ),
                     ],
                   ),

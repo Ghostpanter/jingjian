@@ -6,6 +6,7 @@ import '../note_file.dart';
 import 's3_sign.dart';
 import 'sync_adapter.dart';
 import 'sync_http.dart';
+import 'sync_images.dart';
 
 String endpointForVendor(OssVendor vendor, String region) {
   final r = region.trim();
@@ -109,7 +110,7 @@ class _OssAdapter implements SyncAdapter {
       throw Exception('列出失败（${response.statusCode}）');
     }
     final keys = RegExp(r'<Key>([^<]+)</Key>')
-        .allMatches(response.body)
+        .allMatches(decodeUtf8Body(response.bodyBytes))
         .map((m) => m.group(1)!)
         .where((k) => RegExp(r'\.(md|markdown|txt)$', caseSensitive: false).hasMatch(k))
         .toList();
@@ -121,7 +122,7 @@ class _OssAdapter implements SyncAdapter {
       if (get.statusCode < 200 || get.statusCode >= 300) continue;
       final name = key.split('/').last;
       final idMatch = RegExp(r'\.([a-f0-9]{8})\.(md|txt)$', caseSensitive: false).firstMatch(name);
-      notes.add(parseNoteFile(get.body, idMatch?.group(1) ?? name.hashCode.toRadixString(16)));
+      notes.add(await parseSyncedNote(decodeUtf8Body(get.bodyBytes), idMatch?.group(1) ?? name.hashCode.toRadixString(16)));
     }
     return notes;
   }
@@ -130,7 +131,7 @@ class _OssAdapter implements SyncAdapter {
   Future<void> upsert(Note note) async {
     final key = _objectKey(config, filenameForNote(note));
     final url = _objectUrl(config, key);
-    final body = utf8.encode(serializeNote(note));
+    final body = utf8.encode(await serializeNoteWithImages(note));
     final headers = await _signedHeaders(
       config,
       method: 'PUT',

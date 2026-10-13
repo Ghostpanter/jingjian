@@ -59,7 +59,7 @@ class _ImageLibraryScreenState extends State<ImageLibraryScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty
-              ? const Center(child: Text('暂无图片', style: TextStyle(color: JingjianColors.muted)))
+              ? Center(child: Text('暂无图片', style: TextStyle(color: JingjianColors.muted)))
               : GridView.builder(
                   padding: const EdgeInsets.all(12),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

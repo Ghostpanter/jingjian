@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import '../../models/note.dart';
 import '../../models/sync_config.dart';
 import '../note_file.dart';
 import 'sync_adapter.dart';
 import 'sync_http.dart';
+import 'sync_images.dart';
 
 String _encodePath(String path) =>
     path.split('/').map(Uri.encodeComponent).join('/');
@@ -102,7 +105,7 @@ class _WebdavAdapter implements SyncAdapter {
         (response.statusCode < 200 || response.statusCode >= 300)) {
       throw Exception('列出失败（${response.statusCode}）');
     }
-    final names = _filenamesFromPropfind(response.body, url);
+    final names = _filenamesFromPropfind(decodeUtf8Body(response.bodyBytes), url);
     final notes = <Note>[];
     for (final name in names) {
       final fileUrl = '$url${_encodePath(name)}';
@@ -112,7 +115,7 @@ class _WebdavAdapter implements SyncAdapter {
       final fallback = idMatch != null
           ? idMatch.group(1)!
           : name.hashCode.toRadixString(16);
-      notes.add(parseNoteFile(get.body, fallback));
+      notes.add(await parseSyncedNote(decodeUtf8Body(get.bodyBytes), fallback));
     }
     return notes;
   }
@@ -128,7 +131,7 @@ class _WebdavAdapter implements SyncAdapter {
         ..._auth(config),
         'Content-Type': 'text/markdown; charset=utf-8',
       },
-      body: serializeNote(note),
+      body: utf8.encode(await serializeNoteWithImages(note)),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('上传失败（${response.statusCode}）');
@@ -152,7 +155,7 @@ class _WebdavAdapter implements SyncAdapter {
     if (response.statusCode != 207) return;
     final short = id.replaceAll('-', '');
     final id8 = short.length >= 8 ? short.substring(0, 8) : short;
-    for (final name in _filenamesFromPropfind(response.body, url)) {
+    for (final name in _filenamesFromPropfind(decodeUtf8Body(response.bodyBytes), url)) {
       if (!name.contains(id8)) continue;
       await syncRequest('$url${_encodePath(name)}', method: 'DELETE', headers: _auth(config));
     }

@@ -5,6 +5,7 @@ import '../models/sync_config.dart';
 import '../services/app_prefs.dart';
 import '../services/sync/sync_oss.dart';
 import '../services/sync/sync_service.dart';
+import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -20,9 +21,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _msg = '';
   bool _busy = false;
 
+  final _theme = ThemeController.instance;
+  final _tts = TtsService.instance;
+
   @override
   void initState() {
     super.initState();
+    _tts.loadPrefs().then((_) {
+      if (mounted) setState(() {});
+    });
     _sync = AppPrefs.instance.readSyncConfig().copy();
     _blog = AppPrefs.instance.readBlogConfig().copy();
   }
@@ -63,6 +70,103 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          const Text('外观', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final id in ThemeId.values)
+              ChoiceChip(
+                label: Text(themeLabels[id]!),
+                selected: _theme.themeId == id,
+                onSelected: (_) async {
+                  await _theme.setTheme(id);
+                  setState(() {});
+                },
+              ),
+          ]),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('OLED 纯黑'),
+            subtitle: Text(_theme.isDark
+                ? '深色模式下背景、编辑区、侧栏、对话框使用纯黑 #000000，OLED 屏更省电'
+                : '仅在深色主题（墨夜 / GitHub 深色 / 跟随系统为深色）下生效'),
+            value: _theme.oled,
+            onChanged: (v) async {
+              await _theme.setOled(v);
+              setState(() {});
+            },
+          ),
+          Row(children: [
+            const SizedBox(width: 72, child: Text('字体')),
+            Expanded(
+              child: SegmentedButton<EditorFont>(
+                segments: [
+                  for (final f in EditorFont.values) ButtonSegment(value: f, label: Text(editorFontLabels[f]!)),
+                ],
+                selected: {_theme.font},
+                onSelectionChanged: (s) async {
+                  await _theme.setFont(s.first);
+                  setState(() {});
+                },
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            const SizedBox(width: 72, child: Text('字号')),
+            Expanded(
+              child: SegmentedButton<String>(
+                segments: [
+                  for (final e in editorSizeLabels.entries) ButtonSegment(value: e.key, label: Text(e.value)),
+                ],
+                selected: {_theme.size},
+                onSelectionChanged: (s) async {
+                  await _theme.setSize(s.first);
+                  setState(() {});
+                },
+              ),
+            ),
+          ]),
+          const SizedBox(height: 20),
+          const Text('朗读', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+          Row(children: [
+            const SizedBox(width: 72, child: Text('语速')),
+            Expanded(
+              child: Slider(
+                value: _tts.rate.clamp(0.1, 1.0),
+                min: 0.1,
+                max: 1.0,
+                divisions: 18,
+                label: _tts.rate.toStringAsFixed(2),
+                onChanged: (v) => setState(() => _tts.rate = v),
+                onChangeEnd: (_) => _tts.savePrefs(),
+              ),
+            ),
+          ]),
+          DropdownButtonFormField<String>(
+            value: const ['zh-CN', 'zh-TW', 'zh-HK', 'en-US', 'ja-JP'].contains(_tts.lang) ? _tts.lang : 'zh-CN',
+            decoration: const InputDecoration(labelText: '语种', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'zh-CN', child: Text('普通话（zh-CN）')),
+              DropdownMenuItem(value: 'zh-TW', child: Text('台湾国语（zh-TW）')),
+              DropdownMenuItem(value: 'zh-HK', child: Text('粤语（zh-HK）')),
+              DropdownMenuItem(value: 'en-US', child: Text('English (en-US)')),
+              DropdownMenuItem(value: 'ja-JP', child: Text('日本語 (ja-JP)')),
+            ],
+            onChanged: (v) {
+              setState(() => _tts.lang = v ?? 'zh-CN');
+              _tts.savePrefs();
+            },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('读完本章接着读下一章'),
+            value: _tts.autoNext,
+            onChanged: (v) {
+              setState(() => _tts.autoNext = v);
+              _tts.savePrefs();
+            },
+          ),
+          const SizedBox(height: 20),
           const Text('云同步', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
           const SizedBox(height: 8),
           DropdownButtonFormField<SyncProvider>(
@@ -134,7 +238,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (_msg.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(_msg, style: const TextStyle(color: JingjianColors.muted)),
+              child: Text(_msg, style: TextStyle(color: JingjianColors.muted)),
             ),
           const Divider(height: 32),
           const Text('博客发布', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
@@ -172,9 +276,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _field('额外 Front Matter', _blog.extraFrontMatter, (v) => _blog.extraFrontMatter = v,
               maxLines: 3),
           const SizedBox(height: 24),
-          const Text(
+          Text(
             '桌面 / Web：可用 flutter run -d linux / chrome 或对应平台打包。',
             style: TextStyle(color: JingjianColors.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('关于静笺'),
+            subtitle: const Text('版本 1.8.1 · 本地优先的 Markdown 笔记与阅读器\nhttps://github.com/Ghostpanter/jingjian'),
+            onTap: () => showLicensePage(context: context, applicationName: '静笺', applicationVersion: '1.8.1'),
           ),
         ],
       ),

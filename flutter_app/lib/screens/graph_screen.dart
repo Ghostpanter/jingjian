@@ -102,7 +102,7 @@ class _GraphPainter extends CustomPainter {
       canvas.drawCircle(Offset(p.x, p.y), r, nodePaint);
       textPainter.text = TextSpan(
         text: node.title.length > 10 ? '${node.title.substring(0, 10)}…' : node.title,
-        style: const TextStyle(fontSize: 11, color: JingjianColors.ink),
+        style: TextStyle(fontSize: 11, color: JingjianColors.ink),
       );
       textPainter.layout(maxWidth: 100);
       textPainter.paint(canvas, Offset(p.x - textPainter.width / 2, p.y + r + 2));
