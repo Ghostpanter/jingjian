@@ -80,6 +80,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   Widget? _previewWidget;
   String _previewWidgetKey = '';
   final _listFormatter = ListContinuationFormatter();
+  late final _slashFormatter = SlashTriggerFormatter(() {
+    if (_slashPending) return;
+    _slashPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _slashMenu());
+  });
+  bool _slashPending = false;
   _Pane? _paneBeforeFocus;
   final _bodyKey = GlobalKey(debugLabel: 'editor-body'); // keeps caret when toggling 专注模式
 
@@ -848,6 +854,39 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _snack('已恢复历史版本');
   }
 
+  /// "/" on an empty line: pick a block to insert; the "/" is replaced.
+  /// Esc keeps the "/" as typed.
+  Future<void> _slashMenu() async {
+    try {
+      if (!mounted || _note == null) return;
+      final cmds = <(String, String, VoidCallback)>[
+        for (final it in slashItems) (it.$1, it.$2, () => _applySlash(it.$3)),
+      ];
+      final picked = await showDialog<VoidCallback>(
+        context: context,
+        builder: (ctx) => _CommandPalette(commands: cmds, hint: '插入…（输入筛选，Esc 保留 /）'),
+      );
+      _menuPickedAt = DateTime.now();
+      if (!mounted) return;
+      if (picked != null) picked();
+      _focus.requestFocus();
+    } finally {
+      _slashPending = false;
+    }
+  }
+
+  void _applySlash(String kind) {
+    final v = _controller.value;
+    final at = v.selection.isValid ? v.selection.baseOffset : -1;
+    if (at >= 1 && at <= v.text.length && v.text[at - 1] == '/') {
+      _controller.value = TextEditingValue(
+        text: v.text.replaceRange(at - 1, at, ''),
+        selection: TextSelection.collapsed(offset: at - 1),
+      );
+    }
+    _markup(kind);
+  }
+
   Future<void> _commandPalette() async {
     final note = _note;
     if (note == null) return;
@@ -882,6 +921,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       context: context,
       builder: (ctx) => _CommandPalette(commands: cmds),
     );
+    _menuPickedAt = DateTime.now(); // web: late back event after dialog close
     if (picked != null && mounted) picked();
   }
 
@@ -1163,7 +1203,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
         ),
-        inputFormatters: note.format == NoteFormat.txt ? null : [_listFormatter],
+        inputFormatters: note.format == NoteFormat.txt ? null : [_listFormatter, _slashFormatter],
         onChanged: _onText,
       ),
     );
@@ -1460,8 +1500,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 }
 
 class _CommandPalette extends StatefulWidget {
-  const _CommandPalette({required this.commands});
+  const _CommandPalette({required this.commands, this.hint = '输入命令…'});
   final List<(String, String, VoidCallback)> commands;
+  final String hint;
 
   @override
   State<_CommandPalette> createState() => _CommandPaletteState();
@@ -1496,7 +1537,7 @@ class _CommandPaletteState extends State<_CommandPalette> {
               padding: const EdgeInsets.all(12),
               child: TextField(
                 autofocus: true,
-                decoration: const InputDecoration(hintText: '输入命令…', prefixIcon: Icon(Icons.keyboard_command_key)),
+                decoration: InputDecoration(hintText: widget.hint, prefixIcon: const Icon(Icons.keyboard_command_key)),
                 onChanged: (v) => setState(() {
                   q = v;
                   sel = 0;
@@ -1516,7 +1557,7 @@ class _CommandPaletteState extends State<_CommandPalette> {
                         dense: true,
                         selected: i == sel,
                         title: Text(list[i].$1),
-                        trailing: list[i].$2.isEmpty ? null : Text(list[i].$2, style: const TextStyle(fontSize: 12)),
+                        trailing: list[i].$2.isEmpty ? null : Text(list[i].$2.split(' ').first, style: const TextStyle(fontSize: 12)),
                         onTap: () => Navigator.pop(context, list[i].$3),
                       ),
                     ),

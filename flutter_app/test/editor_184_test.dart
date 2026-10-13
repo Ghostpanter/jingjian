@@ -83,4 +83,35 @@ void main() {
     await t.pump();
     expect(find.text('已保存'), findsOneWidget);
   });
+
+  testWidgets('"/" on an empty line opens the insert menu; pick replaces the slash', (t) async {
+    await open(t);
+    final tf = t.widget<TextField>(editorField);
+    final c = tf.controller!;
+    c.selection = TextSelection.collapsed(offset: c.text.length);
+    await t.enterText(editorField, '${c.text}\n');
+    await t.pump();
+    // Simulate typing "/" through the formatter path.
+    final before = c.text;
+    t.testTextInput.updateEditingValue(TextEditingValue(text: '$before/', selection: TextSelection.collapsed(offset: before.length + 1)));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('二级标题'), findsOneWidget);
+    await t.enterText(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText?.startsWith('插入') == true), 'h2');
+    await t.pump();
+    await t.tap(find.text('二级标题'));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(c.text.contains('/'), isFalse);
+    expect(c.text, contains('## '));
+  });
+
+  testWidgets('"/" inside text does not open the menu', (t) async {
+    await open(t);
+    final c = t.widget<TextField>(editorField).controller!;
+    final before = c.text;
+    t.testTextInput.updateEditingValue(TextEditingValue(text: '$before/', selection: TextSelection.collapsed(offset: before.length + 1)));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('二级标题'), findsNothing);
+    expect(c.text, '$before/');
+  });
 }

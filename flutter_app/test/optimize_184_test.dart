@@ -109,6 +109,9 @@ void main() {
     expect(enter('~~~\n1. 代码'), isNull);
     expect(enter('```\nx\n```\n- 外面')!.text, '```\nx\n```\n- 外面\n- ');
     expect(enter('- a\r'), isNotNull);
+    // Enter at the very start of the document must not throw.
+    expect(continueListOnEnter(v('- a', 0), v('\n- a', 1)), isNull);
+    expect(continueListOnEnter(v('', 0), v('\n', 1)), isNull);
   });
 
   test('daily note lookup matches the 日记 template title', () {
@@ -183,5 +186,21 @@ void main() {
       await st.purge(a.id);
       expect(NoteHistory.instance.versions(NoteStore.keyFor(a.id)), isEmpty);
     });
+  });
+
+  test('slash trigger is narrow', () {
+    TextEditingValue v(String t, {TextRange composing = TextRange.empty}) =>
+        TextEditingValue(text: t, selection: TextSelection.collapsed(offset: t.length), composing: composing);
+    expect(slashTriggered(v('a\n'), v('a\n/')), isTrue);
+    expect(slashTriggered(v(''), v('/')), isTrue);
+    expect(slashTriggered(v('  '), v('  /')), isTrue);
+    expect(slashTriggered(v('usr'), v('usr/')), isFalse);
+    expect(slashTriggered(v('/'), v('//')), isFalse);
+    expect(slashTriggered(v(''), v('、')), isFalse);
+    expect(slashTriggered(v(''), v('/', composing: const TextRange(start: 0, end: 1))), isFalse);
+    expect(slashTriggered(v('```\n'), v('```\n/')), isFalse);
+    // "/" typed before existing text on the same line
+    expect(slashTriggered(const TextEditingValue(text: 'x', selection: TextSelection.collapsed(offset: 0)),
+        const TextEditingValue(text: '/x', selection: TextSelection.collapsed(offset: 1))), isFalse);
   });
 }

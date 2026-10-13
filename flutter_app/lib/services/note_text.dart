@@ -331,7 +331,7 @@ TextEditingValue? continueListOnEnter(TextEditingValue oldValue, TextEditingValu
   final at = sel.baseOffset;
   if (text.length != oldValue.text.length + 1 || at < 1 || at > text.length || text[at - 1] != '\n') return null;
   if (text.substring(0, at - 1) != oldValue.text.substring(0, at - 1)) return null;
-  final lineStart = text.lastIndexOf('\n', at - 2) + 1;
+  final lineStart = (at < 2 ? 0 : text.lastIndexOf('\n', at - 2) + 1);
   var line = text.substring(lineStart, at - 1);
   if (line.endsWith('\r')) line = line.substring(0, line.length - 1); // CRLF notes
   if (line.length > 2000) return null;
@@ -381,4 +381,49 @@ class ListContinuationFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) =>
       continueListOnEnter(oldValue, newValue) ?? newValue;
+}
+
+/// Slash menu trigger: ASCII "/" just typed (not via IME composing) on an
+/// otherwise empty line outside code fences. Deliberately narrow so paths,
+/// URLs and full-width "、" never open the menu.
+bool slashTriggered(TextEditingValue oldValue, TextEditingValue newValue) {
+  final sel = newValue.selection;
+  if (!sel.isValid || !sel.isCollapsed || !newValue.composing.isCollapsed) return false;
+  final text = newValue.text;
+  final at = sel.baseOffset;
+  if (text.length != oldValue.text.length + 1 || at < 1 || at > text.length || text[at - 1] != '/') return false;
+  if (text.substring(0, at - 1) != oldValue.text.substring(0, at - 1)) return false;
+  final lineStart = (at < 2 ? 0 : text.lastIndexOf('\n', at - 2) + 1);
+  final nl = text.indexOf('\n', at);
+  final lineEnd = nl < 0 ? text.length : nl;
+  if (text.substring(lineStart, lineEnd).replaceAll('\r', '').trim() != '/') return false;
+  return RegExp(r'^\s*(```|~~~)', multiLine: true).allMatches(text.substring(0, lineStart)).length.isEven;
+}
+
+/// Items for the "/" menu: (label, keywords, markup kind).
+const slashItems = <(String, String, String)>[
+  ('一级标题', 'h1 heading bt', 'h1'),
+  ('二级标题', 'h2 heading bt', 'h2'),
+  ('三级标题', 'h3 heading bt', 'h3'),
+  ('待办', 'todo task db checkbox', 'task'),
+  ('无序列表', 'ul list bullet lb', 'ul'),
+  ('有序列表', 'ol list number', 'ol'),
+  ('引用', 'quote yy', 'quote'),
+  ('代码', 'code dm', 'code'),
+  ('表格', 'table bg', 'table'),
+  ('Mermaid 图', 'mermaid diagram tu', 'mermaid'),
+  ('数学公式', 'math latex gs', 'math'),
+  ('分隔线', 'hr divider fgx', 'hr'),
+  ('链接', 'link lj', 'link'),
+  ('双链', 'wiki link sl', 'wiki'),
+];
+
+class SlashTriggerFormatter extends TextInputFormatter {
+  SlashTriggerFormatter(this.onTrigger);
+  final void Function() onTrigger;
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (slashTriggered(oldValue, newValue)) onTrigger();
+    return newValue;
+  }
 }
