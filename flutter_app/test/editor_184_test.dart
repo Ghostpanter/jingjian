@@ -143,4 +143,30 @@ void main() {
     expect((caretY - re.size.height / 2).abs(), lessThan(60));
     await t.pump(const Duration(seconds: 5));
   });
+
+  testWidgets('palette: no match + Enter is harmless; Esc closes', (t) async {
+    await open(t);
+    final c = t.widget<TextField>(editorField).controller!;
+    final before = c.text;
+    for (var k = 0; k < 2; k++) {
+      await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await t.sendKeyEvent(LogicalKeyboardKey.keyP);
+      await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await t.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.text('输入命令…'), findsOneWidget); // second shortcut must not stack a 2nd palette
+    final field = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '输入命令…');
+    await t.enterText(field, 'zzzz不存在');
+    await t.pump();
+    expect(find.text('没有匹配的命令'), findsOneWidget);
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    await t.pump(const Duration(milliseconds: 300));
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await t.pump(const Duration(milliseconds: 300));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('输入命令…'), findsNothing);
+    expect(c.text, before);
+  });
 }

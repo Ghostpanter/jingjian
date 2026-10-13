@@ -585,6 +585,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   }
 
   void _insertMarkdownAtCursor(String md) {
+    if (_pane == _Pane.preview) setState(() => _pane = _Pane.edit); // show what was inserted
     final sel = _controller.selection;
     final text = _controller.text;
     final start = sel.isValid ? sel.start : text.length;
@@ -1592,6 +1593,7 @@ class _CommandPaletteState extends State<_CommandPalette> {
                   q = v;
                   sel = 0;
                 }),
+                onEditingComplete: () {}, // keep focus (and Esc) when nothing matched
                 onSubmitted: (_) {
                   if (list.isNotEmpty) Navigator.pop(context, list[sel].$3);
                 },
