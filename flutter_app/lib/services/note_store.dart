@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/note.dart';
 import 'app_prefs.dart';
 import 'folder_tree.dart';
+import 'note_history.dart';
 import 'storage/blob_store.dart';
 
 class NoteStore {
@@ -98,9 +99,13 @@ class NoteStore {
     await _persist(note);
   }
 
-  Future<void> update(Note note) async {
+  Future<void> update(Note note, {String historyReason = 'auto'}) async {
     final i = _notes.indexWhere((n) => n.id == note.id);
     if (i < 0) return;
+    final old = _notes[i].content;
+    if (old != note.content) {
+      await NoteHistory.instance.record(_key(note.id), old, note.content, reason: historyReason);
+    }
     _notes[i] = note;
     await _persist(note);
   }
@@ -113,6 +118,13 @@ class NoteStore {
       }
     }
     final before = {for (final n in _notes) n.id: jsonEncode(n.toJson())};
+    final oldText = {for (final n in _notes) n.id: n.content};
+    for (final n in notes) {
+      final prev = oldText[n.id];
+      if (prev != null && prev != n.content) {
+        await NoteHistory.instance.record(_key(n.id), prev, n.content, reason: 'sync');
+      }
+    }
     _notes
       ..clear()
       ..addAll(notes);
@@ -145,6 +157,7 @@ class NoteStore {
 
   Future<void> purge(String id) async {
     _notes.removeWhere((n) => n.id == id);
+    await NoteHistory.instance.clear(_key(id));
     await _blobs!.delete(_key(id));
     final tombs = AppPrefs.instance.readTombstones();
     tombs[id] = DateTime.now().millisecondsSinceEpoch;

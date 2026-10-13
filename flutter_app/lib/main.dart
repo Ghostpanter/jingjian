@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'screens/home_shell.dart';
 import 'services/app_prefs.dart';
 import 'services/image_store.dart';
+import 'services/note_history.dart';
 import 'services/note_store.dart';
 import 'theme/app_theme.dart';
 
@@ -18,6 +19,7 @@ Future<void> main() async {
   ]);
   await AppPrefs.instance.init();
   await ImageStore.instance.init();
+  await NoteHistory.instance.init();
   await NoteStore.instance.init();
   final migrated = await LegacyMigration.runIfNeeded();
   // New installs start in dark mode with OLED pure black.

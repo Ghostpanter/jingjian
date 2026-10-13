@@ -37,6 +37,7 @@ class _HomeShellState extends State<HomeShell> {
   String? _activeId;
   bool _activeSpeak = false;
   String _query = '';
+  bool _zen = false; // 专注模式: editor only, not persisted
   final _searchCtl = TextEditingController();
   double _sbRaw = 0, _lsRaw = 0;
   bool get _filtered_ => _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
@@ -100,6 +101,7 @@ class _HomeShellState extends State<HomeShell> {
     if (wide) {
       setState(() {
         _activeId = id;
+        _zen = false;
         _activeSpeak = speak;
       });
     } else {
@@ -880,10 +882,10 @@ class _HomeShellState extends State<HomeShell> {
       ]);
     } else {
       body = Row(children: [
-        if (sidebarFits) SizedBox(width: sw, child: _folderPane()),
-        sidebarHandle(),
-        if (showList) SizedBox(width: lw, child: _noteList()),
-        listHandle(),
+        if (sidebarFits && !_zen) SizedBox(width: sw, child: _folderPane()),
+        if (!_zen) sidebarHandle(),
+        if (showList && !_zen) SizedBox(width: lw, child: _noteList()),
+        if (!_zen) listHandle(),
         Expanded(
           child: active == null
               ? Center(child: Text(showList ? '选择或新建一篇笔记' : '列表已收起，点左上角按钮展开', style: TextStyle(color: JingjianColors.muted)))
@@ -894,6 +896,7 @@ class _HomeShellState extends State<HomeShell> {
                   autoSpeak: _activeSpeak,
                   onChanged: () => setState(() {}),
                   onOpenNote: _openNote,
+                  onFocusMode: (on) => setState(() => _zen = on),
                 ),
         ),
       ]);
@@ -924,7 +927,7 @@ class _HomeShellState extends State<HomeShell> {
             _searchCtl.clear();
           });
         },
-        child: Focus(autofocus: true, child: Scaffold(appBar: bar, body: body)),
+        child: Focus(autofocus: true, child: Scaffold(appBar: _zen && wide ? null : bar, body: body)),
       ),
     );
   }

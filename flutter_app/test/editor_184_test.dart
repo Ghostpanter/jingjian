@@ -1,0 +1,86 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:jingjian/screens/home_shell.dart';
+import 'package:jingjian/services/app_prefs.dart';
+import 'package:jingjian/services/image_store.dart';
+import 'package:jingjian/services/note_history.dart';
+import 'package:jingjian/services/note_store.dart';
+import 'package:jingjian/theme/app_theme.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+final editorField = find.byWidgetPredicate((w) => w is TextField && (w.controller?.text.contains('专注测试') ?? false));
+
+void main() {
+  late Directory root;
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppPrefs.instance.init();
+    root = await Directory.systemTemp.createTemp('jje');
+    await ImageStore.instance.init(root: root.path);
+    await NoteHistory.instance.init(root: root.path);
+    await NoteStore.instance.init(root: root.path);
+    for (final n in List.of(NoteStore.instance.allNotes)) {
+      await NoteStore.instance.purge(n.id);
+    }
+    await NoteStore.instance.create(content: '# 专注测试\n\n正文 apple');
+  });
+
+  Future<void> open(WidgetTester t) async {
+    t.view.physicalSize = const Size(1280, 800);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await ThemeController.instance.init();
+    await t.pumpWidget(const MaterialApp(home: HomeShell()));
+    await t.pump(const Duration(milliseconds: 500));
+    await t.tap(find.text('专注测试').first);
+    await t.pump(const Duration(milliseconds: 500));
+    await t.tap(editorField);
+    await t.pump();
+  }
+
+  testWidgets('F11 focus mode hides panes and app bar; Esc restores', (t) async {
+    await open(t);
+    expect(find.byType(AppBar), findsOneWidget);
+    await t.sendKeyEvent(LogicalKeyboardKey.f11);
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.text('全部笔记'), findsNothing);
+    expect(find.byTooltip('退出专注模式（Esc）'), findsOneWidget);
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await t.pump(const Duration(seconds: 5)); // let the snackbar go
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.text('全部笔记'), findsOneWidget);
+  });
+
+  testWidgets('Ctrl+Shift+P opens the command palette and filters', (t) async {
+    await open(t);
+    await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await t.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('输入命令…'), findsOneWidget);
+    await t.enterText(find.widgetWithText(TextField, '输入命令…'), '历史');
+    await t.pump();
+    expect(find.text('历史版本'), findsWidgets);
+    await t.tap(find.text('历史版本').last);
+    await t.pump(const Duration(milliseconds: 500));
+    expect(find.textContaining('还没有历史版本'), findsOneWidget);
+  });
+
+  testWidgets('status bar shows save state', (t) async {
+    await open(t);
+    expect(find.text('已保存'), findsOneWidget);
+    await t.enterText(editorField, '# 专注测试\n\n改了');
+    await t.pump();
+    expect(find.text('编辑中…'), findsOneWidget);
+    await t.pump(const Duration(milliseconds: 400));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await t.pump();
+    expect(find.text('已保存'), findsOneWidget);
+  });
+}
