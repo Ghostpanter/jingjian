@@ -848,7 +848,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         content: SizedBox(
           width: 420,
           child: versions.isEmpty
-              ? const Text('还没有历史版本。编辑超过 10 分钟、同步覆盖或全部替换前，会自动保存旧版本（仅存本机）。')
+              ? Text(_controller.text.length > NoteHistory.maxNoteChars
+                  ? '这篇笔记超过 ${NoteHistory.maxNoteChars ~/ 10000} 万字，为节省空间不保存历史版本。'
+                  : '还没有历史版本。编辑超过 10 分钟、同步覆盖或全部替换前，会自动保存旧版本（仅存本机）。')
               : ListView.builder(
                   shrinkWrap: true,
                   itemCount: versions.length,
