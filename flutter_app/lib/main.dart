@@ -17,10 +17,11 @@ Future<void> main() async {
     DeviceOrientation.landscapeRight,
   ]);
   await AppPrefs.instance.init();
-  await ThemeController.instance.init();
   await ImageStore.instance.init();
   await NoteStore.instance.init();
-  await LegacyMigration.runIfNeeded();
+  final migrated = await LegacyMigration.runIfNeeded();
+  // New installs start in dark mode with OLED pure black.
+  await ThemeController.instance.init(newInstall: NoteStore.instance.firstRun && migrated == 0);
   runApp(const JingjianApp());
 }
 

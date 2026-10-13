@@ -149,6 +149,8 @@ class ThemeController extends ChangeNotifier {
   static const _kSort = 'jingjian.sort.v1';
   static const _kSidebarW = 'jingjian.sidebar.width.v1';
   static const _kListW = 'jingjian.list.width.v1';
+  static const _kSidebarHidden = 'jingjian.sidebar.collapsed.v1';
+  static const _kListHidden = 'jingjian.list.collapsed.v1';
 
   SharedPreferences? _prefs;
   ThemeId themeId = ThemeId.system;
@@ -158,10 +160,16 @@ class ThemeController extends ChangeNotifier {
   NoteSort sort = NoteSort.updated;
   double sidebarWidth = 230;
   double listWidth = 300;
+  bool sidebarCollapsed = false;
+  bool listCollapsed = false;
   Brightness _platform = Brightness.light;
 
-  Future<void> init() async {
+  Future<void> init({bool newInstall = false}) async {
     _prefs = await SharedPreferences.getInstance();
+    // Default for new installs: dark (墨夜) + OLED black. Saved choices always win,
+    // and existing users without a saved theme keep the old defaults.
+    if (newInstall && _prefs!.getString(_kTheme) == null) await _prefs!.setString(_kTheme, ThemeId.ink.name);
+    if (newInstall && _prefs!.getBool(_kOled) == null) await _prefs!.setBool(_kOled, true);
     final t = _prefs!.getString(_kTheme);
     themeId = ThemeId.values.firstWhere((e) => e.name == t, orElse: () => ThemeId.system);
     oled = _prefs!.getBool(_kOled) ?? false;
@@ -173,6 +181,8 @@ class ThemeController extends ChangeNotifier {
     sort = NoteSort.values.firstWhere((e) => e.name == so, orElse: () => NoteSort.updated);
     sidebarWidth = (_prefs!.getDouble(_kSidebarW) ?? 230).clamp(sidebarMin, sidebarMax);
     listWidth = (_prefs!.getDouble(_kListW) ?? 300).clamp(listMin, listMax);
+    sidebarCollapsed = _prefs!.getBool(_kSidebarHidden) ?? false;
+    listCollapsed = _prefs!.getBool(_kListHidden) ?? false;
     _platform = WidgetsBinding.instance.platformDispatcher.platformBrightness;
     _recompute();
   }
@@ -269,6 +279,22 @@ class ThemeController extends ChangeNotifier {
       await _prefs?.setDouble(_kListW, listWidth);
     }
   }
+
+  /// Collapse / expand the folder sidebar or the note list (persisted).
+  Future<void> setCollapsed({bool? sidebar, bool? list}) async {
+    if (sidebar != null) {
+      sidebarCollapsed = sidebar;
+      await _prefs?.setBool(_kSidebarHidden, sidebar);
+    }
+    if (list != null) {
+      listCollapsed = list;
+      await _prefs?.setBool(_kListHidden, list);
+    }
+    notifyListeners();
+  }
+
+  /// Dragging a pane this far below its minimum collapses it.
+  static const collapseSlack = 48.0;
 
   Future<void> setSort(NoteSort s) async {
     sort = s;

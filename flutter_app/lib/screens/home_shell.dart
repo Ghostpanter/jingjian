@@ -37,6 +37,7 @@ class _HomeShellState extends State<HomeShell> {
   bool _activeSpeak = false;
   String _query = '';
   final _searchCtl = TextEditingController();
+  double _sbRaw = 0, _lsRaw = 0;
   bool get _filtered_ => _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
   String? _folderFilter;
   String? _tagFilter;
@@ -511,7 +512,7 @@ class _HomeShellState extends State<HomeShell> {
     final tree = buildFolderTree(_store.notes, extraFolders: _store.extraFolders);
     final tags = tagIndex(_store.notes).entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final starred = _store.notes.where((n) => n.starred).length;
-    return Container(
+    return Material(
       color: JingjianColors.surface,
       child: ListView(
         children: [
@@ -597,7 +598,7 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _noteList() {
     final notes = _filtered;
-    return Container(
+    return Material(
       color: JingjianColors.paper,
       child: Column(
         children: [
@@ -699,9 +700,29 @@ class _HomeShellState extends State<HomeShell> {
     final active = _activeId == null ? null : _store.byId(_activeId!);
     final width = MediaQuery.sizeOf(context).width;
     final wide = width >= 720;
-    final veryWide = width >= 1000;
 
+    final T0 = ThemeController.instance;
     final bar = AppBar(
+      leadingWidth: wide ? 96 : 56,
+      leading: Row(mainAxisSize: MainAxisSize.min, children: [
+        IconButton(
+          tooltip: T0.sidebarCollapsed ? '展开文件夹栏' : '收起文件夹栏',
+          icon: Icon(T0.sidebarCollapsed ? Icons.menu : Icons.menu_open),
+          onPressed: () {
+            T0.setCollapsed(sidebar: !T0.sidebarCollapsed);
+            setState(() {});
+          },
+        ),
+        if (wide)
+          IconButton(
+            tooltip: T0.listCollapsed ? '展开笔记列表' : '收起笔记列表（编辑区全宽）',
+            icon: Icon(T0.listCollapsed ? Icons.view_list_outlined : Icons.fullscreen),
+            onPressed: () {
+              T0.setCollapsed(list: !T0.listCollapsed);
+              setState(() {});
+            },
+          ),
+      ]),
       title: const Text('静笺', style: TextStyle(fontWeight: FontWeight.w600)),
       actions: [
         IconButton(
@@ -783,41 +804,87 @@ class _HomeShellState extends State<HomeShell> {
     );
 
     Widget body;
+    final T = ThemeController.instance;
+    const slack = ThemeController.collapseSlack;
+    // Phone: folders | list (editor opens full screen). Tablet/desktop:
+    // folders | list | editor. Each pane can be dragged narrower until it
+    // collapses; the AppBar buttons expand/collapse it again.
+    final maxSidebar = wide ? ThemeController.sidebarMax : width * 0.45;
+    final showSidebar = !T.sidebarCollapsed;
+    final showList = wide && !T.listCollapsed;
+    var sw = T.sidebarWidth.clamp(ThemeController.sidebarMin, maxSidebar < ThemeController.sidebarMin ? ThemeController.sidebarMin : maxSidebar);
+    var lw = T.listWidth;
+    var sidebarFits = showSidebar;
+    if (wide) {
+      // Keep at least 320px for the editor.
+      final spare = width - 320 - (showSidebar ? sw : 0) - (showList ? lw : 0) - 20;
+      if (spare < 0 && showList) lw = (lw + spare).clamp(ThemeController.listMin, ThemeController.listMax);
+      final spare2 = width - 320 - (showSidebar ? sw : 0) - (showList ? lw : 0) - 20;
+      if (spare2 < 0 && showSidebar) {
+        final s2 = sw + spare2;
+        if (s2 < ThemeController.sidebarMin) {
+          sidebarFits = false; // not enough room right now; not persisted
+        } else {
+          sw = s2;
+        }
+      }
+    }
+
+    Widget sidebarHandle() => _ResizeHandle(
+          onStart: () => _sbRaw = T.sidebarCollapsed ? 0 : sw,
+          onDrag: (dx) {
+            _sbRaw += dx;
+            final collapse = _sbRaw < ThemeController.sidebarMin - slack;
+            setState(() {
+              if (collapse != T.sidebarCollapsed) T.sidebarCollapsed = collapse;
+              if (!collapse) T.sidebarWidth = _sbRaw.clamp(ThemeController.sidebarMin, maxSidebar);
+            });
+          },
+          onEnd: () {
+            T.saveWidths(sidebar: T.sidebarWidth);
+            T.setCollapsed(sidebar: T.sidebarCollapsed);
+          },
+          onReset: () => setState(() {
+            T.saveWidths(sidebar: 230);
+            T.setCollapsed(sidebar: false);
+          }),
+        );
+
+    Widget listHandle() => _ResizeHandle(
+          onStart: () => _lsRaw = T.listCollapsed ? 0 : lw,
+          onDrag: (dx) {
+            _lsRaw += dx;
+            final collapse = _lsRaw < ThemeController.listMin - slack;
+            setState(() {
+              if (collapse != T.listCollapsed) T.listCollapsed = collapse;
+              if (!collapse) T.listWidth = _lsRaw.clamp(ThemeController.listMin, ThemeController.listMax);
+            });
+          },
+          onEnd: () {
+            T.saveWidths(list: T.listWidth);
+            T.setCollapsed(list: T.listCollapsed);
+          },
+          onReset: () => setState(() {
+            T.saveWidths(list: 300);
+            T.setCollapsed(list: false);
+          }),
+        );
+
     if (!wide) {
-      body = Column(children: [
-        SizedBox(height: 180, child: _folderPane()),
-        Divider(height: 1, color: JingjianColors.border),
+      body = Row(children: [
+        if (sidebarFits) SizedBox(width: sw, child: _folderPane()),
+        sidebarHandle(),
         Expanded(child: _noteList()),
       ]);
     } else {
-      // Keep at least 320px for the editor when restoring saved widths.
-      var sw = _theme.sidebarWidth, lw = _theme.listWidth;
-      final spare = width - 320 - (veryWide ? sw : 0) - lw;
-      if (spare < 0) {
-        lw = (lw + spare).clamp(ThemeController.listMin, ThemeController.listMax);
-        final spare2 = width - 320 - (veryWide ? sw : 0) - lw;
-        if (spare2 < 0 && veryWide) sw = (sw + spare2).clamp(ThemeController.sidebarMin, ThemeController.sidebarMax);
-      }
       body = Row(children: [
-        if (veryWide) ...[
-          SizedBox(width: sw, child: _folderPane()),
-          _ResizeHandle(
-            onDrag: (dx) => setState(() => _theme.sidebarWidth =
-                (_theme.sidebarWidth + dx).clamp(ThemeController.sidebarMin, ThemeController.sidebarMax)),
-            onEnd: () => _theme.saveWidths(sidebar: _theme.sidebarWidth),
-            onReset: () => setState(() => _theme.saveWidths(sidebar: 230)),
-          ),
-        ],
-        SizedBox(width: lw, child: _noteList()),
-        _ResizeHandle(
-          onDrag: (dx) => setState(() =>
-              _theme.listWidth = (_theme.listWidth + dx).clamp(ThemeController.listMin, ThemeController.listMax)),
-          onEnd: () => _theme.saveWidths(list: _theme.listWidth),
-          onReset: () => setState(() => _theme.saveWidths(list: 300)),
-        ),
+        if (sidebarFits) SizedBox(width: sw, child: _folderPane()),
+        sidebarHandle(),
+        if (showList) SizedBox(width: lw, child: _noteList()),
+        listHandle(),
         Expanded(
           child: active == null
-              ? Center(child: Text('选择或新建一篇笔记', style: TextStyle(color: JingjianColors.muted)))
+              ? Center(child: Text(showList ? '选择或新建一篇笔记' : '列表已收起，点左上角按钮展开', style: TextStyle(color: JingjianColors.muted)))
               : EditorScreen(
                   key: ValueKey('${active.id}-$_activeSpeak'),
                   noteId: active.id,
@@ -837,6 +904,10 @@ class _HomeShellState extends State<HomeShell> {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyP, meta: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyO, control: true): _quickOpen,
+        const SingleActivator(LogicalKeyboardKey.backslash, control: true): () {
+          ThemeController.instance.setCollapsed(sidebar: !ThemeController.instance.sidebarCollapsed);
+          setState(() {});
+        },
       },
       child: PopScope(
         // Android back: first clear filters / search, then leave the app.
@@ -940,7 +1011,8 @@ class _QuickOpenState extends State<_QuickOpen> {
 
 /// 1px divider with a wider invisible drag area; double-click resets width.
 class _ResizeHandle extends StatefulWidget {
-  const _ResizeHandle({required this.onDrag, required this.onEnd, required this.onReset});
+  const _ResizeHandle({required this.onDrag, required this.onEnd, required this.onReset, this.onStart});
+  final VoidCallback? onStart;
   final void Function(double dx) onDrag;
   final VoidCallback onEnd;
   final VoidCallback onReset;
@@ -961,7 +1033,10 @@ class _ResizeHandleState extends State<_ResizeHandle> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: (_) => setState(() => _drag = true),
+        onHorizontalDragStart: (_) {
+          widget.onStart?.call();
+          setState(() => _drag = true);
+        },
         onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
         onHorizontalDragEnd: (_) {
           setState(() => _drag = false);
@@ -969,10 +1044,10 @@ class _ResizeHandleState extends State<_ResizeHandle> {
         },
         onDoubleTap: widget.onReset,
         child: Tooltip(
-          message: '拖动调整宽度，双击恢复默认',
+          message: '拖动调整宽度，拖到最窄会收起；双击恢复',
           waitDuration: const Duration(seconds: 1),
           child: SizedBox(
-            width: 9,
+            width: 12, // wide enough for a finger on phones
             child: Center(
               child: Container(width: active ? 3 : 1, color: active ? JingjianColors.accent : JingjianColors.border),
             ),
