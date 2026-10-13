@@ -137,6 +137,18 @@ curl -H "Authorization: Bearer 你的token" http://127.0.0.1:8787/health
 
 局域网 HTTP 可用。公网请放在反向代理后面并开 HTTPS。
 
+多人协作（Flutter 1.8.2 起）只通过这个同步服务器进行，WebSocket 地址是 `/api/collab`，用同一个 Token。反向代理需要放行 WebSocket，以 Nginx 为例：
+
+```nginx
+location /api/collab {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 1h;
+}
+```
+
 ### 坚果云 WebDAV
 
 - 地址：`https://dav.jianguoyun.com/dav/`

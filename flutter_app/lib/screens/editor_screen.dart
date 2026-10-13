@@ -1,11 +1,17 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:pasteboard/pasteboard.dart';
 
 import '../models/note.dart';
+import '../services/app_prefs.dart';
 import '../services/backlinks.dart';
-import '../services/blog_service.dart';
+import '../services/collab/collab_session.dart';
+import '../services/image_upload.dart';
+import '../services/publish/blog_platforms.dart';
 import '../services/export_service.dart';
 import '../services/folder_tree.dart';
 import '../services/image_store.dart';
@@ -16,6 +22,8 @@ import '../services/wiki_links.dart';
 import '../theme/app_theme.dart';
 import '../widgets/markdown_preview.dart';
 import 'image_library_screen.dart';
+import '../widgets/collab_dialog.dart';
+import 'blog_platforms_screen.dart';
 
 enum _Pane { edit, split, preview }
 
@@ -58,6 +66,8 @@ class _EditorScreenState extends State<EditorScreen> {
   bool _findRegex = false;
   int _findIndex = 0;
   bool _formatBar = true;
+  bool _imageBusy = false;
+  final _collab = CollabManager.instance;
 
   @override
   void initState() {
@@ -66,6 +76,8 @@ class _EditorScreenState extends State<EditorScreen> {
     _controller = TextEditingController(text: note?.content ?? '');
     _focus = FocusNode();
     _ttsSub = TtsService.instance.onComplete.listen((_) => _onSpeakDone());
+    _collab.addListener(_onCollab);
+    _bindCollab();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final narrow = MediaQuery.sizeOf(context).width < 720;
@@ -80,8 +92,36 @@ class _EditorScreenState extends State<EditorScreen> {
     });
   }
 
+  void _bindCollab() {
+    final s = _collab.session;
+    if (s != null && _collab.noteId == widget.noteId && s.state == CollabState.live) {
+      s.bind(_controller, onRemoteText: (text) {
+        _onText(text);
+      });
+    }
+  }
+
+  void _onCollab() {
+    if (!mounted) return;
+    final s = _collab.session;
+    if (s != null && _collab.noteId == widget.noteId && s.state == CollabState.closed) {
+      final err = s.error;
+      _collab.end();
+      _snack(err ?? '协作已结束');
+    }
+    setState(() {});
+  }
+
+  bool get _inCollab => _collab.session != null && _collab.noteId == widget.noteId;
+
   @override
   void dispose() {
+    _collab.removeListener(_onCollab);
+    if (_inCollab) {
+      _collab.session?.unbind();
+      // Leaving the editor ends the session (host closes the room).
+      _collab.end();
+    }
     _flush();
     _ttsSub?.cancel();
     _controller.dispose();
@@ -346,20 +386,107 @@ class _EditorScreenState extends State<EditorScreen> {
     final note = _note;
     if (note == null) return;
     _flush();
-    try {
-      final path = await BlogService.instance.publish(note);
-      _snack('已发布到 $path');
-    } catch (e) {
-      _snack(e.toString().replaceFirst('Exception: ', ''));
+    final prefs = await readPlatformPrefs();
+    final gitOk = AppPrefs.instance.readBlogConfig().isConfigured;
+    final enabled = [
+      for (final id in PlatformId.values)
+        if (prefs.enabled(id, gitOk) && (id == PlatformId.git ? gitOk : prefs.sites[id]!.ready)) id,
+    ];
+    if (!mounted) return;
+    if (enabled.isEmpty) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('还没有可用的博客平台'),
+          content: const Text('先在 设置 → 博客平台 里填写并启用一个平台。'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去设置')),
+          ],
+        ),
+      );
+      if (go == true && mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlogPlatformsScreen()));
+      }
+      return;
     }
+    final chosen = <PlatformId>{
+      ...(prefs.defaultsSet ? prefs.defaults.where(enabled.contains) : enabled.take(1)),
+    };
+    final ids = await showDialog<List<PlatformId>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => AlertDialog(
+          title: Text('发布「${note.title}」'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final id in enabled)
+              CheckboxListTile(
+                dense: true,
+                value: chosen.contains(id),
+                title: Text(platformLabel(id)),
+                subtitle: Text(id == PlatformId.git ? AppPrefs.instance.readBlogConfig().repo : prefs.sites[id]!.site.isNotEmpty ? prefs.sites[id]!.site : prefs.sites[id]!.repo),
+                onChanged: (v) => set(() => v == true ? chosen.add(id) : chosen.remove(id)),
+              ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            FilledButton(
+              onPressed: chosen.isEmpty ? null : () => Navigator.pop(ctx, enabled.where(chosen.contains).toList()),
+              child: const Text('发布'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ids == null || ids.isEmpty) return;
+    prefs
+      ..defaultsSet = true
+      ..defaults = ids;
+    await writePlatformPrefs(prefs);
+    _snack('发布中…');
+    final current = _store.byId(widget.noteId) ?? note;
+    final r = await BlogPlatformService.instance.publish(current, ids, prefs);
+    if (!mounted) return;
+    final lines = [
+      for (final o in r.ok) '✓ ${o.label}${o.updated ? '（已更新）' : ''}：${o.detail}',
+      for (final f in r.failed) '✗ ${f.$1}：${f.$2}',
+    ];
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(r.failed.isEmpty ? '发布完成' : '部分失败'),
+        content: SelectableText(lines.join('\n')),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('好'))],
+      ),
+    );
   }
 
-  Future<void> _insertImage() async {
-    final image = await Navigator.of(context).push<StoredImage>(
-      MaterialPageRoute(builder: (_) => const ImageLibraryScreen(insertMode: true)),
-    );
-    if (image == null) return;
-    final md = ImageStore.instance.markdownInsert(image);
+  Future<void> _collabMenu() async {
+    final note = _note;
+    if (note == null) return;
+    _flush();
+    if (_inCollab) {
+      final leave = await showCollabInfo(context, _collab.session!);
+      if (leave == true) {
+        _collab.session?.unbind();
+        await _collab.end();
+        _snack('已退出协作');
+      }
+      return;
+    }
+    if (_collab.session != null) {
+      _snack('另一篇笔记正在协作中，请先结束');
+      return;
+    }
+    final s = await showHostDialog(context, text: _controller.text, title: note.title);
+    if (s == null || !mounted) return;
+    _collab.attach(s, widget.noteId);
+    _bindCollab();
+    setState(() {});
+    await showCollabInfo(context, s);
+  }
+
+  void _insertMarkdownAtCursor(String md) {
     final sel = _controller.selection;
     final text = _controller.text;
     final start = sel.isValid ? sel.start : text.length;
@@ -368,6 +495,83 @@ class _EditorScreenState extends State<EditorScreen> {
       text: text.replaceRange(start, end, md),
       selection: TextSelection.collapsed(offset: start + md.length),
     ));
+  }
+
+  /// Save locally or upload to 图床 per settings, then insert markdown.
+  Future<void> _placeImage(Uint8List bytes, String name, {StoredImage? existing}) async {
+    if (_imageBusy) return;
+    setState(() => _imageBusy = true);
+    try {
+      final cfg = await readImageConfig();
+      if (cfg.uploads && cfg.applyToLocal) _snack('正在上传到${imageUploaderLabels[cfg.uploader]}…');
+      final r = await resolveInsertedImage(bytes, name, config: cfg, existing: existing);
+      final alt = name.replaceFirst(RegExp(r'\.[^.]+$'), '');
+      _insertMarkdownAtCursor('![${alt.isEmpty ? 'image' : alt}](${r.src})');
+      if (r.uploaded) _snack('已上传并插入');
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      // Upload failed → keep the image locally so nothing is lost.
+      if (existing == null) {
+        final stored = await ImageStore.instance.saveBytes(bytes, name);
+        _insertMarkdownAtCursor(ImageStore.instance.markdownInsert(stored));
+        _snack('上传失败（$msg），已保存在本机');
+      } else {
+        _insertMarkdownAtCursor(ImageStore.instance.markdownInsert(existing));
+        _snack('上传失败（$msg），已插入本机图片');
+      }
+    } finally {
+      if (mounted) setState(() => _imageBusy = false);
+    }
+  }
+
+  Future<void> _insertImage() async {
+    final image = await Navigator.of(context).push<StoredImage>(
+      MaterialPageRoute(builder: (_) => const ImageLibraryScreen(insertMode: true)),
+    );
+    if (image == null) return;
+    final cfg = await readImageConfig();
+    if (!(cfg.uploads && cfg.applyToLocal)) {
+      _insertMarkdownAtCursor('![${image.id}](${formatImageSrc(image.path, cfg)})');
+      return;
+    }
+    final file = ImageStore.instance.fileForIdSync(image.id);
+    if (file == null) {
+      _insertMarkdownAtCursor(ImageStore.instance.markdownInsert(image));
+      return;
+    }
+    await _placeImage(await file.readAsBytes(), file.uri.pathSegments.last, existing: image);
+  }
+
+  static final _imageUrl = RegExp(r'^https?://\S+\.(png|jpe?g|gif|webp|bmp)(\?\S*)?$', caseSensitive: false);
+
+  /// Paste: clipboard image → insert image; image URL → download if enabled;
+  /// otherwise normal text paste. Returns true if handled as image.
+  Future<bool> _pasteImage({bool fallbackText = false}) async {
+    Uint8List? img;
+    try {
+      img = await Pasteboard.image;
+    } catch (_) {}
+    if (img != null && img.isNotEmpty) {
+      await _placeImage(img, 'paste-${DateTime.now().millisecondsSinceEpoch}.${sniffImageMime(img) == 'image/jpeg' ? 'jpg' : 'png'}');
+      return true;
+    }
+    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    final cfg = await readImageConfig();
+    if (_imageUrl.hasMatch(text.trim()) && cfg.applyToRemote && cfg.insertAction != ImageInsertAction.none) {
+      try {
+        final res = await http.get(Uri.parse(text.trim())).timeout(const Duration(seconds: 20));
+        if (res.statusCode == 200 && (res.headers['content-type'] ?? '').startsWith('image/')) {
+          await _placeImage(res.bodyBytes, Uri.parse(text.trim()).pathSegments.lastOrNull ?? 'image.jpg');
+          return true;
+        }
+      } catch (_) {}
+    }
+    if (fallbackText && text.isNotEmpty) {
+      _insertMarkdownAtCursor(text);
+    } else if (!fallbackText) {
+      _snack('剪贴板里没有图片');
+    }
+    return false;
   }
 
   Future<void> _moveFolder() async {
@@ -696,7 +900,15 @@ class _EditorScreenState extends State<EditorScreen> {
             tooltip: '插入图片',
             visualDensity: VisualDensity.compact,
             onPressed: _insertImage,
-            icon: const Icon(Icons.image_outlined, size: 20),
+            icon: _imageBusy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.image_outlined, size: 20),
+          ),
+          IconButton(
+            tooltip: '粘贴图片',
+            visualDensity: VisualDensity.compact,
+            onPressed: _imageBusy ? null : () => _pasteImage(),
+            icon: const Icon(Icons.content_paste_go, size: 20),
           ),
           b('table', '表格', const Icon(Icons.table_chart_outlined, size: 20)),
           b('math', '公式', t('∑')),
@@ -733,6 +945,16 @@ class _EditorScreenState extends State<EditorScreen> {
           fontFamily: theme.fontFamily,
         ),
         cursorColor: JingjianColors.accent,
+        contentInsertionConfiguration: ContentInsertionConfiguration(
+          allowedMimeTypes: const ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+          onContentInserted: (c) {
+            final data = c.data;
+            if (data != null && data.isNotEmpty) {
+              final ext = c.mimeType.split('/').last.replaceAll('jpeg', 'jpg');
+              _placeImage(data, 'paste-${DateTime.now().millisecondsSinceEpoch}.$ext');
+            }
+          },
+        ),
         decoration: const InputDecoration(
           filled: false,
           contentPadding: EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -744,6 +966,22 @@ class _EditorScreenState extends State<EditorScreen> {
       ),
     );
 
+    final isDesktop = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    final editorWithPaste = !isDesktop
+        ? editor
+        : Actions(
+            actions: {
+              PasteTextIntent: CallbackAction<PasteTextIntent>(onInvoke: (_) {
+                _pasteImage(fallbackText: true);
+                return null;
+              }),
+            },
+            child: editor,
+          );
+
     final preview = MarkdownPreview(
       content: _controller.text,
       plain: note.format == NoteFormat.txt,
@@ -753,7 +991,7 @@ class _EditorScreenState extends State<EditorScreen> {
     Widget body;
     switch (_pane) {
       case _Pane.edit:
-        body = editor;
+        body = editorWithPaste;
       case _Pane.preview:
         body = preview;
       case _Pane.split:
@@ -761,13 +999,13 @@ class _EditorScreenState extends State<EditorScreen> {
           builder: (context, constraints) {
             if (constraints.maxWidth < 640) {
               return Column(children: [
-                Expanded(child: editor),
+                Expanded(child: editorWithPaste),
                 Divider(height: 1, color: JingjianColors.border),
                 Expanded(child: preview),
               ]);
             }
             return Row(children: [
-              Expanded(child: editor),
+              Expanded(child: editorWithPaste),
               VerticalDivider(width: 1, color: JingjianColors.border),
               Expanded(child: preview),
             ]);
@@ -802,6 +1040,16 @@ class _EditorScreenState extends State<EditorScreen> {
                     ),
                   ),
                 ),
+                if (_inCollab)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: ActionChip(
+                      visualDensity: VisualDensity.compact,
+                      avatar: Icon(Icons.groups_2_outlined, size: 16, color: JingjianColors.accent),
+                      label: Text('协作 ${_collab.session!.peers.length}'),
+                      onPressed: _collabMenu,
+                    ),
+                  ),
                 IconButton(
                   tooltip: '朗读',
                   onPressed: _toggleTts,
@@ -840,6 +1088,10 @@ class _EditorScreenState extends State<EditorScreen> {
                         await _print();
                       case 'publish':
                         await _publish();
+                      case 'collab':
+                        await _collabMenu();
+                      case 'pasteImage':
+                        await _pasteImage();
                       case 'folder':
                         await _moveFolder();
                       case 'plain':
@@ -870,7 +1122,10 @@ class _EditorScreenState extends State<EditorScreen> {
                     const PopupMenuDivider(),
                     const PopupMenuItem(value: 'export', child: Text('导出…')),
                     const PopupMenuItem(value: 'print', child: Text('打印 / 存为 PDF')),
-                    const PopupMenuItem(value: 'publish', child: Text('发布到博客')),
+                    const PopupMenuItem(value: 'publish', child: Text('发布到博客…')),
+                    if (_inCollab || collabAvailable())
+                      PopupMenuItem(value: 'collab', child: Text(_inCollab ? '协作中…' : '多人协作…')),
+                    const PopupMenuItem(value: 'pasteImage', child: Text('粘贴图片')),
                     const PopupMenuItem(value: 'folder', child: Text('移动到文件夹')),
                     PopupMenuItem(value: 'star', child: Text(note.starred ? '取消星标' : '加星标')),
                     const PopupMenuItem(value: 'split', child: Text('在光标处拆分章节')),
