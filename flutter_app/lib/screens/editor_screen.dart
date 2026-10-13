@@ -76,6 +76,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _formatBar = true;
   bool _imageBusy = false;
   bool _focusMode = false;
+  DateTime? _menuPickedAt;
   Widget? _previewWidget;
   String _previewWidgetKey = '';
   final _listFormatter = ListContinuationFormatter();
@@ -1282,6 +1283,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 ),
                 PopupMenuButton<String>(
                   onSelected: (v) async {
+                    _menuPickedAt = DateTime.now();
                     switch (v) {
                       case 'outline':
                         await _outline();
@@ -1438,6 +1440,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     final guarded = PopScope(
       canPop: !_findOpen && !_focusMode,
       onPopInvokedWithResult: (didPop, _) {
+        // Web: closing the popup menu can deliver a late back event that would
+        // immediately undo what the menu item just opened (专注模式/查找替换).
+        final sinceMenu = DateTime.now().difference(_menuPickedAt ?? DateTime(2000));
+        if (!didPop && sinceMenu < const Duration(milliseconds: 800)) return;
         if (didPop) {
           _flush();
         } else if (_findOpen) {
