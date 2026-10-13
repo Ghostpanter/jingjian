@@ -1,3 +1,4 @@
+import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -49,13 +50,21 @@ class _HomeShellState extends State<HomeShell> {
   String _syncMsg = '';
   bool _syncing = false;
 
+  Timer? _warmTimer;
+
+  @override
+  void dispose() {
+    _warmTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
     final list = _sorted(_store.notes);
     if (list.isNotEmpty) _activeId = list.first.id;
     _maybeAutoSync();
-    Future<void>.delayed(const Duration(seconds: 4), () {
+    _warmTimer = Timer(const Duration(seconds: 4), () {
       if (mounted) warmLinkCache(_store.notes);
     });
   }
