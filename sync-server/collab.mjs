@@ -1,10 +1,11 @@
 // 静笺多人协作：同步服务端内置的 WebSocket 房间 + OT 排序（与 flutter_app/lib/services/collab/ot.dart 一致）。
 // 无第三方依赖；客户端通过 ws(s)://<服务器>/api/collab?token=<JINGJIAN_TOKEN> 连接。
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 
 export const COLLAB_PROTOCOL = 2;
 const MAX_FRAME = 4 * 1024 * 1024;
 const MAX_DOC = 4 * 1024 * 1024;
+const OWNER_GRACE_MS = Number(process.env.JINGJIAN_COLLAB_GRACE_MS || 30000);
 
 // ---------- OT ----------
 const ins = (pos, text) => [0, pos, text];
@@ -242,6 +243,7 @@ function welcome(room, peer) {
     text: room.doc.text,
     title: room.title,
     owner: room.owner === peer,
+    ...(room.owner === peer ? { ownerKey: room.ownerKey } : {}),
   });
 }
 
@@ -273,16 +275,32 @@ export function handleCollabUpgrade(req, socket, { authorized, maxRooms = 200 })
     if (!room) return;
     peer.room = null;
     room.peers.delete(peer.id);
+    if (room.owner === peer && !peer.ended) {
+      // 发起人掉线：保留房间一会儿，等他重连。
+      room.owner = null;
+      broadcast(room, { t: "peers", peers: roster(room) });
+      room.grace = setTimeout(() => closeRoom(room), OWNER_GRACE_MS);
+      room.grace.unref?.();
+      return;
+    }
     if (room.owner === peer) {
-      // 发起人离开：房间关闭。
+      closeRoom(room);
+    } else {
+      broadcast(room, { t: "peers", peers: roster(room) });
+    }
+  };
+  const closeRoom = (room) => {
+    clearTimeout(room.grace);
+    if (rooms.get(room.code) !== room) return;
+    {
+      // 发起人结束：房间关闭。
       for (const p of room.peers.values()) {
         p.ws.send({ t: "error", msg: "发起人已结束协作" });
         p.room = null;
         p.ws.close(4000, "room closed");
       }
+      room.peers.clear();
       rooms.delete(room.code);
-    } else {
-      broadcast(room, { t: "peers", peers: roster(room) });
     }
   };
   const hello = setTimeout(() => {
@@ -315,6 +333,8 @@ export function handleCollabUpgrade(req, socket, { authorized, maxRooms = 200 })
             doc: new OtServerDoc(text),
             peers: new Map(),
             owner: peer,
+            ownerKey: randomBytes(16).toString("hex"),
+            grace: null,
           };
           rooms.set(room.code, room);
           peer.name = cleanName(m.name);
@@ -332,6 +352,12 @@ export function handleCollabUpgrade(req, socket, { authorized, maxRooms = 200 })
           peer.name = cleanName(m.name);
           peer.room = room;
           room.peers.set(peer.id, peer);
+          if (typeof m.ownerKey === "string" && m.ownerKey === room.ownerKey) {
+            // 发起人重连成功（旧连接可能还没被发现断开）
+            room.owner = peer;
+            clearTimeout(room.grace);
+            room.grace = null;
+          }
           clearTimeout(hello);
           welcome(room, peer);
           broadcast(room, { t: "peers", peers: roster(room) });
@@ -340,6 +366,14 @@ export function handleCollabUpgrade(req, socket, { authorized, maxRooms = 200 })
       }
       const room = peer.room;
       if (m.t === "hello") return welcome(room, peer); // 客户端请求重同步
+      if (m.t === "end") {
+        // 发起人主动结束协作：立即关房间。
+        if (room.owner === peer) {
+          peer.ended = true;
+          return closeRoom(room);
+        }
+        return;
+      }
       if (m.t === "op") {
         const ops = validOps(m.ops);
         let applied;

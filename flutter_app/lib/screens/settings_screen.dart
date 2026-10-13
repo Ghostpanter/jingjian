@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/sync_config.dart';
@@ -31,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() {});
     });
     _sync = AppPrefs.instance.readSyncConfig().copy();
+    if (kIsWeb && _sync.provider == SyncProvider.folder) _sync.provider = SyncProvider.off;
   }
 
   Future<void> _save() async {
@@ -174,7 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               DropdownMenuItem(value: SyncProvider.off, child: Text('仅本机')),
               DropdownMenuItem(value: SyncProvider.server, child: Text('自建 sync-server')),
               DropdownMenuItem(value: SyncProvider.webdav, child: Text('WebDAV')),
-              DropdownMenuItem(value: SyncProvider.folder, child: Text('本地文件夹')),
+              if (!kIsWeb) const DropdownMenuItem(value: SyncProvider.folder, child: Text('本地文件夹')),
               DropdownMenuItem(value: SyncProvider.oss, child: Text('对象存储 OSS/S3')),
             ],
             onChanged: (v) => setState(() => _sync.provider = v ?? SyncProvider.off),
@@ -266,8 +268,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('关于静笺'),
-            subtitle: const Text('版本 1.8.2 · 本地优先的 Markdown 笔记与阅读器\nhttps://github.com/Ghostpanter/jingjian'),
-            onTap: () => showLicensePage(context: context, applicationName: '静笺', applicationVersion: '1.8.2'),
+            subtitle: const Text('版本 1.8.3 · 本地优先的 Markdown 笔记与阅读器\nhttps://github.com/Ghostpanter/jingjian'),
+            onTap: () => showLicensePage(context: context, applicationName: '静笺', applicationVersion: '1.8.3'),
           ),
         ],
       ),

@@ -183,12 +183,8 @@ TextEditingValue applyMarkup(TextEditingValue v, String kind) {
 /// Find all matches (case-insensitive optional, regex optional).
 List<TextRange> findAll(String text, String query, {bool caseSensitive = false, bool regex = false}) {
   if (query.isEmpty) return [];
-  RegExp re;
-  try {
-    re = RegExp(regex ? query : RegExp.escape(query), caseSensitive: caseSensitive, multiLine: true);
-  } catch (_) {
-    return [];
-  }
+  final re = findPattern(query, caseSensitive: caseSensitive, regex: regex);
+  if (re == null) return [];
   return re
       .allMatches(text)
       .where((m) => m.end > m.start)
@@ -197,15 +193,62 @@ List<TextRange> findAll(String text, String query, {bool caseSensitive = false, 
       .toList();
 }
 
+RegExp? findPattern(String query, {bool caseSensitive = false, bool regex = false}) {
+  if (query.isEmpty) return null;
+  try {
+    return RegExp(regex ? query : RegExp.escape(query), caseSensitive: caseSensitive, multiLine: true, unicode: regex);
+  } catch (_) {
+    try {
+      return RegExp(regex ? query : RegExp.escape(query), caseSensitive: caseSensitive, multiLine: true);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Expand `$1`..`$99`, `$&`/`$0` (whole match) and `$$` (literal $), JS-style.
+String expandReplacement(Match m, String replacement) {
+  return replacement.replaceAllMapped(RegExp(r'\$(\$|&|\d{1,2})'), (g) {
+    final t = g[1]!;
+    if (t == r'$') return r'$';
+    if (t == '&') return m.group(0) ?? '';
+    var n = int.parse(t);
+    if (n > m.groupCount && t.length == 2) {
+      // "$12" with only one group means group 1 followed by "2".
+      n = int.parse(t[0]);
+      if (n <= m.groupCount) return '${m.group(n) ?? ''}${t[1]}';
+      return g[0]!;
+    }
+    if (n > m.groupCount) return g[0]!;
+    return m.group(n) ?? '';
+  });
+}
+
+/// Number of places [replaceAllMatches] would change (empty matches count).
+int countMatches(String text, String query, {bool caseSensitive = false, bool regex = false}) {
+  final re = findPattern(query, caseSensitive: caseSensitive, regex: regex);
+  return re == null ? 0 : re.allMatches(text).length;
+}
+
 String replaceAllMatches(String text, String query, String replacement,
     {bool caseSensitive = false, bool regex = false}) {
-  if (query.isEmpty) return text;
-  try {
-    final re = RegExp(regex ? query : RegExp.escape(query), caseSensitive: caseSensitive, multiLine: true);
-    return regex
-        ? text.replaceAllMapped(re, (m) => replacement.replaceAllMapped(RegExp(r'\$(\d)'), (g) => m.group(int.parse(g[1]!)) ?? ''))
-        : text.replaceAll(re, replacement);
-  } catch (_) {
-    return text;
+  final re = findPattern(query, caseSensitive: caseSensitive, regex: regex);
+  if (re == null) return text;
+  return regex ? text.replaceAllMapped(re, (m) => expandReplacement(m, replacement)) : text.replaceAll(re, replacement);
+}
+
+/// Replace exactly the match that starts at [start] (keeps regex context such
+/// as ^, lookbehind). Returns null if nothing matches there.
+({String text, int end})? replaceMatchAt(String text, int start, String query, String replacement,
+    {bool caseSensitive = false, bool regex = false}) {
+  final re = findPattern(query, caseSensitive: caseSensitive, regex: regex);
+  if (re == null) return null;
+  Match? m;
+  for (final x in re.allMatches(text, start)) {
+    if (x.start == start) m = x;
+    break;
   }
+  if (m == null) return null;
+  final rep = regex ? expandReplacement(m, replacement) : replacement;
+  return (text: text.replaceRange(m.start, m.end, rep), end: m.start + rep.length);
 }

@@ -49,7 +49,7 @@ class EditorScreen extends StatefulWidget {
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
-class _EditorScreenState extends State<EditorScreen> {
+class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
   final _store = NoteStore.instance;
   late final TextEditingController _controller;
   late final FocusNode _focus;
@@ -78,6 +78,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _ttsSub = TtsService.instance.onComplete.listen((_) => _onSpeakDone());
     _collab.addListener(_onCollab);
     _bindCollab();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final narrow = MediaQuery.sizeOf(context).width < 720;
@@ -109,13 +110,25 @@ class _EditorScreenState extends State<EditorScreen> {
       _collab.end();
       _snack(err ?? '协作已结束');
     }
+    final notice = s?.notice;
+    if (notice != null && _collab.noteId == widget.noteId) {
+      s!.notice = null;
+      _snack(notice);
+    }
     setState(() {});
   }
 
   bool get _inCollab => _collab.session != null && _collab.noteId == widget.noteId;
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Save pending keystrokes before Android may kill a backgrounded app.
+    if (state != AppLifecycleState.resumed) _flush();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _collab.removeListener(_onCollab);
     if (_inCollab) {
       _collab.session?.unbind();
@@ -534,12 +547,12 @@ class _EditorScreenState extends State<EditorScreen> {
       _insertMarkdownAtCursor('![${image.id}](${formatImageSrc(image.path, cfg)})');
       return;
     }
-    final file = ImageStore.instance.fileForIdSync(image.id);
-    if (file == null) {
+    final img = ImageStore.instance.imageSync(image.id);
+    if (img == null) {
       _insertMarkdownAtCursor(ImageStore.instance.markdownInsert(image));
       return;
     }
-    await _placeImage(await file.readAsBytes(), file.uri.pathSegments.last, existing: image);
+    await _placeImage(img.bytes, img.name, existing: image);
   }
 
   static final _imageUrl = RegExp(r'^https?://\S+\.(png|jpe?g|gif|webp|bmp)(\?\S*)?$', caseSensitive: false);
@@ -779,21 +792,24 @@ class _EditorScreenState extends State<EditorScreen> {
       _findStep(1);
       return;
     }
-    final piece = hit.textInside(_controller.text);
-    final rep = _findRegex
-        ? replaceAllMatches(piece, _findCtl.text, _replaceCtl.text, caseSensitive: _findCase, regex: true)
-        : _replaceCtl.text;
-    final text = _controller.text.replaceRange(hit.start, hit.end, rep);
-    _setValue(TextEditingValue(text: text, selection: TextSelection.collapsed(offset: hit.start + rep.length)));
+    final r = replaceMatchAt(_controller.text, hit.start, _findCtl.text, _replaceCtl.text,
+        caseSensitive: _findCase, regex: _findRegex);
+    if (r == null) {
+      _findStep(1);
+      return;
+    }
+    _setValue(TextEditingValue(text: r.text, selection: TextSelection.collapsed(offset: r.end)));
     _findStep(1);
   }
 
   void _replaceAll() {
-    final n = _matches.length;
+    final n = countMatches(_controller.text, _findCtl.text, caseSensitive: _findCase, regex: _findRegex);
     if (n == 0) return;
     final text = replaceAllMatches(_controller.text, _findCtl.text, _replaceCtl.text,
         caseSensitive: _findCase, regex: _findRegex);
-    _setValue(TextEditingValue(text: text, selection: const TextSelection.collapsed(offset: 0)));
+    if (text == _controller.text) return;
+    final keep = _controller.selection.isValid ? _controller.selection.baseOffset.clamp(0, text.length) : 0;
+    _setValue(TextEditingValue(text: text, selection: TextSelection.collapsed(offset: keep)));
     _snack('已替换 $n 处');
   }
 
@@ -1046,7 +1062,7 @@ class _EditorScreenState extends State<EditorScreen> {
                     child: ActionChip(
                       visualDensity: VisualDensity.compact,
                       avatar: Icon(Icons.groups_2_outlined, size: 16, color: JingjianColors.accent),
-                      label: Text('协作 ${_collab.session!.peers.length}'),
+                      label: Text(_collab.session!.reconnecting ? '重连中…' : '协作 ${_collab.session!.peers.length}'),
                       onPressed: _collabMenu,
                     ),
                   ),
@@ -1203,7 +1219,18 @@ class _EditorScreenState extends State<EditorScreen> {
       child: Focus(child: content),
     );
 
-    if (widget.embedded) return Material(color: JingjianColors.paper, child: shortcuts);
-    return Scaffold(body: SafeArea(child: shortcuts));
+    final guarded = PopScope(
+      canPop: !_findOpen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) {
+          _flush();
+        } else if (_findOpen) {
+          _closeFind();
+        }
+      },
+      child: shortcuts,
+    );
+    if (widget.embedded) return Material(color: JingjianColors.paper, child: guarded);
+    return Scaffold(body: SafeArea(child: guarded));
   }
 }

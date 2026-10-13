@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -273,8 +274,17 @@ class ImageUploadService {
   final HttpSend _send;
   static const _timeout = Duration(seconds: 60);
 
-  Future<http.Response> _go(http.BaseRequest r) async =>
-      http.Response.fromStream(await _send(r).timeout(_timeout));
+  Future<http.Response> _go(http.BaseRequest r) async {
+    try {
+      return await http.Response.fromStream(await _send(r).timeout(_timeout)).timeout(_timeout);
+    } on TimeoutException {
+      throw Exception('上传超时，请检查网络或图床地址');
+    } on http.ClientException catch (e) {
+      throw Exception('连不上图床（${e.message}）');
+    } on FormatException {
+      throw Exception('图床地址格式不对');
+    }
+  }
 
   Future<String> _form(String url, Uint8List bytes, String filename, String field, Map<String, String> headers,
       String path) async {

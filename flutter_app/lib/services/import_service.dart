@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'ebook_service.dart';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -21,7 +21,7 @@ class ImportService {
   Future<int> importFile(String name, Uint8List bytes, {String? folder}) async {
     if (name.toLowerCase().endsWith('.zip')) return importZip(bytes, folder: folder);
     if (!isNoteName(name)) return 0;
-    await _importText(name, decodeUtf8Body(bytes), folder);
+    await _importText(name, EbookService.instance.decodeBytes(bytes), folder);
     return 1;
   }
 
@@ -68,7 +68,7 @@ class ImportService {
         continue;
       }
       if (!isNoteName(name)) continue;
-      await _importText(name, utf8.decode(data, allowMalformed: true), folder);
+      await _importText(name, EbookService.instance.decodeBytes(data), folder);
       count++;
     }
     return count;

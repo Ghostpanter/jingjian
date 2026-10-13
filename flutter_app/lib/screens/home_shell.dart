@@ -36,6 +36,8 @@ class _HomeShellState extends State<HomeShell> {
   String? _activeId;
   bool _activeSpeak = false;
   String _query = '';
+  final _searchCtl = TextEditingController();
+  bool get _filtered_ => _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
   String? _folderFilter;
   String? _tagFilter;
   bool _starredOnly = false;
@@ -604,6 +606,7 @@ class _HomeShellState extends State<HomeShell> {
             child: Row(children: [
               Expanded(
                 child: TextField(
+                  controller: _searchCtl,
                   decoration: InputDecoration(
                     hintText: '搜索笔记',
                     hintStyle: TextStyle(color: JingjianColors.muted),
@@ -835,7 +838,21 @@ class _HomeShellState extends State<HomeShell> {
         const SingleActivator(LogicalKeyboardKey.keyP, meta: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyO, control: true): _quickOpen,
       },
-      child: Focus(autofocus: true, child: Scaffold(appBar: bar, body: body)),
+      child: PopScope(
+        // Android back: first clear filters / search, then leave the app.
+        canPop: !_filtered_,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          setState(() {
+            _folderFilter = null;
+            _starredOnly = false;
+            _tagFilter = null;
+            _query = '';
+            _searchCtl.clear();
+          });
+        },
+        child: Focus(autofocus: true, child: Scaffold(appBar: bar, body: body)),
+      ),
     );
   }
 }

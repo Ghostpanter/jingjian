@@ -101,4 +101,68 @@ void main() {
     await settle();
     expect(g2.state, CollabState.closed);
   });
+
+  test('blip: owner and guest reconnect through a dropped link and keep offline edits', () async {
+    final proxy = await _Proxy.start(int.parse(server.base.split(':').last));
+    final via = CollabServer('http://127.0.0.1:${proxy.port}', 'secret-t');
+    final oc = TextEditingController(text: '开头');
+    final owner = await CollabSession.hostRoom(via, text: oc.text, title: 't', name: 'o');
+    owner.bind(oc, onRemoteText: (_) {});
+    final gc = TextEditingController();
+    final guest = await CollabSession.join(server, code: owner.code, name: 'g'); // direct link
+    guest.bind(gc, onRemoteText: (_) {});
+    await settle();
+
+    proxy.dropAll();
+    await Future.delayed(const Duration(milliseconds: 100));
+    expect(owner.state, CollabState.connecting);
+    oc.value = TextEditingValue(text: '${oc.text}·离线写的');
+    await Future.delayed(const Duration(seconds: 2));
+    expect(owner.state, CollabState.live);
+    expect(guest.state, CollabState.live, reason: 'room survives the owner blip');
+    expect(gc.text, '开头·离线写的');
+
+    await owner.close(); // explicit end closes the room for everyone
+    await settle();
+    expect(guest.state, CollabState.closed);
+    expect(guest.error, contains('结束'));
+    await proxy.close();
+  });
+
+  test('too large note is refused before connecting', () async {
+    final big = '字' * 1300000;
+    await expectLater(CollabSession.hostRoom(server, text: big, title: 'b', name: 'x'), throwsA(predicate((e) => '$e'.contains('太大'))));
+  });
+}
+
+class _Proxy {
+  _Proxy(this._srv, this._target);
+  final ServerSocket _srv;
+  final int _target;
+  final _pairs = <(Socket, Socket)>[];
+  int get port => _srv.port;
+
+  static Future<_Proxy> start(int target) async {
+    final p = _Proxy(await ServerSocket.bind(InternetAddress.loopbackIPv4, 0), target);
+    p._srv.listen((c) async {
+      final up = await Socket.connect(InternetAddress.loopbackIPv4, p._target);
+      p._pairs.add((c, up));
+      c.listen(up.add, onDone: () => up.destroy(), onError: (_) => up.destroy());
+      up.listen(c.add, onDone: () => c.destroy(), onError: (_) => c.destroy());
+    });
+    return p;
+  }
+
+  void dropAll() {
+    for (final (a, b) in _pairs) {
+      a.destroy();
+      b.destroy();
+    }
+    _pairs.clear();
+  }
+
+  Future<void> close() async {
+    dropAll();
+    await _srv.close();
+  }
 }

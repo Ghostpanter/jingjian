@@ -73,12 +73,13 @@ class SyncService {
     final config = AppPrefs.instance.readSyncConfig();
     if (config.provider == SyncProvider.off) return const [];
     final store = NoteStore.instance;
+    final snapshot = List<Note>.from(store.allNotes);
     final result = await runSync(
       config: config,
-      local: store.allNotes,
+      local: snapshot,
       activeId: activeId,
     );
-    await store.replaceAll(result.notes);
+    await store.replaceAll(reconcileAfterSync(snapshot: snapshot, current: store.allNotes, merged: result.notes));
     return result.conflicts;
   }
 }

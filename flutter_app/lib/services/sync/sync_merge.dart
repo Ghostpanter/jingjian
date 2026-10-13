@@ -159,7 +159,11 @@ MergeResult mergeNotes(MergeInput input) {
 
   for (final entry in localMap.entries) {
     if (seen.contains(entry.key)) continue;
-    if (tombstones.containsKey(entry.key)) continue;
+    final deletedAt = tombstones[entry.key];
+    if (deletedAt != null) {
+      if (entry.value.updatedAt <= deletedAt) continue;
+      tombstones.remove(entry.key); // edited after the deletion: keep it
+    }
     notes[entry.key] = entry.value;
     toUpload.add(entry.value);
   }
@@ -181,4 +185,32 @@ String notesFingerprint(List<Note> notes) {
       .toList()
     ..sort();
   return parts.join('|');
+}
+
+/// Sync takes a snapshot, talks to the network, then applies the result.
+/// Anything the user changed meanwhile must win over the (stale) merge.
+List<Note> reconcileAfterSync({
+  required List<Note> snapshot,
+  required List<Note> current,
+  required List<Note> merged,
+}) {
+  String sig(Note n) => n.toJson().toString();
+  final snap = {for (final n in snapshot) n.id: n};
+  final cur = {for (final n in current) n.id: n};
+  final out = <Note>[];
+  final ids = <String>{};
+  for (final n in merged) {
+    final s = snap[n.id], c = cur[n.id];
+    ids.add(n.id);
+    if (s != null && c == null) continue; // deleted during sync
+    if (s != null && c != null && sig(s) != sig(c)) {
+      out.add(c); // edited during sync
+    } else {
+      out.add(n);
+    }
+  }
+  for (final c in current) {
+    if (!ids.contains(c.id) && !snap.containsKey(c.id)) out.add(c); // created during sync
+  }
+  return out;
 }
