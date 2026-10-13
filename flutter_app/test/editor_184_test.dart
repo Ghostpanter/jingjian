@@ -114,4 +114,33 @@ void main() {
     expect(find.text('二级标题'), findsNothing);
     expect(c.text, '$before/');
   });
+
+  testWidgets('typewriter mode keeps the caret near the vertical centre', (t) async {
+    await open(t);
+    final c = t.widget<TextField>(editorField).controller!;
+    await t.enterText(editorField, '# 专注测试\n${List.generate(200, (i) => '第$i行').join('\n')}');
+    await t.pump();
+    // turn on via palette
+    await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await t.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await t.pump(const Duration(milliseconds: 300));
+    await t.enterText(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '输入命令…'), '打字机');
+    await t.pump();
+    await t.tap(find.textContaining('打字机模式'));
+    await t.pump(const Duration(seconds: 1));
+    c.selection = const TextSelection.collapsed(offset: 400);
+    t.testTextInput.updateEditingValue(TextEditingValue(text: '${c.text.substring(0, 400)}x${c.text.substring(400)}',
+        selection: const TextSelection.collapsed(offset: 401)));
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 50));
+    }
+    final ed = t.state<EditableTextState>(find.descendant(of: editorField, matching: find.byType(EditableText)));
+    final re = ed.renderEditable;
+    final caretY = re.getLocalRectForCaret(const TextPosition(offset: 401)).center.dy;
+    expect((caretY - re.size.height / 2).abs(), lessThan(60));
+    await t.pump(const Duration(seconds: 5));
+  });
 }

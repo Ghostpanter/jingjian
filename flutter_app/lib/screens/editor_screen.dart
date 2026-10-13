@@ -86,6 +86,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.addPostFrameCallback((_) => _slashMenu());
   });
   bool _slashPending = false;
+  final _editorScroll = ScrollController();
+  final _editorBoxKey = GlobalKey();
+  bool _typewriter = false;
+  Timer? _twTimer;
   _Pane? _paneBeforeFocus;
   final _bodyKey = GlobalKey(debugLabel: 'editor-body'); // keeps caret when toggling 专注模式
 
@@ -180,6 +184,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _flush();
     _ttsSub?.cancel();
     _controller.dispose();
+    _twTimer?.cancel();
+    _editorScroll.dispose();
     _focus.dispose();
     _findCtl.dispose();
     _replaceCtl.dispose();
@@ -214,6 +220,35 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     setState(() {
       if (value.length < _livePreviewLimit) _previewText = value;
     });
+    if (_typewriter) {
+      // After EditableText's own "show caret" scroll (≈100 ms), re-centre.
+      _twTimer?.cancel();
+      _twTimer = Timer(const Duration(milliseconds: 160), _centerCaret);
+    }
+  }
+
+  /// 打字机模式: keep the caret line vertically centred while typing.
+  void _centerCaret() {
+    if (!mounted || !_typewriter || !_editorScroll.hasClients) return;
+    EditableTextState? ed;
+    void visit(Element e) {
+      if (ed != null) return;
+      if (e is StatefulElement && e.state is EditableTextState) {
+        ed = e.state as EditableTextState;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+    _editorBoxKey.currentContext?.visitChildElements(visit);
+    final re = ed?.renderEditable;
+    final sel = _controller.selection;
+    if (re == null || !re.hasSize || !sel.isValid) return;
+    final caret = re.getLocalRectForCaret(TextPosition(offset: sel.extentOffset));
+    final pos = _editorScroll.position;
+    final target = (pos.pixels + caret.center.dy - re.size.height / 2).clamp(0.0, pos.maxScrollExtent);
+    if ((target - pos.pixels).abs() > 4) {
+      _editorScroll.animateTo(target, duration: const Duration(milliseconds: 120), curve: Curves.easeOut);
+    }
   }
 
   void _setValue(TextEditingValue v) {
@@ -899,6 +934,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       ('查找替换', 'Ctrl+H', () => _openFind(replace: true)),
       ('切换 源码 / 分栏 / 预览', 'Ctrl+E', _cyclePane),
       (_focusMode ? '退出专注模式' : '专注模式', 'F11', _toggleFocusMode),
+      (_typewriter ? '关闭打字机模式' : '打字机模式（光标行居中）', '', () {
+        setState(() => _typewriter = !_typewriter);
+        _snack(_typewriter ? '打字机模式：光标行保持在屏幕中间' : '已关闭打字机模式');
+        _focus.requestFocus();
+        if (_typewriter) WidgetsBinding.instance.addPostFrameCallback((_) => _centerCaret());
+      }),
       (_formatBar ? '隐藏格式工具栏' : '显示格式工具栏', '', () => setState(() => _formatBar = !_formatBar)),
       ('插入当前日期时间', '', () => _insertMarkdownAtCursor(isoLocal(DateTime.now()))),
       ('插入表格', '', () => _markup('table')),
@@ -1171,10 +1212,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     final prev = _sibling(-1), next = _sibling(1);
 
     final editor = Container(
+      key: _editorBoxKey,
       color: JingjianColors.paper,
       child: TextField(
         controller: _controller,
         focusNode: _focus,
+        scrollController: _editorScroll,
         maxLines: null,
         expands: true,
         keyboardType: TextInputType.multiline,
@@ -1196,9 +1239,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
             }
           },
         ),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           filled: false,
-          contentPadding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+          contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
