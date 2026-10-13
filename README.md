@@ -160,6 +160,17 @@ location /api/collab {
 
 齿轮 → 同步 → 对象存储，再选一家云厂商。填写 Bucket、地域、AccessKey、SecretKey。笔记以 Markdown 文件写入桶内前缀（默认 `jingjian/`）。网页需在桶 CORS 放行当前站点；安卓与电脑应用可直连。
 
+### 清理重复笔记（1.8.4 之前的服务端）
+
+旧版服务端会给没有 frontmatter 的 `.md` 文件每次分配新的随机 id，客户端同步后可能产生内容相同的重复文件。更新服务端后可运行一次：
+
+```bash
+NOTES_DIR=/data/notes node sync-server/dedupe.mjs          # 只预览
+NOTES_DIR=/data/notes node sync-server/dedupe.mjs --apply  # 移动到 .dedupe-trash/，可恢复
+```
+
+Docker：`docker compose exec <服务名> node dedupe.mjs`（先预览再加 `--apply`）。
+
 ## Android
 
 安装包在 [Releases](https://github.com/Ghostpanter/jingjian/releases) 下载 `jingjian-v1.7.14.apk`。同一安装包支持 armeabi-v7a、arm64-v8a、x86 和 x86_64，可安装在安卓 9 到安卓 17。安卓 17 不会一打开就问本地网络；第一次在设置里保存局域网地址时，会先说明原因，再交给系统询问一次。在卓易通里打开会直接退出。
