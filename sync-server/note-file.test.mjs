@@ -50,3 +50,17 @@ test("dedupeNotes keeps the newest updatedAt per id", () => {
   assert.equal(notes.length, 1);
   assert.equal(notes[0].content, "new");
 });
+
+test("plain .md without frontmatter keeps a stable id and file times", async () => {
+  const { stableIdFor } = await import("./note-file.mjs");
+  const a = stableIdFor("读书笔记.md");
+  assert.equal(a, stableIdFor("读书笔记.md"));
+  assert.notEqual(a, stableIdFor("别的.md"));
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  const n = parseNote("hello", a, { createdAt: 10, updatedAt: 20 });
+  assert.equal(n.id, a);
+  assert.equal(n.createdAt, 10);
+  assert.equal(n.updatedAt, 20);
+  const fm = parseNote("---\nid: x\n---\nbody", a, { updatedAt: 30 });
+  assert.equal(fm.updatedAt, 30);
+});

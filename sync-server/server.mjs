@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   dedupeNotes,
@@ -9,6 +9,7 @@ import {
   isInsideDir,
   parseNote,
   serialize,
+  stableIdFor,
 } from "./note-file.mjs";
 import { handleCollabUpgrade } from "./collab.mjs";
 
@@ -62,21 +63,65 @@ async function readBody(req) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+// Parsed-file cache keyed by name, reused while mtime+size are unchanged, so a
+// first sync of thousands of notes does not re-read every file on every PUT.
+const fileCache = new Map();
+let lastDirMtime = -1; // dir mtime when fileCache was last known complete
+
+async function dirMtime() {
+  try {
+    return (await stat(NOTES_DIR)).mtimeMs;
+  } catch {
+    return -2;
+  }
+}
+
 async function loadNotes() {
   await mkdir(NOTES_DIR, { recursive: true });
   const entries = await readdir(NOTES_DIR, { withFileTypes: true });
   const notes = [];
+  const seen = new Set();
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
     if (entry.name.startsWith(".")) continue;
     const abs = path.join(NOTES_DIR, entry.name);
+    let st;
+    try {
+      st = await stat(abs);
+    } catch {
+      continue; // removed meanwhile
+    }
+    seen.add(entry.name);
+    const hit = fileCache.get(entry.name);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+      notes.push({ ...hit.note });
+      continue;
+    }
     const raw = await readFile(abs, "utf8");
-    const note = parseNote(raw, randomUUID());
+    const note = parseNote(raw, stableIdFor(entry.name), {
+      createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
+      updatedAt: Math.round(st.mtimeMs),
+    });
     note.file = entry.name;
     note.raw = raw.replace(/^\uFEFF/, "");
-    notes.push(note);
+    fileCache.set(entry.name, { mtimeMs: st.mtimeMs, size: st.size, note });
+    notes.push({ ...note });
   }
+  for (const name of fileCache.keys()) if (!seen.has(name)) fileCache.delete(name);
+  lastDirMtime = await dirMtime();
   return dedupeNotes(notes);
+}
+
+/** Write via temp file + rename so a crash never leaves a half-written note. */
+async function writeAtomic(abs, text) {
+  const tmp = path.join(path.dirname(abs), `.tmp-${randomUUID()}`);
+  await writeFile(tmp, text, "utf8");
+  try {
+    await rename(tmp, abs);
+  } catch (error) {
+    await rm(tmp, { force: true });
+    throw error;
+  }
 }
 
 async function writeNote(note, raw) {
@@ -84,15 +129,36 @@ async function writeNote(note, raw) {
   const target = filenameFor(note);
   const abs = path.resolve(NOTES_DIR, target);
   if (!isInsideNotes(abs)) throw new Error("invalid path");
-  const existing = await loadNotes();
-  const previous = existing.find((item) => item.id === note.id);
+  // Only the previous file for this id is needed. Skip the full rescan when
+  // the folder listing is unchanged since our last scan/write.
+  let previous;
+  if (lastDirMtime >= 0 && (await dirMtime()) === lastDirMtime) {
+    let best;
+    for (const entry of fileCache.values()) {
+      if (entry.note.id === note.id && (!best || entry.note.updatedAt >= best.updatedAt)) best = entry.note;
+    }
+    previous = best;
+  } else {
+    previous = (await loadNotes()).find((item) => item.id === note.id);
+  }
   const text = typeof raw === "string" && raw.replace(/^\uFEFF/, "").startsWith("---")
     ? raw.replace(/^\uFEFF/, "")
     : serialize(note);
-  await writeFile(abs, text, "utf8");
+  await writeAtomic(abs, text);
   if (previous?.file && previous.file !== target) {
     const stale = path.resolve(NOTES_DIR, path.basename(previous.file));
     if (isInsideNotes(stale) && stale !== abs) await rm(stale, { force: true });
+    fileCache.delete(path.basename(previous.file));
+  }
+  try {
+    const st = await stat(abs);
+    const parsed = parseNote(text, note.id, { createdAt: note.createdAt, updatedAt: note.updatedAt });
+    parsed.file = target;
+    parsed.raw = text;
+    fileCache.set(target, { mtimeMs: st.mtimeMs, size: st.size, note: parsed });
+    if (lastDirMtime >= 0) lastDirMtime = await dirMtime();
+  } catch {
+    lastDirMtime = -1;
   }
   return target;
 }
@@ -170,7 +236,18 @@ const server = createServer(async (req, res) => {
       }
 
       if (req.method === "PUT") {
-        const body = JSON.parse((await readBody(req)) || "{}");
+        let body;
+        try {
+          body = JSON.parse((await readBody(req)) || "{}");
+        } catch (error) {
+          const big = error instanceof Error && error.message === "请求体过大";
+          json(res, big ? 413 : 400, { error: big ? "请求体过大" : "请求体不是有效 JSON" });
+          return;
+        }
+        if (!body || typeof body !== "object") {
+          json(res, 400, { error: "请求体不是有效 JSON" });
+          return;
+        }
         const note = {
           id,
           content: typeof body.content === "string" ? body.content : "",
