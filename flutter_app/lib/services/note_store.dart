@@ -1,20 +1,18 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/note.dart';
 import 'app_prefs.dart';
 import 'folder_tree.dart';
+import 'storage/blob_store.dart';
 
 class NoteStore {
   NoteStore._();
   static final NoteStore instance = NoteStore._();
 
   static const _uuid = Uuid();
-  Directory? _dir;
+  BlobStore? _blobs;
   final List<Note> _notes = [];
   final List<String> _extraFolders = [];
 
@@ -30,10 +28,8 @@ class NoteStore {
       List.unmodifiable(_notes.where((n) => n.isTrashed).toList()
         ..sort((a, b) => (b.trashedAt ?? 0).compareTo(a.trashedAt ?? 0)));
 
-  Future<void> init() async {
-    final docs = await getApplicationDocumentsDirectory();
-    _dir = Directory(p.join(docs.path, 'jingjian', 'notes'));
-    await _dir!.create(recursive: true);
+  Future<void> init({String? root}) async {
+    _blobs = await BlobStore.open('notes', root: root);
     _extraFolders
       ..clear()
       ..addAll(AppPrefs.instance.readExtraFolders());
@@ -42,15 +38,14 @@ class NoteStore {
 
   Future<void> _load() async {
     _notes.clear();
-    final files = _dir!
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.json'));
-    for (final file in files) {
+    final blobs = _blobs!;
+    for (final key in blobs.keys.where((k) => k.endsWith('.json'))) {
       try {
-        final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final map = jsonDecode(utf8.decode(blobs.readSync(key)!)) as Map<String, dynamic>;
         _notes.add(Note.fromJson(map));
-      } catch (_) {}
+      } catch (_) {
+        await blobs.quarantine(key);
+      }
     }
     if (_notes.isEmpty) {
       await create(
@@ -65,11 +60,14 @@ class NoteStore {
     }
   }
 
-  File _fileFor(String id) => File(p.join(_dir!.path, '$id.json'));
+  /// File name for a note. Ids that are not plain (e.g. from a hand-made sync
+  /// file) are encoded so they can never escape the notes folder.
+  static String keyFor(String id) => RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(id)
+      ? '$id.json'
+      : 'x-${base64Url.encode(utf8.encode(id)).replaceAll('=', '')}.json';
+  String _key(String id) => keyFor(id);
 
-  Future<void> _persist(Note note) async {
-    await _fileFor(note.id).writeAsString(jsonEncode(note.toJson()));
-  }
+  Future<void> _persist(Note note) => _blobs!.write(_key(note.id), utf8.encode(jsonEncode(note.toJson())));
 
   Future<Note> create({
     String content = '',
@@ -107,8 +105,7 @@ class NoteStore {
     final keep = notes.map((n) => n.id).toSet();
     for (final existing in List<Note>.from(_notes)) {
       if (!keep.contains(existing.id)) {
-        final f = _fileFor(existing.id);
-        if (await f.exists()) await f.delete();
+        await _blobs!.delete(_key(existing.id));
       }
     }
     _notes
@@ -139,8 +136,7 @@ class NoteStore {
 
   Future<void> purge(String id) async {
     _notes.removeWhere((n) => n.id == id);
-    final f = _fileFor(id);
-    if (await f.exists()) await f.delete();
+    await _blobs!.delete(_key(id));
     final tombs = AppPrefs.instance.readTombstones();
     tombs[id] = DateTime.now().millisecondsSinceEpoch;
     await AppPrefs.instance.writeTombstones(tombs);
@@ -206,6 +202,7 @@ class NoteStore {
   Future<int> renameFolder(String from, String to) async {
     final a = normalizeFolder(from), b = normalizeFolder(to);
     if (a.isEmpty || b.isEmpty || a == b) return 0;
+    if (b.startsWith('$a/')) throw Exception('不能把文件夹移到它自己的子文件夹里');
     var n = 0;
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final note in List<Note>.from(_notes)) {

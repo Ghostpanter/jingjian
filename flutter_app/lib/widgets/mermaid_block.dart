@@ -1,20 +1,57 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../theme/app_theme.dart';
+import 'mermaid_web_view.dart';
 
-class MermaidBlock extends StatefulWidget {
+/// webview_flutter only exists on Android/iOS/macOS. Web uses an iframe;
+/// Linux/Windows show the diagram source instead of crashing.
+bool get mermaidWebViewSupported =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS);
+
+class MermaidBlock extends StatelessWidget {
   const MermaidBlock({super.key, required this.source});
   final String source;
 
   @override
-  State<MermaidBlock> createState() => _MermaidBlockState();
+  Widget build(BuildContext context) {
+    if (kIsWeb) return MermaidIframe(source: source);
+    if (mermaidWebViewSupported) return _MermaidWebView(source: source);
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(10),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: JingjianColors.paper,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: JingjianColors.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Mermaid 图（此平台不能渲染，导出 HTML/PDF 或在手机上查看）',
+            style: TextStyle(fontSize: 12, color: JingjianColors.muted)),
+        const SizedBox(height: 6),
+        SelectableText(source, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+      ]),
+    );
+  }
 }
 
-class _MermaidBlockState extends State<MermaidBlock> {
+class _MermaidWebView extends StatefulWidget {
+  const _MermaidWebView({required this.source});
+  final String source;
+
+  @override
+  State<_MermaidWebView> createState() => _MermaidBlockState();
+}
+
+class _MermaidBlockState extends State<_MermaidWebView> {
   late final WebViewController _controller;
   double _height = 160;
   String _loadedKey = '';
@@ -37,7 +74,7 @@ class _MermaidBlockState extends State<MermaidBlock> {
   }
 
   @override
-  void didUpdateWidget(covariant MermaidBlock oldWidget) {
+  void didUpdateWidget(covariant _MermaidWebView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source) _load();
   }

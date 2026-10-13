@@ -46,12 +46,10 @@ Future<String> serializeNoteWithImages(Note note) async {
   if (ids.isEmpty) return text;
   final lines = <String>[];
   for (final id in ids) {
-    final file = ImageStore.instance.fileForIdSync(id);
-    if (file == null) continue;
-    final bytes = await file.readAsBytes();
-    if (bytes.length > maxSyncImageBytes) continue;
-    final mime = sniffImageMime(bytes) ?? mimeForName(file.path);
-    lines.add('$id $mime ${base64Encode(bytes)}');
+    final img = ImageStore.instance.imageSync(id);
+    if (img == null) continue;
+    if (img.bytes.length > maxSyncImageBytes) continue;
+    lines.add('$id ${img.mime} ${base64Encode(img.bytes)}');
   }
   if (lines.isEmpty) return text;
   return '$text$_start${lines.join('\n')}\n$_end\n';

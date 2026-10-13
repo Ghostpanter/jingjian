@@ -1,3 +1,4 @@
+import 'package:fast_gbk/fast_gbk.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -56,9 +57,13 @@ class EbookService {
     }
     final text = utf8.decode(bytes, allowMalformed: true);
     final bad = '\uFFFD'.allMatches(text).length;
-    if (bad > 8 && bad > text.length / 200) {
-      throw Exception('文件不是 UTF-8 编码（可能是 GBK）。请先另存为 UTF-8 再导入。');
-    }
+    if (bad == 0) return text;
+    // Same as the old app: fall back to GBK/GB18030 when it decodes cleaner.
+    try {
+      final g = const GbkCodec(allowMalformed: true).decode(bytes);
+      final gBad = '\uFFFD'.allMatches(g).length;
+      if (gBad < bad) return g;
+    } catch (_) {}
     return text;
   }
 

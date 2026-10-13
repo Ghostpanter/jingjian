@@ -1,3 +1,4 @@
+import 'services/legacy_migration.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -19,6 +20,7 @@ Future<void> main() async {
   await ThemeController.instance.init();
   await ImageStore.instance.init();
   await NoteStore.instance.init();
+  await LegacyMigration.runIfNeeded();
   runApp(const JingjianApp());
 }
 

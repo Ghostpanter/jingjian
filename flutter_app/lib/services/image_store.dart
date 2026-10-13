@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+
+import 'storage/blob_store.dart';
 
 class StoredImage {
   StoredImage({required this.id, required this.path, required this.name, required this.bytes});
@@ -55,75 +55,118 @@ List<String> imageIdsIn(String content) {
   return out;
 }
 
+class ImageBlob {
+  ImageBlob(this.id, this.name, this.bytes);
+  final String id;
+  final String name; // <id>.<ext>
+  final Uint8List bytes;
+  String get mime => sniffImageMime(bytes) ?? mimeForName(name);
+}
+
 class ImageStore {
   ImageStore._();
   static final ImageStore instance = ImageStore._();
   static const _uuid = Uuid();
 
-  Directory? _dir;
-  Directory? get dir => _dir;
+  BlobStore? _blobs;
+  // Small cache: keeps the same Uint8List instance for the preview (so the
+  // image cache hits) and avoids disk reads on every keystroke.
+  final _cache = <String, Uint8List>{};
+  var _cacheBytes = 0;
 
-  Future<void> init() async {
-    final docs = await getApplicationDocumentsDirectory();
-    _dir = Directory(p.join(docs.path, 'jingjian', 'images'));
-    await _dir!.create(recursive: true);
+  Uint8List? _read(String name) {
+    final hit = _cache.remove(name);
+    if (hit != null) {
+      _cache[name] = hit;
+      return hit;
+    }
+    final bytes = _blobs?.readSync(name);
+    if (bytes == null) return null;
+    _cache[name] = bytes;
+    _cacheBytes += bytes.length;
+    while (_cacheBytes > 64 * 1024 * 1024 && _cache.length > 1) {
+      final k = _cache.keys.first;
+      _cacheBytes -= _cache.remove(k)!.length;
+    }
+    return bytes;
+  }
+
+  void _forget(String name) {
+    final v = _cache.remove(name);
+    if (v != null) _cacheBytes -= v.length;
+  }
+
+  /// Folder with the image files (Android/desktop only; null on the web).
+  String? get localPath => _blobs?.localPath;
+
+  Future<void> init({String? root}) async {
+    _blobs = await BlobStore.open('images', root: root);
   }
 
   Future<List<StoredImage>> list() async {
-    final out = <StoredImage>[];
-    if (_dir == null) return out;
-    await for (final entity in _dir!.list()) {
-      if (entity is! File) continue;
-      final name = p.basename(entity.path);
-      final stat = await entity.stat();
-      out.add(StoredImage(
-        id: p.basenameWithoutExtension(name),
-        path: 'images/$name',
-        name: name,
-        bytes: stat.size,
-      ));
-    }
-    out.sort((a, b) => b.name.compareTo(a.name));
+    final b = _blobs;
+    if (b == null) return [];
+    final out = [
+      for (final name in b.keys)
+        StoredImage(id: p.basenameWithoutExtension(name), path: 'images/$name', name: name, bytes: b.sizeOf(name) ?? 0),
+    ]..sort((a, b) => b.name.compareTo(a.name));
     return out;
   }
 
   Future<StoredImage> saveBytes(Uint8List data, String originalName, {String? id}) async {
     var ext = p.extension(originalName).toLowerCase();
+    if (!RegExp(r'^\.[a-z0-9]{1,5}$').hasMatch(ext)) ext = '';
     if (ext.isEmpty) ext = _extByMime[sniffImageMime(data) ?? 'image/jpeg'] ?? '.jpg';
-    final useId = id ?? _uuid.v4().replaceAll('-', '').substring(0, 12);
+    var useId = id ?? _uuid.v4().replaceAll('-', '').substring(0, 12);
+    if (!RegExp(r'^[A-Za-z0-9-]{1,80}$').hasMatch(useId)) useId = _uuid.v4().replaceAll('-', '').substring(0, 12);
     final name = '$useId$ext';
-    await File(p.join(_dir!.path, name)).writeAsBytes(data, flush: true);
+    _forget(name);
+    await _blobs!.write(name, data);
     return StoredImage(id: useId, path: 'images/$name', name: name, bytes: data.length);
   }
 
-  /// Resolve `images/<id>` or `images/<id>.<ext>` to a file, ignoring extension.
-  Future<File?> fileFor(String relative) async {
-    if (_dir == null) return null;
-    final name = relative
-        .replaceFirst(RegExp(r'^\./'), '')
-        .replaceFirst(RegExp(r'^images/'), '')
-        .replaceFirst(RegExp(r'^jingjian-img://'), '');
-    final direct = File(p.join(_dir!.path, name));
-    if (await direct.exists()) return direct;
-    return fileForId(p.basenameWithoutExtension(name));
-  }
-
-  File? fileForIdSync(String id) {
-    if (_dir == null) return null;
+  String? _nameForId(String id) {
+    final b = _blobs;
+    if (b == null) return null;
     for (final ext in ['', '.jpg', '.png', '.gif', '.webp', '.svg', '.bmp', '.jpeg']) {
-      final f = File(p.join(_dir!.path, '$id$ext'));
-      if (f.existsSync()) return f;
+      if (b.has('$id$ext')) return '$id$ext';
     }
     return null;
   }
 
-  Future<File?> fileForId(String id) async => fileForIdSync(id);
+  static String _idOf(String relative) => p.basenameWithoutExtension(relative
+      .replaceFirst(RegExp(r'^\./'), '')
+      .replaceFirst(RegExp(r'^images/'), '')
+      .replaceFirst(RegExp(r'^jingjian-img://'), ''));
 
-  Future<bool> hasId(String id) async => fileForIdSync(id) != null;
+  /// Image bytes for `<id>` (any extension), or null.
+  ImageBlob? imageSync(String id) {
+    final name = _nameForId(id);
+    if (name == null) return null;
+    final bytes = _read(name);
+    return bytes == null ? null : ImageBlob(id, name, bytes);
+  }
+
+  /// Resolve `images/<id>.<ext>` / `jingjian-img://<id>`.
+  ImageBlob? imageForSrc(String relative) {
+    final b = _blobs;
+    if (b == null) return null;
+    final name = relative.replaceFirst(RegExp(r'^\./'), '').replaceFirst(RegExp(r'^images/'), '');
+    if (b.has(name)) {
+      final bytes = _read(name);
+      if (bytes != null) return ImageBlob(p.basenameWithoutExtension(name), name, bytes);
+    }
+    return imageSync(_idOf(relative));
+  }
+
+  Future<bool> hasId(String id) async => _nameForId(id) != null;
 
   Future<void> delete(String relative) async {
-    final file = await fileFor(relative);
-    if (file != null) await file.delete();
+    final img = imageForSrc(relative);
+    if (img != null) {
+      _forget(img.name);
+      await _blobs!.delete(img.name);
+    }
   }
 
   String markdownInsert(StoredImage image, {String alt = ''}) =>

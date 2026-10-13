@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -368,10 +367,9 @@ class BlogPlatformService {
     if (!cfg.uploads) return content;
     var out = content;
     for (final id in imageIdsIn(content)) {
-      final f = ImageStore.instance.fileForIdSync(id);
-      if (f == null) continue;
-      final Uint8List bytes = await f.readAsBytes();
-      final url = await ImageUploadService.instance.upload(cfg, bytes, f.uri.pathSegments.last);
+      final img = ImageStore.instance.imageSync(id);
+      if (img == null) continue;
+      final url = await ImageUploadService.instance.upload(cfg, img.bytes, img.name);
       out = out.replaceAll(RegExp('(?:\\./)?(?:images/|jingjian-img://)$id(?:\\.[a-z0-9]+)?', caseSensitive: false), url);
     }
     return out;

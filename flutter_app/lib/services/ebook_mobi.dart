@@ -1,4 +1,5 @@
 // Port of the old app's ebook-mobi.ts: PalmDoc + HUFF/CDIC Kindle MOBI/AZW/PRC.
+import 'package:fast_gbk/fast_gbk.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -177,6 +178,7 @@ Uint8List Function(Uint8List) _huffCdic(List<Uint8List> records, int huffIndex, 
 
 String _decodeText(Uint8List bytes, int encoding) {
   if (encoding == 1252) return latin1.decode(bytes, allowInvalid: true);
+  if (encoding == 936) return const GbkCodec(allowMalformed: true).decode(bytes);
   return utf8.decode(bytes, allowMalformed: true);
 }
 

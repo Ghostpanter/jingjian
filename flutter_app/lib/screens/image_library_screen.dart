@@ -70,10 +70,9 @@ class _ImageLibraryScreenState extends State<ImageLibraryScreen> {
                   itemCount: _items.length,
                   itemBuilder: (context, index) {
                     final item = _items[index];
-                    return FutureBuilder(
-                      future: ImageStore.instance.fileFor(item.path),
-                      builder: (context, snap) {
-                        final file = snap.data;
+                    return Builder(
+                      builder: (context) {
+                        final img = ImageStore.instance.imageForSrc(item.path);
                         return InkWell(
                           onTap: () {
                             if (widget.insertMode) {
@@ -109,9 +108,9 @@ class _ImageLibraryScreenState extends State<ImageLibraryScreen> {
                               border: Border.all(color: JingjianColors.border),
                             ),
                             clipBehavior: Clip.antiAlias,
-                            child: file == null
+                            child: img == null
                                 ? const Icon(Icons.broken_image_outlined)
-                                : Image.file(file, fit: BoxFit.cover),
+                                : Image.memory(img.bytes, fit: BoxFit.cover, cacheWidth: 400),
                           ),
                         );
                       },

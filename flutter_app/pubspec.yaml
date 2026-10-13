@@ -1,7 +1,7 @@
 name: jingjian
 description: "静笺 — Markdown notes"
 publish_to: "none"
-version: 1.8.2+183
+version: 1.8.3+184
 
 environment:
   sdk: ^3.13.5
@@ -32,6 +32,9 @@ dependencies:
   pdf: ^3.13.1
   pasteboard: ^0.5.0
   web_socket_channel: ^3.0.3
+  fast_gbk: ^1.0.0
+  idb_shim: ^2.9.11
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

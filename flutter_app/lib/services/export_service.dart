@@ -6,6 +6,8 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
+
+import 'storage/blob_store.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
@@ -31,9 +33,12 @@ String escapeHtml(String s) =>
     s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
 String safeFileName(String title) {
-  final cleaned = title.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').trim();
-  if (cleaned.isEmpty) return '未命名笔记';
-  return cleaned.length > 60 ? cleaned.substring(0, 60) : cleaned;
+  var cleaned = title.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').trim();
+  final runes = cleaned.runes.toList();
+  if (runes.length > 60) cleaned = String.fromCharCodes(runes.take(60)); // never split an emoji
+  cleaned = cleaned.replaceAll(RegExp(r'[. ]+$'), ''); // Windows forbids trailing dot/space
+  if (RegExp(r'^(con|prn|aux|nul|com\d|lpt\d)$', caseSensitive: false).hasMatch(cleaned)) cleaned = '_$cleaned';
+  return cleaned.isEmpty ? '未命名笔记' : cleaned;
 }
 
 const _css = '''
@@ -63,23 +68,22 @@ class ExportService {
       .trim();
 
   /// Body HTML; local `images/<id>` become data URIs (or relative paths for EPUB).
-  Future<String> bodyHtml(String content, {Map<String, String>? epubImages}) async {
+  Future<String> bodyHtml(String content, {Map<String, ImageBlob>? epubImages}) async {
     var source = content.replaceFirst(RegExp(r'^---\n[\s\S]*?\n---\n'), '');
     source = source.replaceAllMapped(RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
         (m) => '**${m[2] ?? m[1]}**');
     var html = md.markdownToHtml(source, extensionSet: md.ExtensionSet.gitHubFlavored);
     final ids = imageIdsIn(html);
     for (final id in ids) {
-      final file = ImageStore.instance.fileForIdSync(id);
-      if (file == null) continue;
+      final img = ImageStore.instance.imageSync(id);
+      if (img == null) continue;
       String replacement;
       if (epubImages != null) {
-        final name = 'images/${p.basename(file.path)}';
-        epubImages[name] = file.path;
+        final name = 'images/${img.name}';
+        epubImages[name] = img;
         replacement = name;
       } else {
-        final bytes = await file.readAsBytes();
-        replacement = 'data:${sniffImageMime(bytes) ?? mimeForName(file.path)};base64,${base64Encode(bytes)}';
+        replacement = 'data:${img.mime};base64,${base64Encode(img.bytes)}';
       }
       html = html.replaceAll(RegExp('src="(?:\\./)?images/$id(?:\\.[a-z0-9]+)?"', caseSensitive: false), 'src="$replacement"');
     }
@@ -160,7 +164,7 @@ class ExportService {
     add('META-INF/container.xml', utf8.encode('<?xml version="1.0" encoding="UTF-8"?>'
         '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
         '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'));
-    final images = <String, String>{};
+    final images = <String, ImageBlob>{};
     final manifest = StringBuffer();
     final spine = StringBuffer();
     final navItems = StringBuffer();
@@ -183,9 +187,8 @@ class ExportService {
     }
     var imgIndex = 0;
     for (final e in images.entries) {
-      final bytes = await File(e.value).readAsBytes();
-      add('OEBPS/${e.key}', bytes);
-      manifest.write('<item id="img${imgIndex++}" href="${e.key}" media-type="${sniffImageMime(bytes) ?? mimeForName(e.value)}"/>');
+      add('OEBPS/${e.key}', e.value.bytes);
+      manifest.write('<item id="img${imgIndex++}" href="${e.key}" media-type="${e.value.mime}"/>');
     }
     add('OEBPS/style.css', utf8.encode(_css));
     add('OEBPS/nav.xhtml', utf8.encode('<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html>'
@@ -230,10 +233,9 @@ class ExportService {
       imageIds.addAll(imageIdsIn(n.content));
     }
     for (final id in imageIds) {
-      final f = ImageStore.instance.fileForIdSync(id);
-      if (f == null) continue;
-      final bytes = await f.readAsBytes();
-      archive.addFile(ArchiveFile('images/${p.basename(f.path)}', bytes.length, bytes));
+      final img = ImageStore.instance.imageSync(id);
+      if (img == null) continue;
+      archive.addFile(ArchiveFile('images/${img.name}', img.bytes.length, img.bytes));
     }
     return Uint8List.fromList(ZipEncoder().encode(archive));
   }
@@ -281,10 +283,15 @@ class ExportService {
       await SharePlus.instance.share(ShareParams(files: [XFile.fromData(bytes, name: name, mimeType: mime)]));
       return null;
     }
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(docs.path, 'jingjian', 'exports'));
+    final docsPath = await appDataRoot();
+    final dir = Directory(p.join(docsPath, 'jingjian', 'exports'));
     await dir.create(recursive: true);
-    final file = File(p.join(dir.path, name));
+    // Don't overwrite an earlier export with the same title.
+    var file = File(p.join(dir.path, name));
+    final stem = p.basenameWithoutExtension(name), ext = p.extension(name);
+    for (var i = 2; await file.exists(); i++) {
+      file = File(p.join(dir.path, '$stem ($i)$ext'));
+    }
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
   }

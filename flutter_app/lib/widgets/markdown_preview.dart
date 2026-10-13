@@ -71,19 +71,28 @@ class MarkdownPreview extends StatelessWidget {
       final data = uri.data;
       if (data != null) return Image.memory(data.contentAsBytes(), errorBuilder: (_, _, _) => err());
     }
-    if (kIsWeb) return err();
-    final file = s.startsWith('images/') || s.startsWith('./images/') || s.startsWith('jingjian-img://')
-        ? ImageStore.instance.fileForIdSync(
-            s.replaceFirst(RegExp(r'^(\./)?images/|^jingjian-img://'), '').replaceFirst(RegExp(r'\.[a-z0-9]+$', caseSensitive: false), ''))
-        : (uri.scheme == 'file' ? File(uri.toFilePath()) : null);
-    if (file == null) return err();
-    return Image.file(file, width: c.width, height: c.height, errorBuilder: (_, _, _) => err());
+    if (s.startsWith('images/') || s.startsWith('./images/') || s.startsWith('jingjian-img://')) {
+      final img = ImageStore.instance.imageForSrc(s);
+      if (img == null) return err();
+      return Image.memory(img.bytes, width: c.width, height: c.height, gaplessPlayback: true, errorBuilder: (_, _, _) => err());
+    }
+    if (!kIsWeb && uri.scheme == 'file') {
+      return Image.file(File(uri.toFilePath()), width: c.width, height: c.height, errorBuilder: (_, _, _) => err());
+    }
+    return err();
   }
 
   Future<void> _tap(String? href) async {
     if (href == null) return;
     if (href.startsWith('wiki:')) {
-      onWikiTap?.call(Uri.decodeComponent(href.substring(5)));
+      final raw = href.substring(5);
+      String target;
+      try {
+        target = Uri.decodeComponent(raw);
+      } catch (_) {
+        target = raw; // malformed %-escape: use as is instead of crashing
+      }
+      onWikiTap?.call(target);
       return;
     }
     final uri = Uri.tryParse(href);

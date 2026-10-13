@@ -79,13 +79,18 @@ class CollabSession extends ChangeNotifier {
   final String initialTitle;
 
   WebSocketChannel? _ch;
+  String? _ownerKey;
+  bool _closing = false;
+  int _retries = 0;
+  Timer? _retryTimer;
+  static const maxRetries = 6;
   StreamSubscription? _sub;
   OtClientState? _ot;
   TextEditingController? _ctl;
   void Function(String text)? _onRemoteText;
   bool _applying = false;
   final _queue = <Map<String, dynamic>>[];
-  final _welcome = Completer<String>();
+  Completer<String> _welcome = Completer<String>();
 
   CollabState state = CollabState.connecting;
   String? myId;
@@ -113,11 +118,18 @@ class CollabSession extends ChangeNotifier {
     return s;
   }
 
+  /// The server caps one message at 4 MB; CJK text is 3 bytes per char.
+  static const maxDocBytes = 3500000;
+
   Map<String, Object?> get _hello => isHost && code.isEmpty
       ? {'t': 'create', 'text': initialText, 'title': initialTitle, 'name': name, 'v': collabProtocol}
-      : {'t': 'hello', 'code': code, 'name': name, 'v': collabProtocol};
+      : {'t': 'hello', 'code': code, 'name': name, 'v': collabProtocol, if (_ownerKey != null) 'ownerKey': _ownerKey};
 
   Future<void> _connect() async {
+    if (isHost && code.isEmpty && utf8.encode(initialText).length > maxDocBytes) {
+      state = CollabState.closed;
+      throw Exception('这篇笔记太大（超过 3.5 MB），无法多人协作');
+    }
     final WebSocketChannel ch;
     try {
       ch = WebSocketChannel.connect(server.wsUri);
@@ -143,12 +155,51 @@ class CollabSession extends ChangeNotifier {
     } catch (_) {}
   }
 
+  bool reconnecting = false;
+  bool _everLive = false;
+  /// Set when a reconnect could not keep edits made while offline.
+  String? notice;
+
   void _onDone() {
     if (state == CollabState.closed) return;
+    // Lost the connection after we were live: retry quietly (Wi-Fi switch,
+    // phone sleeping…). A room that was closed on purpose sends an error first.
+    if (!_closing && _everLive && error == null && _retries < maxRetries) {
+      reconnecting = true;
+      state = CollabState.connecting;
+      notifyListeners();
+      _retryTimer?.cancel();
+      _retryTimer = Timer(Duration(milliseconds: 800 * (1 << _retries)), _reconnect);
+      _retries++;
+      return;
+    }
     state = CollabState.closed;
-    error ??= '已与同步服务器断开';
+    reconnecting = false;
+    error ??= _closing ? null : '已与同步服务器断开';
     if (!_welcome.isCompleted) _welcome.completeError(Exception(error ?? '连接已断开'));
     notifyListeners();
+  }
+
+  Future<void> _reconnect() async {
+    if (_closing) return;
+    await _sub?.cancel();
+    _queue.clear();
+    _welcome = Completer<String>();
+    _welcome.future.ignore();
+    try {
+      final ch = WebSocketChannel.connect(server.wsUri);
+      _ch = ch;
+      await ch.ready.timeout(const Duration(seconds: 8));
+      _sub = ch.stream.listen(_onData, onDone: _onDone, onError: (_) => _onDone());
+      _send(_hello);
+      await _welcome.future.timeout(const Duration(seconds: 8));
+      _retries = 0;
+      reconnecting = false;
+      notifyListeners();
+    } catch (_) {
+      if (_welcome.isCompleted && state == CollabState.live) return;
+      _onDone();
+    }
   }
 
   void _onData(dynamic raw) {
@@ -168,10 +219,28 @@ class CollabSession extends ChangeNotifier {
         myId = m['id'] as String?;
         final c = m['code'];
         if (c is String && c.isNotEmpty) code = c;
+        final key = m['ownerKey'];
+        if (key is String) _ownerKey = key;
         title = m['title'] as String? ?? '';
-        final text = m['text'] as String? ?? '';
-        final resync = _ot != null;
-        _ot = OtClientState((m['rev'] as num).toInt(), text);
+        var text = m['text'] as String? ?? '';
+        final rev = (m['rev'] as num).toInt();
+        final old = _ot;
+        final resync = old != null;
+        _ot = OtClientState(rev, text);
+        if (old != null) {
+          // Reconnected. What the user sees now (incl. unacked + offline edits):
+          final desired = _ctl?.text ?? old.text;
+          if (rev == old.rev && desired != text) {
+            // Nobody else edited meanwhile: replay our changes on top.
+            final ops = diffOps(text, desired);
+            text = desired;
+            final send = _ot!.local(ops, desired);
+            if (send != null) _send({'t': 'op', 'rev': _ot!.rev, 'ops': opsToJson(send)});
+          } else if (rev != old.rev && (desired != old.text || old.outstanding != null)) {
+            notice = '重连时别人也改了内容，已以服务器版本为准，断线期间的修改未保留';
+          }
+        }
+        _everLive = true;
         state = CollabState.live;
         if (!_welcome.isCompleted) _welcome.complete(text);
         if (resync) _setControllerText(text, null);
@@ -272,6 +341,9 @@ class CollabSession extends ChangeNotifier {
   }
 
   Future<void> close() async {
+    _closing = true;
+    _retryTimer?.cancel();
+    if (isHost && state == CollabState.live) _send({'t': 'end'});
     unbind();
     state = CollabState.closed;
     await _sub?.cancel();

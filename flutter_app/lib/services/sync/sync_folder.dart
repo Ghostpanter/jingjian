@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+
+import '../storage/blob_store.dart';
 
 import '../../models/note.dart';
 import '../../models/sync_config.dart';
@@ -17,8 +18,8 @@ Future<Directory> _resolveDir(SyncConfig config) async {
     await dir.create(recursive: true);
     return dir;
   }
-  final docs = await getApplicationDocumentsDirectory();
-  final dir = Directory(p.join(docs.path, 'jingjian', 'sync', configured));
+  final docsPath = await appDataRoot();
+  final dir = Directory(p.join(docsPath, 'jingjian', 'sync', configured));
   await dir.create(recursive: true);
   return dir;
 }
