@@ -13,6 +13,9 @@ class NoteStore {
 
   static const _uuid = Uuid();
   BlobStore? _blobs;
+
+  /// True when this launch found no notes at all (fresh install).
+  bool firstRun = false;
   final List<Note> _notes = [];
   final List<String> _extraFolders = [];
 
@@ -47,6 +50,7 @@ class NoteStore {
         await blobs.quarantine(key);
       }
     }
+    firstRun = _notes.isEmpty;
     if (_notes.isEmpty) {
       await create(
         content: '# 欢迎使用静笺\n\n在左侧新建笔记，右侧预览 Markdown。\n\n'
