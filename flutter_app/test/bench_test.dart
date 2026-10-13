@@ -57,14 +57,21 @@ void main() {
       out.writeln('旧搜索 "$q": ${ms(s)} ms ($hit 条)');
       s = Stopwatch()..start();
       final hit2 = SearchIndex.instance.search(all, q).length;
-      out.writeln('新搜索 "$q": ${ms(s)} ms ($hit2 条)');
+      out.writeln('新搜索 "$q"(多词AND): ${ms(s)} ms ($hit2 条)');
+      s = Stopwatch()..start();
+      final hit3 = SearchIndex.instance.search(all, '"$q"').length;
+      out.writeln('新搜索 "$q"(引号短语，等价旧版): ${ms(s)} ms ($hit3 条)');
+      expect(hit3, hit);
     }
     s = Stopwatch()..start();
     tagIndex(st.notes);
     out.writeln('tagIndex 5000: ${ms(s)} ms');
     s = Stopwatch()..start();
     linksFor(st.notes.first, st.notes);
-    out.writeln('backlinks 5000: ${ms(s)} ms');
+    out.writeln('backlinks 5000 (首次，建缓存): ${ms(s)} ms');
+    s = Stopwatch()..start();
+    linksFor(st.notes[1], st.notes);
+    out.writeln('backlinks 5000 (缓存后): ${ms(s)} ms');
     for (final lines in [10000, 50000]) {
       final big = '# 大笔记\n${List.generate(lines, (i) => i % 50 == 0 ? '## 第$i节' : para(8)).join('\n')}';
       final n = Note(id: 'big', content: big, createdAt: 0, updatedAt: 0);

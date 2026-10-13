@@ -622,7 +622,7 @@ class _HomeShellState extends State<HomeShell> {
                 child: TextField(
                   controller: _searchCtl,
                   decoration: InputDecoration(
-                    hintText: '搜索笔记',
+                    hintText: '搜索笔记（空格=同时包含，"引号"=整句）',
                     hintStyle: TextStyle(color: JingjianColors.muted),
                     prefixIcon: const Icon(Icons.search, size: 20),
                     filled: true,

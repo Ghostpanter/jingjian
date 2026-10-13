@@ -28,8 +28,17 @@ class SearchIndex {
     return (lower, title);
   }
 
-  static List<String> terms(String query) =>
-      query.toLowerCase().split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+  /// Space-separated terms (AND). Text in double quotes ("..." or “...”) is one
+  /// exact phrase, e.g. `"服务端 协作"` only matches the adjacent phrase.
+  static List<String> terms(String query) {
+    final out = <String>[];
+    final q = query.toLowerCase().replaceAll(RegExp('[“”]'), '"');
+    for (final m in RegExp(r'"([^"]*)"?|(\S+)').allMatches(q)) {
+      final t = (m.group(1) ?? m.group(2) ?? '').trim();
+      if (t.isNotEmpty && t != '"' && !out.contains(t)) out.add(t);
+    }
+    return out;
+  }
 
   bool matches(Note n, List<String> terms) {
     if (terms.isEmpty) return true;
