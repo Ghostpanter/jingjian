@@ -622,9 +622,12 @@ class _HomeShellState extends State<HomeShell> {
                 child: TextField(
                   controller: _searchCtl,
                   decoration: InputDecoration(
-                    hintText: '搜索笔记（空格=同时包含，"引号"=整句）',
+                    hintText: '搜索笔记',
                     hintStyle: TextStyle(color: JingjianColors.muted),
-                    prefixIcon: const Icon(Icons.search, size: 20),
+                    prefixIcon: const Tooltip(
+                      message: '多个词用空格分隔（需同时包含）；用 "引号" 搜索整句',
+                      child: Icon(Icons.search, size: 20),
+                    ),
                     filled: true,
                     fillColor: JingjianColors.overlay,
                     isDense: true,

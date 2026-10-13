@@ -264,7 +264,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    // Replace instead of queueing, so hints never show after they're stale.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
   // ---------- navigation ----------
@@ -813,7 +816,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       setState(() => _pane = _paneBeforeFocus!);
       _paneBeforeFocus = null;
     }
-    if (_focusMode) _snack('专注模式：按 Esc 或 F11 退出');
+    if (_focusMode) {
+      _snack('专注模式：按 Esc 或 F11 退出');
+    } else {
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    }
     // The layout changes around the editor; put the caret back.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _pane != _Pane.preview) _focus.requestFocus();
