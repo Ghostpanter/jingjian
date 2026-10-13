@@ -85,8 +85,8 @@ void main() {
     expect(enter('- [x] 完成')!.text, '- [x] 完成\n- [ ] ');
     expect(enter('9. 九')!.text, '9. 九\n10. ');
     expect(enter('> 引用')!.text, '> 引用\n> ');
-    expect(enter('x\n- ')!.text, 'x\n'); // empty item ends the list
-    expect(enter('- ')!.selection.baseOffset, 0);
+    expect(enter('x\n- ')!.text, 'x\n\n'); // empty item ends the list, leaves a blank line
+    expect(enter('- ')!.selection.baseOffset, 1);
     expect(enter('普通段落'), isNull);
     expect(enter('```\n- 代码里'), isNull);
     expect(enter('- - -'), isNull);
