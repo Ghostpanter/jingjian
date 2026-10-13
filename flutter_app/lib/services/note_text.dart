@@ -332,7 +332,8 @@ TextEditingValue? continueListOnEnter(TextEditingValue oldValue, TextEditingValu
   if (text.length != oldValue.text.length + 1 || at < 1 || at > text.length || text[at - 1] != '\n') return null;
   if (text.substring(0, at - 1) != oldValue.text.substring(0, at - 1)) return null;
   final lineStart = text.lastIndexOf('\n', at - 2) + 1;
-  final line = text.substring(lineStart, at - 1);
+  var line = text.substring(lineStart, at - 1);
+  if (line.endsWith('\r')) line = line.substring(0, line.length - 1); // CRLF notes
   if (line.length > 2000) return null;
   // Inside a ``` fence? Count fence lines before this one.
   var fences = 0;
@@ -358,6 +359,14 @@ TextEditingValue? continueListOnEnter(TextEditingValue oldValue, TextEditingValu
     rest = m[2]!;
   }
   if (prefix == null) return null;
+  final indent = m?[1] ?? '';
+  if (rest.trim().isEmpty && indent.isNotEmpty && !line.trimLeft().startsWith('>')) {
+    // Empty nested item + Enter: outdent one level (like Obsidian/Typora).
+    final cut = indent.endsWith('	') ? 1 : (indent.length >= 2 ? 2 : 1);
+    final newLine = '${indent.substring(0, indent.length - cut)}${line.substring(indent.length)}';
+    final out = text.substring(0, lineStart) + newLine + text.substring(at);
+    return TextEditingValue(text: out, selection: TextSelection.collapsed(offset: lineStart + newLine.length));
+  }
   if (rest.trim().isEmpty) {
     // Empty item + Enter: drop the marker and leave a blank line, so the
     // next paragraph is not swallowed into the list item (lazy continuation).

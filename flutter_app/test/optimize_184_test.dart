@@ -97,6 +97,18 @@ void main() {
     final mid = continueListOnEnter(v('- ab', 3), v('- a\nb', 4))!;
     expect(mid.text, '- a\n- b');
     expect(mid.selection.baseOffset, 6);
+    // Nested/ordered/task edge cases.
+    expect(enter('- a\n  - ')!.text, '- a\n- '); // empty nested item outdents
+    expect(enter('- a\n    - ')!.text, '- a\n  - ');
+    expect(enter('- a\n\t- [ ] ')!.text, '- a\n- [ ] ');
+    expect(enter('1. a\n   1. ')!.text, '1. a\n 1. ');
+    expect(enter('  2) 二')!.text, '  2) 二\n  3) ');
+    expect(enter('- [ ] 待办')!.text, '- [ ] 待办\n- [ ] ');
+    expect(enter('* [X] 大写')!.text, '* [X] 大写\n* [ ] ');
+    expect(enter('- [ ] ')!.text, '\n');
+    expect(enter('~~~\n1. 代码'), isNull);
+    expect(enter('```\nx\n```\n- 外面')!.text, '```\nx\n```\n- 外面\n- ');
+    expect(enter('- a\r'), isNotNull);
   });
 
   test('daily note lookup matches the 日记 template title', () {
