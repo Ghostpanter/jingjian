@@ -359,9 +359,10 @@ TextEditingValue? continueListOnEnter(TextEditingValue oldValue, TextEditingValu
   }
   if (prefix == null) return null;
   if (rest.trim().isEmpty) {
-    // Empty item + Enter: drop the marker, end the list.
-    final out = text.substring(0, lineStart) + text.substring(at);
-    return TextEditingValue(text: out, selection: TextSelection.collapsed(offset: lineStart));
+    // Empty item + Enter: drop the marker and leave a blank line, so the
+    // next paragraph is not swallowed into the list item (lazy continuation).
+    final out = '${text.substring(0, lineStart)}\n${text.substring(at)}';
+    return TextEditingValue(text: out, selection: TextSelection.collapsed(offset: lineStart + 1));
   }
   final out = text.substring(0, at) + prefix + text.substring(at);
   return TextEditingValue(text: out, selection: TextSelection.collapsed(offset: at + prefix.length));
