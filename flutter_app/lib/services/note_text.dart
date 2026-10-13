@@ -314,3 +314,61 @@ Note? findDailyNote(List<Note> notes, DateTime day) {
   }
   return null;
 }
+
+final _taskItem = RegExp(r'^(\s*)([-*+]) \[[ xX]\] (.*)$');
+final _bulletItem = RegExp(r'^(\s*)([-*+]) (.*)$');
+final _orderedItem = RegExp(r'^(\s*)(\d{1,9})([.)]) (.*)$');
+final _quoteLine = RegExp(r'^(\s*)> ?(.*)$');
+
+/// Markdown list continuation: when Enter adds a newline right after a list
+/// item / task / quote, start the next item; Enter on an empty item ends the
+/// list. Returns null when nothing should change (never during IME
+/// composition, inside code fences, or for anything but a single newline).
+TextEditingValue? continueListOnEnter(TextEditingValue oldValue, TextEditingValue newValue) {
+  final sel = newValue.selection;
+  if (!sel.isValid || !sel.isCollapsed || !newValue.composing.isCollapsed) return null;
+  final text = newValue.text;
+  final at = sel.baseOffset;
+  if (text.length != oldValue.text.length + 1 || at < 1 || at > text.length || text[at - 1] != '\n') return null;
+  if (text.substring(0, at - 1) != oldValue.text.substring(0, at - 1)) return null;
+  final lineStart = text.lastIndexOf('\n', at - 2) + 1;
+  final line = text.substring(lineStart, at - 1);
+  if (line.length > 2000) return null;
+  // Inside a ``` fence? Count fence lines before this one.
+  var fences = 0;
+  fences = RegExp(r'^\s*(```|~~~)', multiLine: true).allMatches(text.substring(0, lineStart)).length;
+  if (fences.isOdd) return null;
+
+  String? prefix;
+  String rest = '';
+  RegExpMatch? m;
+  if ((m = _taskItem.firstMatch(line)) != null) {
+    prefix = '${m![1]}${m[2]} [ ] ';
+    rest = m[3]!;
+  } else if ((m = _orderedItem.firstMatch(line)) != null) {
+    final next = (int.tryParse(m![2]!) ?? 0) + 1;
+    prefix = '${m[1]}$next${m[3]} ';
+    rest = m[4]!;
+  } else if ((m = _bulletItem.firstMatch(line)) != null) {
+    if (RegExp(r'^\s*([-*+])( \1)+\s*$').hasMatch(line.trimRight()) || line.trim() == '---') return null; // hr
+    prefix = '${m![1]}${m[2]} ';
+    rest = m[3]!;
+  } else if ((m = _quoteLine.firstMatch(line)) != null) {
+    prefix = '${m![1]}> ';
+    rest = m[2]!;
+  }
+  if (prefix == null) return null;
+  if (rest.trim().isEmpty) {
+    // Empty item + Enter: drop the marker, end the list.
+    final out = text.substring(0, lineStart) + text.substring(at);
+    return TextEditingValue(text: out, selection: TextSelection.collapsed(offset: lineStart));
+  }
+  final out = text.substring(0, at) + prefix + text.substring(at);
+  return TextEditingValue(text: out, selection: TextSelection.collapsed(offset: at + prefix.length));
+}
+
+class ListContinuationFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) =>
+      continueListOnEnter(oldValue, newValue) ?? newValue;
+}

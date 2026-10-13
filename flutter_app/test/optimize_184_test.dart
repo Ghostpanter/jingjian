@@ -74,6 +74,31 @@ void main() {
     expect(highlightSpans('无匹配', ['x'], const Color(0xff00ff00)).children, isNull);
   });
 
+  test('Enter continues lists, ends them on empty items, skips fences and IME', () {
+    TextEditingValue v(String t, int at) => TextEditingValue(text: t, selection: TextSelection.collapsed(offset: at));
+    TextEditingValue? enter(String before) {
+      final at = before.length;
+      return continueListOnEnter(v(before, at), v('$before\n', at + 1));
+    }
+    expect(enter('- 苹果')!.text, '- 苹果\n- ');
+    expect(enter('  * a')!.text, '  * a\n  * ');
+    expect(enter('- [x] 完成')!.text, '- [x] 完成\n- [ ] ');
+    expect(enter('9. 九')!.text, '9. 九\n10. ');
+    expect(enter('> 引用')!.text, '> 引用\n> ');
+    expect(enter('x\n- ')!.text, 'x\n'); // empty item ends the list
+    expect(enter('- ')!.selection.baseOffset, 0);
+    expect(enter('普通段落'), isNull);
+    expect(enter('```\n- 代码里'), isNull);
+    expect(enter('- - -'), isNull);
+    final composing = TextEditingValue(
+        text: '- a\n', selection: const TextSelection.collapsed(offset: 4), composing: const TextRange(start: 0, end: 3));
+    expect(continueListOnEnter(v('- a', 3), composing), isNull);
+    // Enter in the middle of a line keeps the tail after the new marker.
+    final mid = continueListOnEnter(v('- ab', 3), v('- a\nb', 4))!;
+    expect(mid.text, '- a\n- b');
+    expect(mid.selection.baseOffset, 6);
+  });
+
   test('daily note lookup matches the 日记 template title', () {
     final day = DateTime(2026, 10, 14, 9);
     final daily = noteTemplates.firstWhere((t) => t.id == 'daily').build(day);

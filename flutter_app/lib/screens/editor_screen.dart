@@ -75,6 +75,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _formatBar = true;
   bool _imageBusy = false;
   bool _focusMode = false;
+  final _listFormatter = ListContinuationFormatter();
   _Pane? _paneBeforeFocus;
   final _bodyKey = GlobalKey(debugLabel: 'editor-body'); // keeps caret when toggling 专注模式
 
@@ -1152,6 +1153,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
         ),
+        inputFormatters: note.format == NoteFormat.txt ? null : [_listFormatter],
         onChanged: _onText,
       ),
     );
