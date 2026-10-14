@@ -66,6 +66,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   final _findFocus = FocusNode();
   Timer? _debounce;
   StreamSubscription<void>? _ttsSub;
+  StreamSubscription<String>? _ttsErrSub;
   _Pane _pane = _Pane.split;
   bool _ttsOn = false;
   bool _findOpen = false;
@@ -116,6 +117,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _previewText = _controller.text;
     _focus = FocusNode();
     _ttsSub = TtsService.instance.onComplete.listen((_) => _onSpeakDone());
+    _ttsErrSub = TtsService.instance.onError.listen((e) {
+      if (_ttsOn && mounted) {
+        setState(() => _ttsOn = false);
+        _ttsProblem(e);
+      }
+    });
     _collab.addListener(_onCollab);
     _bindCollab();
     WidgetsBinding.instance.addObserver(this);
@@ -183,6 +190,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
     _flush();
     _ttsSub?.cancel();
+    _ttsErrSub?.cancel();
     _controller.dispose();
     _twTimer?.cancel();
     _editorScroll.dispose();
@@ -418,11 +426,27 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       return;
     }
     setState(() => _ttsOn = true);
-    final ok = await TtsService.instance.speak(_controller.text);
-    if (!ok && mounted) {
+    final err = await TtsService.instance.start(_controller.text);
+    if (!mounted) return;
+    if (err != null) {
       setState(() => _ttsOn = false);
-      _snack('无法朗读：系统未提供可用的语音引擎或内容为空');
+      _ttsProblem(err);
+    } else if (TtsService.instance.lastError != null) {
+      _ttsProblem(TtsService.instance.lastError!);
     }
+  }
+
+  void _ttsProblem(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 8),
+        action: defaultTargetPlatform == TargetPlatform.android && !kIsWeb
+            ? SnackBarAction(label: '打开 TTS 设置', onPressed: () => TtsService.openSystemSettings())
+            : null,
+      ));
   }
 
   Future<void> _export() async {

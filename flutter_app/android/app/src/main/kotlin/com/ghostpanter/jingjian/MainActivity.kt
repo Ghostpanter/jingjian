@@ -13,6 +13,18 @@ class MainActivity : FlutterActivity() {
                 "export" -> LegacyExporter(this).run { out, err ->
                     if (err != null) result.error("legacy", err, null) else result.success(out)
                 }
+                "openTtsSettings" -> {
+                    val ok = try {
+                        startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                        true
+                    } catch (e: Exception) {
+                        try {
+                            startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            true
+                        } catch (e2: Exception) { false }
+                    }
+                    result.success(ok)
+                }
                 else -> result.notImplemented()
             }
         }
