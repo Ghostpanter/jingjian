@@ -21,7 +21,7 @@ class _ServerAdapter implements SyncAdapter {
   Future<String> test() async {
     final response = await syncRequest(joinUrl([_base, 'health']), headers: _headers);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('服务器返回 ${response.statusCode}');
+      throw Exception(syncHttpError('同步服务器', response.statusCode));
     }
     try {
       final payload = jsonDecode(decodeUtf8Body(response.bodyBytes)) as Map<String, dynamic>;
@@ -36,7 +36,7 @@ class _ServerAdapter implements SyncAdapter {
   Future<List<Note>> list() async {
     final response = await syncRequest(joinUrl([_base, 'api/notes']), headers: _headers);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('拉取失败（${response.statusCode}）');
+      throw Exception(syncHttpError('同步服务器', response.statusCode));
     }
     final payload = jsonDecode(decodeUtf8Body(response.bodyBytes)) as Map<String, dynamic>;
     final notes = payload['notes'] as List? ?? [];
@@ -63,7 +63,7 @@ class _ServerAdapter implements SyncAdapter {
       body: jsonEncode({...note.toJson(), 'raw': await serializeNoteWithImages(note)}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('上传失败（${response.statusCode}）');
+      throw Exception(syncHttpError('同步服务器', response.statusCode));
     }
   }
 
@@ -76,7 +76,7 @@ class _ServerAdapter implements SyncAdapter {
     );
     if (response.statusCode != 404 &&
         (response.statusCode < 200 || response.statusCode >= 300)) {
-      throw Exception('删除失败（${response.statusCode}）');
+      throw Exception(syncHttpError('同步服务器', response.statusCode));
     }
   }
 }

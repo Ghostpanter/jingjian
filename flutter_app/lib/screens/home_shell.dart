@@ -48,6 +48,7 @@ class _HomeShellState extends State<HomeShell> {
   bool _starredOnly = false;
   final Set<String> _expanded = {};
   String _syncMsg = '';
+  String? _syncErr;
   bool _syncing = false;
 
   Timer? _warmTimer;
@@ -174,6 +175,28 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  Future<void> _showSyncError() async {
+    final err = _syncErr;
+    if (err == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('同步未成功'),
+        content: Text('$err\n\n笔记仍保存在本机，不受影响。可在 设置 → 同步 中检查配置后重试。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _syncNow();
+            },
+            child: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _syncNow({bool quiet = false}) async {
     if (_syncing) return;
     final cfg = AppPrefs.instance.readSyncConfig();
@@ -183,6 +206,7 @@ class _HomeShellState extends State<HomeShell> {
     }
     setState(() {
       _syncing = true;
+      _syncErr = null;
       _syncMsg = '同步中…';
     });
     try {
@@ -195,7 +219,14 @@ class _HomeShellState extends State<HomeShell> {
       }
       if (mounted) setState(() {});
     } catch (e) {
-      if (mounted) setState(() => _syncMsg = e.toString().replaceFirst('Exception: ', ''));
+      final full = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        setState(() {
+          _syncErr = full;
+          // Keep the note list calm: a short line, details on tap.
+          _syncMsg = quiet ? '自动同步未成功 · 点此查看' : '同步未成功 · 点此查看';
+        });
+      }
     } finally {
       _syncing = false;
     }
@@ -677,13 +708,16 @@ class _HomeShellState extends State<HomeShell> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text(
+                child: GestureDetector(
+                  onTap: _syncErr == null ? null : _showSyncError,
+                  child: Text(
                   [
                     if (_folderFilter != null) _folderFilter!,
                     if (_tagFilter != null) '#$_tagFilter',
                     if (_syncMsg.isNotEmpty) _syncMsg,
                   ].join(' · '),
                   style: TextStyle(fontSize: 12, color: JingjianColors.muted),
+                ),
                 ),
               ),
             ),

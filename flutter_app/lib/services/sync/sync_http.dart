@@ -54,3 +54,23 @@ Future<http.Response> syncRequest(
     client.close();
   }
 }
+
+
+/// Plain-Chinese explanation for an HTTP failure from a sync backend.
+/// [kind] is 'WebDAV' / 'OSS' / '同步服务器'.
+String syncHttpError(String kind, int code) {
+  final hint = switch (code) {
+    401 => '账号、密码或密钥不正确',
+    403 => '没有权限（检查账号权限、应用密码或 Bucket 授权）',
+    404 => kind == 'OSS'
+        ? '找不到 Bucket 或地址不对（检查 Endpoint、Bucket 名与地域）'
+        : kind == 'WebDAV'
+            ? '找不到同步目录（检查 WebDAV 地址与路径，例如坚果云为 https://dav.jianguoyun.com/dav/目录名/）'
+            : '服务器上没有这个接口，可能需要更新并重新部署同步服务端',
+    405 => '服务器不支持该操作（地址可能不是 WebDAV / 同步服务）',
+    429 || 503 => '服务器繁忙或限流，请稍后重试',
+    >= 500 => '服务器内部错误，请稍后重试或检查服务端日志',
+    _ => '请检查 设置 → 同步 中的配置',
+  };
+  return '$kind 同步失败（$code）：$hint';
+}
