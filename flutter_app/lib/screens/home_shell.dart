@@ -1,3 +1,4 @@
+import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/note.dart';
 import '../models/sync_config.dart';
+import '../services/backlinks.dart';
 import '../services/app_prefs.dart';
 import '../services/ebook_service.dart';
 import '../services/export_service.dart';
@@ -12,6 +14,7 @@ import '../services/folder_tree.dart';
 import '../services/import_service.dart';
 import '../services/note_store.dart';
 import '../services/note_text.dart';
+import '../services/search_index.dart';
 import '../services/collab/collab_session.dart';
 import '../services/publish/blog_platforms.dart';
 import '../widgets/collab_dialog.dart';
@@ -36,6 +39,7 @@ class _HomeShellState extends State<HomeShell> {
   String? _activeId;
   bool _activeSpeak = false;
   String _query = '';
+  bool _zen = false; // 专注模式: editor only, not persisted
   final _searchCtl = TextEditingController();
   double _sbRaw = 0, _lsRaw = 0;
   bool get _filtered_ => _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
@@ -46,12 +50,23 @@ class _HomeShellState extends State<HomeShell> {
   String _syncMsg = '';
   bool _syncing = false;
 
+  Timer? _warmTimer;
+
+  @override
+  void dispose() {
+    _warmTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
     final list = _sorted(_store.notes);
     if (list.isNotEmpty) _activeId = list.first.id;
     _maybeAutoSync();
+    _warmTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) warmLinkCache(_store.notes);
+    });
   }
 
   void _snack(String msg) {
@@ -90,10 +105,7 @@ class _HomeShellState extends State<HomeShell> {
     if (_folderFilter != null) all = notesInFolder(all, _folderFilter, includeNested: true);
     if (_starredOnly) all = all.where((n) => n.starred).toList();
     if (_tagFilter != null) all = all.where((n) => noteHasTag(n, _tagFilter!)).toList();
-    final q = _query.trim().toLowerCase();
-    if (q.isNotEmpty) {
-      all = all.where((n) => n.title.toLowerCase().contains(q) || n.content.toLowerCase().contains(q)).toList();
-    }
+    if (_query.trim().isNotEmpty) all = SearchIndex.instance.search(all, _query);
     return _sorted(all);
   }
 
@@ -102,6 +114,7 @@ class _HomeShellState extends State<HomeShell> {
     if (wide) {
       setState(() {
         _activeId = id;
+        _zen = false;
         _activeSpeak = speak;
       });
     } else {
@@ -119,6 +132,19 @@ class _HomeShellState extends State<HomeShell> {
     if (_tagFilter != null && t.id == 'blank') content = '\n\n#$_tagFilter';
     final note = await _store.create(content: content, folder: _folderFilter);
     if (!mounted) return;
+    _openNote(note.id);
+  }
+
+  /// Open today's 日记 note, creating it (in the 日记 folder) if needed.
+  Future<void> _openDaily() async {
+    final now = DateTime.now();
+    var note = findDailyNote(_store.notes, now);
+    note ??= await _store.create(
+      content: noteTemplates.firstWhere((t) => t.id == 'daily').build(now),
+      folder: '日记',
+    );
+    if (!mounted) return;
+    setState(() {});
     _openNote(note.id);
   }
 
@@ -611,7 +637,10 @@ class _HomeShellState extends State<HomeShell> {
                   decoration: InputDecoration(
                     hintText: '搜索笔记',
                     hintStyle: TextStyle(color: JingjianColors.muted),
-                    prefixIcon: const Icon(Icons.search, size: 20),
+                    prefixIcon: const Tooltip(
+                      message: '多个词用空格分隔（需同时包含）；用 "引号" 搜索整句',
+                      child: Icon(Icons.search, size: 20),
+                    ),
                     filled: true,
                     fillColor: JingjianColors.overlay,
                     isDense: true,
@@ -669,13 +698,17 @@ class _HomeShellState extends State<HomeShell> {
                         selected: note.id == _activeId,
                         selectedTileColor: JingjianColors.overlay,
                         leading: note.starred ? Icon(Icons.star, size: 18, color: JingjianColors.accent) : null,
-                        title: Text(note.title,
+                        title: Text.rich(
+                            highlightSpans(note.title, SearchIndex.terms(_query), JingjianColors.accent),
                             maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                          [
+                        subtitle: Text.rich(
+                          highlightSpans([
                             if (note.folder != null && note.folder!.isNotEmpty && _folderFilter == null) note.folder!,
-                            if (note.preview.isNotEmpty) note.preview,
-                          ].join(' · '),
+                            if (_query.trim().isNotEmpty)
+                              SearchIndex.instance.snippet(note, _query)
+                            else if (note.preview.isNotEmpty)
+                              note.preview,
+                          ].where((s) => s.isNotEmpty).join(' · '), SearchIndex.terms(_query), JingjianColors.accent),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: JingjianColors.muted, fontSize: 12),
@@ -751,6 +784,8 @@ class _HomeShellState extends State<HomeShell> {
                 await _themeMenu();
               case 'quick':
                 await _quickOpen();
+              case 'daily':
+                await _openDaily();
               case 'folder':
                 await _addFolder();
               case 'images':
@@ -781,6 +816,7 @@ class _HomeShellState extends State<HomeShell> {
             const PopupMenuItem(value: 'theme', child: Text('主题…')),
             const PopupMenuDivider(),
             const PopupMenuItem(value: 'quick', child: Text('快速打开  Ctrl+P')),
+            const PopupMenuItem(value: 'daily', child: Text('今日日记  Ctrl+Shift+D')),
             const PopupMenuItem(value: 'folder', child: Text('新建文件夹')),
             const PopupMenuItem(value: 'images', child: Text('图片库')),
             const PopupMenuItem(value: 'import', child: Text('导入 Markdown / TXT / ZIP')),
@@ -878,10 +914,10 @@ class _HomeShellState extends State<HomeShell> {
       ]);
     } else {
       body = Row(children: [
-        if (sidebarFits) SizedBox(width: sw, child: _folderPane()),
-        sidebarHandle(),
-        if (showList) SizedBox(width: lw, child: _noteList()),
-        listHandle(),
+        if (sidebarFits && !_zen) SizedBox(width: sw, child: _folderPane()),
+        if (!_zen) sidebarHandle(),
+        if (showList && !_zen) SizedBox(width: lw, child: _noteList()),
+        if (!_zen) listHandle(),
         Expanded(
           child: active == null
               ? Center(child: Text(showList ? '选择或新建一篇笔记' : '列表已收起，点左上角按钮展开', style: TextStyle(color: JingjianColors.muted)))
@@ -892,6 +928,7 @@ class _HomeShellState extends State<HomeShell> {
                   autoSpeak: _activeSpeak,
                   onChanged: () => setState(() {}),
                   onOpenNote: _openNote,
+                  onFocusMode: (on) => setState(() => _zen = on),
                 ),
         ),
       ]);
@@ -904,6 +941,7 @@ class _HomeShellState extends State<HomeShell> {
         const SingleActivator(LogicalKeyboardKey.keyP, control: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyP, meta: true): _quickOpen,
         const SingleActivator(LogicalKeyboardKey.keyO, control: true): _quickOpen,
+        const SingleActivator(LogicalKeyboardKey.keyD, control: true, shift: true): _openDaily,
         const SingleActivator(LogicalKeyboardKey.backslash, control: true): () {
           ThemeController.instance.setCollapsed(sidebar: !ThemeController.instance.sidebarCollapsed);
           setState(() {});
@@ -922,7 +960,7 @@ class _HomeShellState extends State<HomeShell> {
             _searchCtl.clear();
           });
         },
-        child: Focus(autofocus: true, child: Scaffold(appBar: bar, body: body)),
+        child: Focus(autofocus: true, child: Scaffold(appBar: _zen && wide ? null : bar, body: body)),
       ),
     );
   }
@@ -950,7 +988,7 @@ class _QuickOpenState extends State<_QuickOpen> {
         starts.add(n);
       } else if (t.contains(s)) {
         contains.add(n);
-      } else if (n.content.toLowerCase().contains(s)) {
+      } else if (SearchIndex.instance.matches(n, [s])) {
         body.add(n);
       }
     }

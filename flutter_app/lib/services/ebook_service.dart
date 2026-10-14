@@ -58,6 +58,9 @@ class EbookService {
     final text = utf8.decode(bytes, allowMalformed: true);
     final bad = '\uFFFD'.allMatches(text).length;
     if (bad == 0) return text;
+    // A few bad bytes in otherwise valid UTF-8 (truncated download, one stray
+    // byte) must not flip the whole book to GBK mojibake.
+    if (bad <= 4 || bad * 1000 < text.length) return text;
     // Same as the old app: fall back to GBK/GB18030 when it decodes cleaner.
     try {
       final g = const GbkCodec(allowMalformed: true).decode(bytes);

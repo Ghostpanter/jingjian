@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 export const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -7,12 +8,28 @@ export function isInsideDir(root, target) {
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
-export function parseNote(raw, fallbackId) {
+/**
+ * Stable UUID (v5 layout) for a file that has no frontmatter id, so a plain
+ * .md dropped into the notes folder keeps the same id on every load instead
+ * of looking like a brand-new note to clients each sync.
+ */
+export function stableIdFor(fileName) {
+  const h = createHash("sha1").update(`jingjian:${fileName}`).digest();
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const x = h.subarray(0, 16).toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+}
+
+/** times: optional {createdAt, updatedAt} (e.g. file birth/mtime) used when frontmatter lacks them. */
+export function parseNote(raw, fallbackId, times = {}) {
   const text = String(raw || "").replace(/^\uFEFF/, "");
   const match = text.match(FRONTMATTER);
+  const now = Date.now();
+  const fbUpdated = Number(times.updatedAt) || now;
+  const fbCreated = Number(times.createdAt) || fbUpdated;
   if (!match) {
-    const now = Date.now();
-    return { id: fallbackId, content: text, createdAt: now, updatedAt: now, file: "" };
+    return { id: fallbackId, content: text, createdAt: fbCreated, updatedAt: fbUpdated, file: "" };
   }
   const meta = {};
   for (const line of match[1].split("\n")) {
@@ -22,8 +39,8 @@ export function parseNote(raw, fallbackId) {
   }
   return {
     id: meta.id || fallbackId,
-    createdAt: Number(meta.createdAt) || Date.now(),
-    updatedAt: Number(meta.updatedAt) || Date.now(),
+    createdAt: Number(meta.createdAt) || fbCreated,
+    updatedAt: Number(meta.updatedAt) || fbUpdated,
     content: text.slice(match[0].length),
     file: "",
   };

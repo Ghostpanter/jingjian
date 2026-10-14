@@ -15,6 +15,7 @@ import '../services/publish/blog_platforms.dart';
 import '../services/export_service.dart';
 import '../services/folder_tree.dart';
 import '../services/image_store.dart';
+import '../services/note_history.dart';
 import '../services/note_store.dart';
 import '../services/note_text.dart';
 import '../services/tts_service.dart';
@@ -35,6 +36,7 @@ class EditorScreen extends StatefulWidget {
     this.onChanged,
     this.onOpenNote,
     this.autoSpeak = false,
+    this.onFocusMode,
   });
 
   final String noteId;
@@ -45,9 +47,15 @@ class EditorScreen extends StatefulWidget {
   final void Function(String id, {bool speak})? onOpenNote;
   final bool autoSpeak;
 
+  /// Embedded editor asks the shell to hide/show its side panes (专注模式).
+  final ValueChanged<bool>? onFocusMode;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
+
+const _livePreviewLimit = 20000;
+const _webHeavyChars = 150000;
 
 class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
   final _store = NoteStore.instance;
@@ -67,6 +75,37 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   int _findIndex = 0;
   bool _formatBar = true;
   bool _imageBusy = false;
+  bool _focusMode = false;
+  DateTime? _menuPickedAt;
+  Widget? _previewWidget;
+  String _previewWidgetKey = '';
+  final _listFormatter = ListContinuationFormatter();
+  late final _slashFormatter = SlashTriggerFormatter(() {
+    if (_slashPending) return;
+    _slashPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _slashMenu());
+  });
+  bool _slashPending = false;
+  final _editorScroll = ScrollController();
+  final _editorBoxKey = GlobalKey();
+  bool _typewriter = false;
+  Timer? _twTimer;
+  _Pane? _paneBeforeFocus;
+  final _bodyKey = GlobalKey(debugLabel: 'editor-body'); // keeps caret when toggling 专注模式
+
+  /// Text shown in the preview. Big notes refresh it on the save debounce
+  /// instead of every keystroke, so typing stays smooth in split view.
+  String _previewText = '';
+  String? _countFor;
+  ({int chars, int words, int lines}) _count = (chars: 0, words: 0, lines: 0);
+  ({int chars, int words, int lines}) get _liveCount {
+    final t = _controller.text;
+    if (!identical(t, _countFor)) {
+      _countFor = t;
+      _count = countText(t);
+    }
+    return _count;
+  }
   final _collab = CollabManager.instance;
 
   @override
@@ -74,6 +113,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     super.initState();
     final note = _store.byId(widget.noteId);
     _controller = TextEditingController(text: note?.content ?? '');
+    _previewText = _controller.text;
     _focus = FocusNode();
     _ttsSub = TtsService.instance.onComplete.listen((_) => _onSpeakDone());
     _collab.addListener(_onCollab);
@@ -84,6 +124,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       final narrow = MediaQuery.sizeOf(context).width < 720;
       if (!widget.embedded && narrow) {
         setState(() => _pane = (note?.bookId != null) ? _Pane.preview : _Pane.edit);
+      }
+      // Web lays out the whole TextField text on every keystroke; very large
+      // notes (≈10k+ lines) take ~1s per key there. Open them in preview.
+      if (kIsWeb && (note?.content.length ?? 0) > _webHeavyChars) {
+        setState(() => _pane = _Pane.preview);
+        _snack('笔记很大（${((note!.content.length) / 1024).round()} KB），网页版先以预览打开；编辑会较慢，建议用「在光标处拆分章节」拆小，或用桌面/手机版');
       }
       final n = _store.byId(widget.noteId);
       if (n != null) {
@@ -138,6 +184,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _flush();
     _ttsSub?.cancel();
     _controller.dispose();
+    _twTimer?.cancel();
+    _editorScroll.dispose();
     _focus.dispose();
     _findCtl.dispose();
     _replaceCtl.dispose();
@@ -165,10 +213,42 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   void _onText(String value) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 280), () async {
+      if (mounted) setState(() => _previewText = _controller.text);
       await _save(value);
       if (mounted) setState(() {});
     });
-    setState(() {});
+    setState(() {
+      if (value.length < _livePreviewLimit) _previewText = value;
+    });
+    if (_typewriter) {
+      // After EditableText's own "show caret" scroll (≈100 ms), re-centre.
+      _twTimer?.cancel();
+      _twTimer = Timer(const Duration(milliseconds: 160), _centerCaret);
+    }
+  }
+
+  /// 打字机模式: keep the caret line vertically centred while typing.
+  void _centerCaret() {
+    if (!mounted || !_typewriter || !_editorScroll.hasClients) return;
+    EditableTextState? ed;
+    void visit(Element e) {
+      if (ed != null) return;
+      if (e is StatefulElement && e.state is EditableTextState) {
+        ed = e.state as EditableTextState;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+    _editorBoxKey.currentContext?.visitChildElements(visit);
+    final re = ed?.renderEditable;
+    final sel = _controller.selection;
+    if (re == null || !re.hasSize || !sel.isValid) return;
+    final caret = re.getLocalRectForCaret(TextPosition(offset: sel.extentOffset));
+    final pos = _editorScroll.position;
+    final target = (pos.pixels + caret.center.dy - re.size.height / 2).clamp(0.0, pos.maxScrollExtent);
+    if ((target - pos.pixels).abs() > 4) {
+      _editorScroll.animateTo(target, duration: const Duration(milliseconds: 120), curve: Curves.easeOut);
+    }
   }
 
   void _setValue(TextEditingValue v) {
@@ -184,7 +264,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    // Replace instead of queueing, so hints never show after they're stale.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
   // ---------- navigation ----------
@@ -265,6 +348,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
     await _store.update(note.copyWith(content: head, updatedAt: now));
     _controller.text = head;
+    _previewText = head;
     final created = await _store.create(content: tail, folder: note.folder);
     await _store.update(created.copyWith(
       bookId: note.bookId,
@@ -290,6 +374,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     await _store.update(note.copyWith(content: merged, updatedAt: DateTime.now().millisecondsSinceEpoch));
     await _store.moveToTrash(next.id);
     _controller.text = merged;
+    _previewText = merged;
     widget.onChanged?.call();
     setState(() {});
     _snack('已合并下一章（原章节移入回收站）');
@@ -462,7 +547,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     if (!mounted) return;
     final lines = [
       for (final o in r.ok) '✓ ${o.label}${o.updated ? '（已更新）' : ''}：${o.detail}',
-      for (final f in r.failed) '✗ ${f.$1}：${f.$2}',
+      for (final f in r.failed) '× ${f.$1}：${f.$2}',
     ];
     await showDialog<void>(
       context: context,
@@ -500,6 +585,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   }
 
   void _insertMarkdownAtCursor(String md) {
+    if (_pane == _Pane.preview) setState(() => _pane = _Pane.edit); // show what was inserted
     final sel = _controller.selection;
     final text = _controller.text;
     final start = sel.isValid ? sel.start : text.length;
@@ -719,6 +805,196 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         ),
       ),
     );
+  }
+
+  void _toggleFocusMode() {
+    setState(() => _focusMode = !_focusMode);
+    widget.onFocusMode?.call(_focusMode);
+    if (_focusMode) {
+      _paneBeforeFocus = _pane;
+      if (_pane == _Pane.split) setState(() => _pane = _Pane.edit);
+    } else if (_paneBeforeFocus != null) {
+      setState(() => _pane = _paneBeforeFocus!);
+      _paneBeforeFocus = null;
+    }
+    if (_focusMode) {
+      _snack('专注模式：按 Esc 或 F11 退出');
+    } else {
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    }
+    // The layout changes around the editor; put the caret back.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pane != _Pane.preview) _focus.requestFocus();
+    });
+  }
+
+  String _ago(int t) {
+    final d = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(t));
+    if (d.inMinutes < 1) return '刚刚';
+    if (d.inHours < 1) return '${d.inMinutes} 分钟前';
+    if (d.inDays < 1) return '${d.inHours} 小时前';
+    final dt = DateTime.fromMillisecondsSinceEpoch(t);
+    return '${dateStamp(dt)} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _history() async {
+    _flush();
+    final versions = NoteHistory.instance.versions(NoteStore.keyFor(widget.noteId));
+    const reasons = {'auto': '自动', 'sync': '同步前', 'restore': '恢复前', 'replace': '替换前'};
+    final pick = await showDialog<NoteVersion>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('历史版本'),
+        content: SizedBox(
+          width: 420,
+          child: versions.isEmpty
+              ? Text(_controller.text.length > NoteHistory.maxNoteChars
+                  ? '这篇笔记超过 ${NoteHistory.maxNoteChars ~/ 10000} 万字，为节省空间不保存历史版本。'
+                  : '还没有历史版本。编辑超过 10 分钟、同步覆盖或全部替换前，会自动保存旧版本（仅存本机）。')
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: versions.length,
+                  itemBuilder: (_, i) {
+                    final v = versions[i];
+                    final c = countText(v.content);
+                    final first = v.content.trim().split('\n').first;
+                    return ListTile(
+                      dense: true,
+                      title: Text('${_ago(v.time)} · ${reasons[v.reason] ?? v.reason}'),
+                      subtitle: Text('${c.chars} 字 · $first', maxLines: 1, overflow: TextOverflow.ellipsis),
+                      onTap: () => Navigator.pop(ctx, v),
+                    );
+                  },
+                ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭'))],
+      ),
+    );
+    if (pick == null || !mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('恢复到 ${_ago(pick.time)} 的版本？'),
+        content: SizedBox(
+          width: 520,
+          height: 360,
+          child: SingleChildScrollView(child: SelectableText(pick.content, style: const TextStyle(fontSize: 13))),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('恢复（当前内容会存为历史）')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final note = _note;
+    if (note == null) return;
+    _debounce?.cancel();
+    await _store.update(note.copyWith(content: pick.content, updatedAt: DateTime.now().millisecondsSinceEpoch),
+        historyReason: 'restore');
+    _controller.text = pick.content;
+    _previewText = pick.content;
+    widget.onChanged?.call();
+    setState(() {});
+    _snack('已恢复历史版本');
+  }
+
+  /// "/" on an empty line: pick a block to insert; the "/" is replaced.
+  /// Esc keeps the "/" as typed.
+  Future<void> _slashMenu() async {
+    try {
+      if (!mounted || _note == null) return;
+      final cmds = <(String, String, VoidCallback)>[
+        for (final it in slashItems) (it.$1, it.$2, () => _applySlash(it.$3)),
+      ];
+      final picked = await showDialog<VoidCallback>(
+        context: context,
+        builder: (ctx) => _CommandPalette(commands: cmds, hint: '插入…（输入筛选，Esc 保留 /）'),
+      );
+      _menuPickedAt = DateTime.now();
+      if (!mounted) return;
+      if (picked != null) picked();
+      _focus.requestFocus();
+    } finally {
+      _slashPending = false;
+    }
+  }
+
+  void _applySlash(String kind) {
+    final v = _controller.value;
+    final at = v.selection.isValid ? v.selection.baseOffset : -1;
+    if (at >= 1 && at <= v.text.length && v.text[at - 1] == '/') {
+      _controller.value = TextEditingValue(
+        text: v.text.replaceRange(at - 1, at, ''),
+        selection: TextSelection.collapsed(offset: at - 1),
+      );
+    }
+    _markup(kind);
+  }
+
+  Future<void> _commandPalette() async {
+    final note = _note;
+    if (note == null) return;
+    final cmds = <(String, String, VoidCallback)>[
+      ('大纲', '', () => _outline()),
+      ('双链 / 反向链接', '', () => _links()),
+      ('历史版本', '', () => _history()),
+      ('字数统计', '', _showCount),
+      ('查找', 'Ctrl+F', () => _openFind()),
+      ('查找替换', 'Ctrl+H', () => _openFind(replace: true)),
+      ('切换 源码 / 分栏 / 预览', 'Ctrl+E', _cyclePane),
+      (_focusMode ? '退出专注模式' : '专注模式', 'F11', _toggleFocusMode),
+      (_typewriter ? '关闭打字机模式' : '打字机模式（光标行居中）', '', () {
+        setState(() => _typewriter = !_typewriter);
+        _snack(_typewriter ? '打字机模式：光标行保持在屏幕中间' : '已关闭打字机模式');
+        _focus.requestFocus();
+        if (_typewriter) WidgetsBinding.instance.addPostFrameCallback((_) => _centerCaret());
+      }),
+      (_formatBar ? '隐藏格式工具栏' : '显示格式工具栏', '', () => setState(() => _formatBar = !_formatBar)),
+      ('插入当前日期时间', '', () => _insertMarkdownAtCursor(isoLocal(DateTime.now()))),
+      ('插入表格', '', () => _markup('table')),
+      ('插入 Mermaid 图', '', () => _markup('mermaid')),
+      ('插入待办', '', () => _markup('task')),
+      ('朗读 / 停止朗读', '', () => _toggleTts()),
+      ('导出…', '', () => _export()),
+      ('打印 / 存为 PDF', '', () => _print()),
+      ('发布到博客…', '', () => _publish()),
+      ('移动到文件夹', '', () => _moveFolder()),
+      (note.starred ? '取消星标' : '加星标', '', () async {
+        await _store.toggleStar(widget.noteId);
+        widget.onChanged?.call();
+        if (mounted) setState(() {});
+      }),
+      ('立即保存', 'Ctrl+S', _flush),
+      ('移到回收站', '', () => _trash()),
+    ];
+    final picked = await showDialog<VoidCallback>(
+      context: context,
+      builder: (ctx) => _CommandPalette(commands: cmds),
+    );
+    _menuPickedAt = DateTime.now(); // web: late back event after dialog close
+    if (picked != null && mounted) picked();
+  }
+
+  Widget _focusLayout(Widget body) {
+    return Stack(children: [
+      Positioned.fill(
+        child: Container(
+          color: JingjianColors.paper,
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: body),
+        ),
+      ),
+      Positioned(
+        top: 4,
+        right: 4,
+        child: IconButton(
+          tooltip: '退出专注模式（Esc）',
+          onPressed: _toggleFocusMode,
+          icon: Icon(Icons.close_fullscreen, color: JingjianColors.muted),
+        ),
+      ),
+    ]);
   }
 
   void _showCount() {
@@ -946,10 +1222,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     final prev = _sibling(-1), next = _sibling(1);
 
     final editor = Container(
+      key: _editorBoxKey,
       color: JingjianColors.paper,
       child: TextField(
         controller: _controller,
         focusNode: _focus,
+        scrollController: _editorScroll,
         maxLines: null,
         expands: true,
         keyboardType: TextInputType.multiline,
@@ -971,13 +1249,14 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
             }
           },
         ),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           filled: false,
-          contentPadding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+          contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
         ),
+        inputFormatters: note.format == NoteFormat.txt ? null : [_listFormatter, _slashFormatter],
         onChanged: _onText,
       ),
     );
@@ -998,11 +1277,20 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
             child: editor,
           );
 
-    final preview = MarkdownPreview(
-      content: _controller.text,
-      plain: note.format == NoteFormat.txt,
-      onWikiTap: _openWiki,
-    );
+    // Reuse the same preview widget while its inputs are unchanged, so a
+    // keystroke in a big note does not rebuild (and re-split) the preview.
+    final th = ThemeController.instance;
+    final previewKey = '${identityHashCode(_previewText)}|${_previewText.length}|${note.format}|'
+        '${JingjianColors.paper.toARGB32()}|${th.fontSize}|${th.fontFamily}|${th.oledActive}';
+    if (_previewWidget == null || previewKey != _previewWidgetKey) {
+      _previewWidgetKey = previewKey;
+      _previewWidget = MarkdownPreview(
+        content: _previewText,
+        plain: note.format == NoteFormat.txt,
+        onWikiTap: _openWiki,
+      );
+    }
+    final preview = _previewWidget!;
 
     Widget body;
     switch (_pane) {
@@ -1029,7 +1317,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         );
     }
 
-    final count = countText(_controller.text);
+    body = KeyedSubtree(key: _bodyKey, child: body);
+    final count = _liveCount;
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1087,6 +1376,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 ),
                 PopupMenuButton<String>(
                   onSelected: (v) async {
+                    _menuPickedAt = DateTime.now();
                     switch (v) {
                       case 'outline':
                         await _outline();
@@ -1094,6 +1384,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                         await _links();
                       case 'count':
                         _showCount();
+                      case 'history':
+                        await _history();
+                      case 'focus':
+                        _toggleFocusMode();
+                      case 'palette':
+                        await _commandPalette();
                       case 'format':
                         setState(() => _formatBar = !_formatBar);
                       case 'replace':
@@ -1131,6 +1427,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                     const PopupMenuItem(value: 'outline', child: Text('大纲')),
                     const PopupMenuItem(value: 'links', child: Text('双链 / 反向链接')),
                     const PopupMenuItem(value: 'count', child: Text('字数统计')),
+                    const PopupMenuItem(value: 'history', child: Text('历史版本')),
+                    const PopupMenuItem(value: 'palette', child: Text('命令面板  Ctrl+Shift+P')),
+                    CheckedPopupMenuItem(value: 'focus', checked: _focusMode, child: const Text('专注模式  F11')),
                     const PopupMenuItem(value: 'replace', child: Text('查找替换')),
                     CheckedPopupMenuItem(value: 'format', checked: _formatBar, child: const Text('格式工具栏')),
                     CheckedPopupMenuItem(
@@ -1186,6 +1485,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 ),
               ],
               const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: Text((_debounce?.isActive ?? false) ? '编辑中…' : '已保存',
+                    style: TextStyle(fontSize: 12, color: JingjianColors.muted)),
+              ),
               InkWell(
                 onTap: _showCount,
                 child: Text('${count.chars} 字 · ${count.lines} 行',
@@ -1212,25 +1516,109 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         const SingleActivator(LogicalKeyboardKey.keyE, meta: true): _cyclePane,
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _flush,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _flush,
+        const SingleActivator(LogicalKeyboardKey.keyP, control: true, shift: true): _commandPalette,
+        const SingleActivator(LogicalKeyboardKey.keyP, meta: true, shift: true): _commandPalette,
+        const SingleActivator(LogicalKeyboardKey.f11): _toggleFocusMode,
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_findOpen) _closeFind();
+          if (_findOpen) {
+            _closeFind();
+          } else if (_focusMode) {
+            _toggleFocusMode();
+          }
         },
       },
-      child: Focus(child: content),
+      child: Focus(child: _focusMode ? _focusLayout(body) : content),
     );
 
     final guarded = PopScope(
-      canPop: !_findOpen,
+      canPop: !_findOpen && !_focusMode,
       onPopInvokedWithResult: (didPop, _) {
+        // Web: closing the popup menu can deliver a late back event that would
+        // immediately undo what the menu item just opened (专注模式/查找替换).
+        final sinceMenu = DateTime.now().difference(_menuPickedAt ?? DateTime(2000));
+        if (!didPop && sinceMenu < const Duration(milliseconds: 800)) return;
         if (didPop) {
           _flush();
         } else if (_findOpen) {
           _closeFind();
+        } else if (_focusMode) {
+          _toggleFocusMode();
         }
       },
       child: shortcuts,
     );
     if (widget.embedded) return Material(color: JingjianColors.paper, child: guarded);
     return Scaffold(body: SafeArea(child: guarded));
+  }
+}
+
+class _CommandPalette extends StatefulWidget {
+  const _CommandPalette({required this.commands, this.hint = '输入命令…'});
+  final List<(String, String, VoidCallback)> commands;
+  final String hint;
+
+  @override
+  State<_CommandPalette> createState() => _CommandPaletteState();
+}
+
+class _CommandPaletteState extends State<_CommandPalette> {
+  String q = '';
+  int sel = 0;
+
+  List<(String, String, VoidCallback)> get hits {
+    final s = q.trim().toLowerCase();
+    if (s.isEmpty) return widget.commands;
+    return widget.commands.where((c) => c.$1.toLowerCase().contains(s) || c.$2.toLowerCase().contains(s)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = hits;
+    if (sel >= list.length) sel = list.isEmpty ? 0 : list.length - 1;
+    return Dialog(
+      alignment: Alignment.topCenter,
+      insetPadding: const EdgeInsets.fromLTRB(16, 60, 16, 16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 460),
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.arrowDown): () => setState(() => sel = (sel + 1).clamp(0, list.isEmpty ? 0 : list.length - 1)),
+            const SingleActivator(LogicalKeyboardKey.arrowUp): () => setState(() => sel = (sel - 1).clamp(0, list.isEmpty ? 0 : list.length - 1)),
+          },
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: TextField(
+                autofocus: true,
+                decoration: InputDecoration(hintText: widget.hint, prefixIcon: const Icon(Icons.keyboard_command_key)),
+                onChanged: (v) => setState(() {
+                  q = v;
+                  sel = 0;
+                }),
+                onEditingComplete: () {}, // keep focus (and Esc) when nothing matched
+                onSubmitted: (_) {
+                  if (list.isNotEmpty) Navigator.pop(context, list[sel].$3);
+                },
+              ),
+            ),
+            Flexible(
+              child: list.isEmpty
+                  ? const Padding(padding: EdgeInsets.all(16), child: Text('没有匹配的命令'))
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: list.length,
+                      itemBuilder: (_, i) => ListTile(
+                        dense: true,
+                        selected: i == sel,
+                        title: Text(list[i].$1),
+                        trailing: list[i].$2.isEmpty ? null : Text(list[i].$2.split(' ').first, style: const TextStyle(fontSize: 12)),
+                        onTap: () => Navigator.pop(context, list[i].$3),
+                      ),
+                    ),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 }

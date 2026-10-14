@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -325,6 +326,7 @@ ThemeData buildJingjianTheme() {
     useMaterial3: true,
     brightness: p.dark ? Brightness.dark : Brightness.light,
     fontFamily: 'sans-serif',
+    fontFamilyFallback: kIsWeb ? const ['JJCJK'] : null,
     colorScheme: scheme,
     scaffoldBackgroundColor: p.paper,
     canvasColor: p.paper,
@@ -354,7 +356,7 @@ ThemeData buildJingjianTheme() {
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: p.overlay,
-      contentTextStyle: TextStyle(color: p.ink),
+      contentTextStyle: TextStyle(color: p.ink, fontFamily: 'sans-serif', fontFamilyFallback: kIsWeb ? const ['JJCJK'] : null),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: borderSide),
       behavior: SnackBarBehavior.floating,
     ),

@@ -1,7 +1,7 @@
 name: jingjian
 description: "静笺 — Markdown notes"
 publish_to: "none"
-version: 1.8.3+185
+version: 1.8.4+186
 
 environment:
   sdk: ^3.13.5
@@ -9,7 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
   path_provider: ^2.1.5
   path: ^1.9.1
   uuid: ^4.5.1

@@ -16,9 +16,63 @@ class NoteLinks {
   final List<LinkRef> mentions;
 }
 
+class _LinkInfo {
+  _LinkInfo(this.content)
+      : hits = wikiHits(content),
+        title = firstLineTitle(content),
+        aliases = noteAliases(content);
+  final String content;
+  final List<WikiHit> hits;
+  final String title;
+  final List<String> aliases;
+  String? _lower;
+  String get lower => _lower ??= content.toLowerCase();
+}
+
+/// Incremental per-note cache (parsed links/title/aliases), reused while the
+/// note's content string is unchanged — like the tag cache.
+final Map<String, _LinkInfo> _linkCache = {};
+_LinkInfo _info(Note n) {
+  final c = _linkCache[n.id];
+  if (c != null && (identical(c.content, n.content) || c.content == n.content)) return c;
+  return _linkCache[n.id] = _LinkInfo(n.content);
+}
+
+void clearLinkCache() => _linkCache.clear();
+
+/// Parse notes in small slices when idle, so the first 双链 panel opens fast.
+Future<void> warmLinkCache(List<Note> all) async {
+  for (var i = 0; i < all.length; i++) {
+    _info(all[i]);
+    if (i % 200 == 199) await Future<void>.delayed(const Duration(milliseconds: 16));
+  }
+}
+
+Map<String, String> _titleIndex(List<Note> all) {
+  final idByTitle = <String, String>{};
+  void put(String title, String id) {
+    final key = title.trim().toLowerCase();
+    if (key.isEmpty || key == '未命名笔记' || idByTitle.containsKey(key)) return;
+    idByTitle[key] = id;
+  }
+  for (final n in all) {
+    put(_info(n).title, n.id);
+  }
+  for (final n in all) {
+    for (final a in _info(n).aliases) {
+      put(a, n.id);
+    }
+  }
+  return idByTitle;
+}
+
 /// Outgoing links, backlinks, unlinked mentions (old app's backlinks panel).
 NoteLinks linksFor(Note note, List<Note> all) {
-  final idx = titleIndex([for (final n in all) (id: n.id, content: n.content)]);
+  if (_linkCache.length > all.length * 2 + 64) {
+    final live = {for (final n in all) n.id};
+    _linkCache.removeWhere((k, _) => !live.contains(k));
+  }
+  final idx = _titleIndex(all);
   final byId = {for (final n in all) n.id: n};
   final outgoing = <Note>[];
   final missing = <String>[];
@@ -40,12 +94,12 @@ NoteLinks linksFor(Note note, List<Note> all) {
   if (names.isEmpty) return NoteLinks(outgoing, missing, back, mentions);
   for (final n in all) {
     if (n.id == note.id) continue;
-    final hit = wikiHits(n.content).where((h) => idx[h.target.toLowerCase()] == note.id).firstOrNull;
+    final hit = _info(n).hits.where((h) => idx[h.target.toLowerCase()] == note.id).firstOrNull;
     if (hit != null) {
       back.add(LinkRef(n, hit.line));
       continue;
     }
-    final lower = n.content.toLowerCase();
+    final lower = _info(n).lower;
     for (final name in names) {
       if (name.length < 2) continue;
       final i = lower.indexOf(name);
