@@ -1,7 +1,7 @@
 name: jingjian
 description: "静笺 — Markdown notes"
 publish_to: "none"
-version: 1.8.4+186
+version: 1.8.5+187
 
 environment:
   sdk: ^3.13.5

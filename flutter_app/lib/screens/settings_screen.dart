@@ -5,6 +5,7 @@ import '../models/sync_config.dart';
 import '../services/app_prefs.dart';
 import '../services/sync/sync_oss.dart';
 import '../services/sync/sync_service.dart';
+import '../services/quick_actions.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
 import 'blog_platforms_screen.dart';
@@ -127,6 +128,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
           const SizedBox(height: 20),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.dashboard_customize_outlined),
+            title: const Text('自定义快捷栏'),
+            subtitle: const Text('选择编辑器顶栏显示哪些常用按钮并排序'),
+            onTap: () => showQuickActionsEditor(context),
+          ),
+          const SizedBox(height: 20),
           const Text('朗读', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
           Row(children: [
             const SizedBox(width: 72, child: Text('语速')),
@@ -143,17 +152,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
           DropdownButtonFormField<String>(
-            value: const ['zh-CN', 'zh-TW', 'zh-HK', 'en-US', 'ja-JP'].contains(_tts.lang) ? _tts.lang : 'zh-CN',
-            decoration: const InputDecoration(labelText: '语种', border: OutlineInputBorder()),
+            value: const ['auto', 'system', 'zh-CN', 'zh-TW', 'zh-HK', 'en-US', 'ja-JP'].contains(_tts.lang)
+                ? _tts.lang
+                : 'auto',
+            decoration: const InputDecoration(labelText: '朗读语言', border: OutlineInputBorder()),
             items: const [
-              DropdownMenuItem(value: 'zh-CN', child: Text('普通话（zh-CN）')),
-              DropdownMenuItem(value: 'zh-TW', child: Text('台湾国语（zh-TW）')),
-              DropdownMenuItem(value: 'zh-HK', child: Text('粤语（zh-HK）')),
-              DropdownMenuItem(value: 'en-US', child: Text('English (en-US)')),
-              DropdownMenuItem(value: 'ja-JP', child: Text('日本語 (ja-JP)')),
+              DropdownMenuItem(value: 'auto', child: Text('自动（按段识别中/英/日/韩）')),
+              DropdownMenuItem(value: 'system', child: Text('跟随系统语音引擎')),
+              DropdownMenuItem(value: 'zh-CN', child: Text('全部用普通话（zh-CN）')),
+              DropdownMenuItem(value: 'zh-TW', child: Text('全部用台湾国语（zh-TW）')),
+              DropdownMenuItem(value: 'zh-HK', child: Text('全部用粤语（zh-HK）')),
+              DropdownMenuItem(value: 'en-US', child: Text('All English (en-US)')),
+              DropdownMenuItem(value: 'ja-JP', child: Text('すべて日本語 (ja-JP)')),
             ],
             onChanged: (v) {
-              setState(() => _tts.lang = v ?? 'zh-CN');
+              setState(() => _tts.lang = v ?? 'auto');
               _tts.savePrefs();
             },
           ),

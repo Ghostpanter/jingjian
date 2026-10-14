@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/note.dart';
 import '../models/sync_config.dart';
 import '../services/backlinks.dart';
+import '../services/bookshelf.dart';
 import '../services/app_prefs.dart';
 import '../services/ebook_service.dart';
 import '../services/export_service.dart';
@@ -18,6 +19,7 @@ import '../services/search_index.dart';
 import '../services/collab/collab_session.dart';
 import '../services/publish/blog_platforms.dart';
 import '../widgets/collab_dialog.dart';
+import '../widgets/pane_resizer.dart';
 import '../services/sync/sync_service.dart';
 import '../theme/app_theme.dart';
 import 'editor_screen.dart';
@@ -41,13 +43,14 @@ class _HomeShellState extends State<HomeShell> {
   String _query = '';
   bool _zen = false; // 专注模式: editor only, not persisted
   final _searchCtl = TextEditingController();
-  double _sbRaw = 0, _lsRaw = 0;
-  bool get _filtered_ => _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
+  bool get _filtered_ => _bookFilter != null || _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
   String? _folderFilter;
   String? _tagFilter;
   bool _starredOnly = false;
+  String? _bookFilter; // selected book on the shelf
   final Set<String> _expanded = {};
   String _syncMsg = '';
+  String? _syncErr;
   bool _syncing = false;
 
   Timer? _warmTimer;
@@ -94,6 +97,7 @@ class _HomeShellState extends State<HomeShell> {
       };
     });
     // Book chapters keep reading order inside a book folder.
+    if (_bookFilter != null && _query.trim().isEmpty) return _filtered;
     if (_folderFilter != null && out.isNotEmpty && out.every((n) => n.bookId != null && n.bookId == out.first.bookId)) {
       out.sort((a, b) => (a.chapterIndex ?? 0).compareTo(b.chapterIndex ?? 0));
     }
@@ -101,7 +105,16 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   List<Note> get _filtered {
+    if (_bookFilter != null) {
+      // Chapters in the book's TOC order, never by modified time.
+      final ch = bookChapters(_store.notes, _bookFilter!);
+      return _query.trim().isEmpty ? ch : SearchIndex.instance.search(ch, _query);
+    }
     var all = _store.notes;
+    // Book chapters live on the shelf; keep 全部笔记 for notes (search still finds them).
+    if (_folderFilter == null && _tagFilter == null && !_starredOnly && _query.trim().isEmpty) {
+      all = all.where((n) => n.bookId == null).toList();
+    }
     if (_folderFilter != null) all = notesInFolder(all, _folderFilter, includeNested: true);
     if (_starredOnly) all = all.where((n) => n.starred).toList();
     if (_tagFilter != null) all = all.where((n) => noteHasTag(n, _tagFilter!)).toList();
@@ -174,6 +187,28 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  Future<void> _showSyncError() async {
+    final err = _syncErr;
+    if (err == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('同步未成功'),
+        content: Text('$err\n\n笔记仍保存在本机，不受影响。可在 设置 → 同步 中检查配置后重试。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _syncNow();
+            },
+            child: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _syncNow({bool quiet = false}) async {
     if (_syncing) return;
     final cfg = AppPrefs.instance.readSyncConfig();
@@ -183,6 +218,7 @@ class _HomeShellState extends State<HomeShell> {
     }
     setState(() {
       _syncing = true;
+      _syncErr = null;
       _syncMsg = '同步中…';
     });
     try {
@@ -195,7 +231,14 @@ class _HomeShellState extends State<HomeShell> {
       }
       if (mounted) setState(() {});
     } catch (e) {
-      if (mounted) setState(() => _syncMsg = e.toString().replaceFirst('Exception: ', ''));
+      final full = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        setState(() {
+          _syncErr = full;
+          // Keep the note list calm: a short line, details on tap.
+          _syncMsg = quiet ? '自动同步未成功 · 点此查看' : '同步未成功 · 点此查看';
+        });
+      }
     } finally {
       _syncing = false;
     }
@@ -419,8 +462,8 @@ class _HomeShellState extends State<HomeShell> {
       final notes = await EbookService.instance.importAsNotes(book);
       setState(() {
         if (notes.isNotEmpty) {
-          _folderFilter = '电子书/${book.title}';
-          _expanded.add('电子书');
+          _bookFilter = notes.first.bookId;
+          _folderFilter = null;
           _activeId = notes.first.id;
         }
       });
@@ -538,6 +581,8 @@ class _HomeShellState extends State<HomeShell> {
     final tree = buildFolderTree(_store.notes, extraFolders: _store.extraFolders);
     final tags = tagIndex(_store.notes).entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final starred = _store.notes.where((n) => n.starred).length;
+    final books = bookshelf(_store.notes);
+    final plainCount = _store.notes.where((n) => n.bookId == null).length;
     return Material(
       color: JingjianColors.surface,
       child: ListView(
@@ -546,9 +591,10 @@ class _HomeShellState extends State<HomeShell> {
             dense: true,
             leading: const Icon(Icons.notes, size: 20),
             title: const Text('全部笔记'),
-            trailing: Text('${_store.notes.length}', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
-            selected: _folderFilter == null && !_starredOnly && _tagFilter == null,
+            trailing: Text('$plainCount', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
+            selected: _folderFilter == null && !_starredOnly && _tagFilter == null && _bookFilter == null,
             onTap: () => setState(() {
+              _bookFilter = null;
               _folderFilter = null;
               _starredOnly = false;
               _tagFilter = null;
@@ -560,9 +606,33 @@ class _HomeShellState extends State<HomeShell> {
             title: const Text('星标'),
             trailing: Text('$starred', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
             selected: _starredOnly,
-            onTap: () => setState(() => _starredOnly = !_starredOnly),
+            onTap: () => setState(() {
+              _bookFilter = null;
+              _starredOnly = !_starredOnly;
+            }),
           ),
-          ..._buildTree(tree, 0),
+          ..._buildTree(tree.where((n) => !(n is FolderNode && isPureBookFolder(n.path, _store.notes))).toList(), 0),
+          if (books.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text('书架', style: TextStyle(fontSize: 12, color: JingjianColors.muted, fontWeight: FontWeight.w600)),
+            ),
+          for (final b in books)
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.menu_book_outlined, size: 20),
+              title: Text(b.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+              subtitle: b.author == null ? null : Text(b.author!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+              trailing: Text('${b.chapters.length} 章', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
+              selected: _bookFilter == b.id,
+              onTap: () => setState(() {
+                _bookFilter = b.id;
+                _folderFilter = null;
+                _starredOnly = false;
+                _tagFilter = null;
+                if (!b.chapters.any((c) => c.id == _activeId)) _activeId = b.chapters.first.id;
+              }),
+            ),
           if (tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -610,6 +680,7 @@ class _HomeShellState extends State<HomeShell> {
               ),
             ]),
             onTap: () => setState(() {
+              _bookFilter = null;
               _folderFilter = node.path;
               _expanded.add(node.path);
             }),
@@ -672,18 +743,22 @@ class _HomeShellState extends State<HomeShell> {
               ),
             ]),
           ),
-          if (_syncMsg.isNotEmpty || _tagFilter != null || _folderFilter != null)
+          if (_syncMsg.isNotEmpty || _tagFilter != null || _folderFilter != null || _bookFilter != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text(
+                child: GestureDetector(
+                  onTap: _syncErr == null ? null : _showSyncError,
+                  child: Text(
                   [
+                    if (_bookFilter != null) '《${bookshelf(_store.notes).where((b) => b.id == _bookFilter).map((b) => b.title).firstOrNull ?? ''}》',
                     if (_folderFilter != null) _folderFilter!,
                     if (_tagFilter != null) '#$_tagFilter',
                     if (_syncMsg.isNotEmpty) _syncMsg,
                   ].join(' · '),
                   style: TextStyle(fontSize: 12, color: JingjianColors.muted),
+                ),
                 ),
               ),
             ),
@@ -736,26 +811,14 @@ class _HomeShellState extends State<HomeShell> {
 
     final T0 = ThemeController.instance;
     final bar = AppBar(
-      leadingWidth: wide ? 96 : 56,
-      leading: Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(
-          tooltip: T0.sidebarCollapsed ? '展开文件夹栏' : '收起文件夹栏',
-          icon: Icon(T0.sidebarCollapsed ? Icons.menu : Icons.menu_open),
-          onPressed: () {
-            T0.setCollapsed(sidebar: !T0.sidebarCollapsed);
-            setState(() {});
-          },
-        ),
-        if (wide)
-          IconButton(
-            tooltip: T0.listCollapsed ? '展开笔记列表' : '收起笔记列表（编辑区全宽）',
-            icon: Icon(T0.listCollapsed ? Icons.view_list_outlined : Icons.fullscreen),
-            onPressed: () {
-              T0.setCollapsed(list: !T0.listCollapsed);
-              setState(() {});
-            },
-          ),
-      ]),
+      leading: IconButton(
+        tooltip: T0.sidebarCollapsed ? '展开文件夹栏' : '收起文件夹栏',
+        icon: Icon(T0.sidebarCollapsed ? Icons.menu : Icons.menu_open),
+        onPressed: () {
+          T0.setCollapsed(sidebar: !T0.sidebarCollapsed);
+          setState(() {});
+        },
+      ),
       title: const Text('静笺', style: TextStyle(fontWeight: FontWeight.w600)),
       actions: [
         IconButton(
@@ -841,7 +904,6 @@ class _HomeShellState extends State<HomeShell> {
 
     Widget body;
     final T = ThemeController.instance;
-    const slack = ThemeController.collapseSlack;
     // Phone: folders | list (editor opens full screen). Tablet/desktop:
     // folders | list | editor. Each pane can be dragged narrower until it
     // collapses; the AppBar buttons expand/collapse it again.
@@ -866,58 +928,49 @@ class _HomeShellState extends State<HomeShell> {
       }
     }
 
-    Widget sidebarHandle() => _ResizeHandle(
-          onStart: () => _sbRaw = T.sidebarCollapsed ? 0 : sw,
-          onDrag: (dx) {
-            _sbRaw += dx;
-            final collapse = _sbRaw < ThemeController.sidebarMin - slack;
-            setState(() {
-              if (collapse != T.sidebarCollapsed) T.sidebarCollapsed = collapse;
-              if (!collapse) T.sidebarWidth = _sbRaw.clamp(ThemeController.sidebarMin, maxSidebar);
-            });
-          },
-          onEnd: () {
-            T.saveWidths(sidebar: T.sidebarWidth);
-            T.setCollapsed(sidebar: T.sidebarCollapsed);
-          },
+    Widget sidebar() => ResizablePane(
+          key: const ValueKey('sidebar-pane'),
+          width: sw,
+          collapsed: !sidebarFits,
+          min: ThemeController.sidebarMin,
+          max: maxSidebar,
+          onCommit: (w, c) => setState(() {
+            T.saveWidths(sidebar: w);
+            T.setCollapsed(sidebar: c);
+          }),
           onReset: () => setState(() {
             T.saveWidths(sidebar: 230);
             T.setCollapsed(sidebar: false);
           }),
+          child: _folderPane(),
         );
 
-    Widget listHandle() => _ResizeHandle(
-          onStart: () => _lsRaw = T.listCollapsed ? 0 : lw,
-          onDrag: (dx) {
-            _lsRaw += dx;
-            final collapse = _lsRaw < ThemeController.listMin - slack;
-            setState(() {
-              if (collapse != T.listCollapsed) T.listCollapsed = collapse;
-              if (!collapse) T.listWidth = _lsRaw.clamp(ThemeController.listMin, ThemeController.listMax);
-            });
-          },
-          onEnd: () {
-            T.saveWidths(list: T.listWidth);
-            T.setCollapsed(list: T.listCollapsed);
-          },
+    Widget list() => ResizablePane(
+          key: const ValueKey('list-pane'),
+          width: lw,
+          collapsed: !showList,
+          min: ThemeController.listMin,
+          max: ThemeController.listMax,
+          onCommit: (w, c) => setState(() {
+            T.saveWidths(list: w);
+            T.setCollapsed(list: c);
+          }),
           onReset: () => setState(() {
             T.saveWidths(list: 300);
             T.setCollapsed(list: false);
           }),
+          child: _noteList(),
         );
 
     if (!wide) {
-      body = Row(children: [
-        if (sidebarFits) SizedBox(width: sw, child: _folderPane()),
-        sidebarHandle(),
+      body = Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        sidebar(),
         Expanded(child: _noteList()),
       ]);
     } else {
-      body = Row(children: [
-        if (sidebarFits && !_zen) SizedBox(width: sw, child: _folderPane()),
-        if (!_zen) sidebarHandle(),
-        if (showList && !_zen) SizedBox(width: lw, child: _noteList()),
-        if (!_zen) listHandle(),
+      body = Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (!_zen) sidebar(),
+        if (!_zen) list(),
         Expanded(
           child: active == null
               ? Center(child: Text(showList ? '选择或新建一篇笔记' : '列表已收起，点左上角按钮展开', style: TextStyle(color: JingjianColors.muted)))
@@ -1041,56 +1094,6 @@ class _QuickOpenState extends State<_QuickOpen> {
             ),
           ),
         ]),
-      ),
-    );
-  }
-}
-
-
-/// 1px divider with a wider invisible drag area; double-click resets width.
-class _ResizeHandle extends StatefulWidget {
-  const _ResizeHandle({required this.onDrag, required this.onEnd, required this.onReset, this.onStart});
-  final VoidCallback? onStart;
-  final void Function(double dx) onDrag;
-  final VoidCallback onEnd;
-  final VoidCallback onReset;
-
-  @override
-  State<_ResizeHandle> createState() => _ResizeHandleState();
-}
-
-class _ResizeHandleState extends State<_ResizeHandle> {
-  bool _hover = false, _drag = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = _hover || _drag;
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: (_) {
-          widget.onStart?.call();
-          setState(() => _drag = true);
-        },
-        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
-        onHorizontalDragEnd: (_) {
-          setState(() => _drag = false);
-          widget.onEnd();
-        },
-        onDoubleTap: widget.onReset,
-        child: Tooltip(
-          message: '拖动调整宽度，拖到最窄会收起；双击恢复',
-          waitDuration: const Duration(seconds: 1),
-          child: SizedBox(
-            width: 12, // wide enough for a finger on phones
-            child: Center(
-              child: Container(width: active ? 3 : 1, color: active ? JingjianColors.accent : JingjianColors.border),
-            ),
-          ),
-        ),
       ),
     );
   }

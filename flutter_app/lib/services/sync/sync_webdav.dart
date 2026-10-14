@@ -72,7 +72,7 @@ Future<String> _ensureCollection(SyncConfig config) async {
   }
   if (listed.statusCode != 207 &&
       (listed.statusCode < 200 || listed.statusCode >= 300)) {
-    throw Exception('WebDAV 无法访问（${listed.statusCode}）');
+    throw Exception(syncHttpError('WebDAV', listed.statusCode));
   }
   return url;
 }
@@ -103,7 +103,7 @@ class _WebdavAdapter implements SyncAdapter {
     );
     if (response.statusCode != 207 &&
         (response.statusCode < 200 || response.statusCode >= 300)) {
-      throw Exception('列出失败（${response.statusCode}）');
+      throw Exception(syncHttpError('WebDAV', response.statusCode));
     }
     final names = _filenamesFromPropfind(decodeUtf8Body(response.bodyBytes), url);
     final notes = <Note>[];
@@ -134,7 +134,7 @@ class _WebdavAdapter implements SyncAdapter {
       body: utf8.encode(await serializeNoteWithImages(note)),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('上传失败（${response.statusCode}）');
+      throw Exception(syncHttpError('WebDAV', response.statusCode));
     }
   }
 
