@@ -811,26 +811,14 @@ class _HomeShellState extends State<HomeShell> {
 
     final T0 = ThemeController.instance;
     final bar = AppBar(
-      leadingWidth: wide ? 96 : 56,
-      leading: Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(
-          tooltip: T0.sidebarCollapsed ? '展开文件夹栏' : '收起文件夹栏',
-          icon: Icon(T0.sidebarCollapsed ? Icons.menu : Icons.menu_open),
-          onPressed: () {
-            T0.setCollapsed(sidebar: !T0.sidebarCollapsed);
-            setState(() {});
-          },
-        ),
-        if (wide)
-          IconButton(
-            tooltip: T0.listCollapsed ? '展开笔记列表' : '收起笔记列表（编辑区全宽）',
-            icon: Icon(T0.listCollapsed ? Icons.view_list_outlined : Icons.fullscreen),
-            onPressed: () {
-              T0.setCollapsed(list: !T0.listCollapsed);
-              setState(() {});
-            },
-          ),
-      ]),
+      leading: IconButton(
+        tooltip: T0.sidebarCollapsed ? '展开文件夹栏' : '收起文件夹栏',
+        icon: Icon(T0.sidebarCollapsed ? Icons.menu : Icons.menu_open),
+        onPressed: () {
+          T0.setCollapsed(sidebar: !T0.sidebarCollapsed);
+          setState(() {});
+        },
+      ),
       title: const Text('静笺', style: TextStyle(fontWeight: FontWeight.w600)),
       actions: [
         IconButton(

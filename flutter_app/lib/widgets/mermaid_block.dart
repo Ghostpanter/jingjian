@@ -68,7 +68,6 @@ class _MermaidWebView extends StatefulWidget {
 class _MermaidBlockState extends State<_MermaidWebView> {
   late final WebViewController _controller;
   double _height = 160;
-  bool _zoomed = false;
   String _loadedKey = '';
   static String? _cachedMermaidJs;
 
@@ -86,9 +85,13 @@ class _MermaidBlockState extends State<_MermaidWebView> {
             if (mounted) openMermaidFullscreen(context, widget.source);
             return;
           }
-          if (m.startsWith('z:')) {
-            final z = (double.tryParse(m.substring(2)) ?? 1) > 1.001;
-            if (z != _zoomed && mounted) setState(() => _zoomed = z);
+          if (m.startsWith('e:') || m.startsWith('z:')) return; // page owns pan/zoom; host only scrolls via w:
+          if (m.startsWith('w:')) {
+            final dy = double.tryParse(m.substring(2));
+            final pos = mounted ? Scrollable.maybeOf(context)?.position : null;
+            if (dy != null && pos != null && pos.hasPixels) {
+              pos.jumpTo((pos.pixels + dy).clamp(pos.minScrollExtent, pos.maxScrollExtent));
+            }
             return;
           }
           if (!m.startsWith('h:')) return;
@@ -147,6 +150,7 @@ class _MermaidBlockState extends State<_MermaidWebView> {
       fg: fg,
       muted: JingjianColors.cssHex(JingjianColors.muted),
       dark: dark,
+      forwardWheel: !widget.fullscreen,
       fullscreen: widget.fullscreen,
     );
     await _controller.loadHtmlString(
@@ -165,7 +169,7 @@ class _MermaidBlockState extends State<_MermaidWebView> {
     }
     final view = WebViewWidget(
       controller: _controller,
-      gestureRecognizers: mermaidGestureRecognizers(fullscreen: widget.fullscreen, zoomed: _zoomed),
+      gestureRecognizers: mermaidGestureRecognizers(),
     );
     if (widget.fullscreen) return view;
     return Container(
@@ -182,10 +186,8 @@ class _MermaidBlockState extends State<_MermaidWebView> {
   }
 }
 
-/// Which touches the diagram WebView takes. Full screen or zoomed in: all of
-/// them (free pan). Otherwise only pinches: a one-finger vertical drag stays
-/// with the note's scroll view, taps (toolbar, double-tap) pass through.
-Set<Factory<OneSequenceGestureRecognizer>> mermaidGestureRecognizers({required bool fullscreen, required bool zoomed}) =>
-    fullscreen || zoomed
-        ? {Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer())}
-        : {Factory<OneSequenceGestureRecognizer>(() => ScaleGestureRecognizer())};
+/// Diagram WebView always takes touches (pinch, one-finger pan, toolbar).
+/// At 1x and not engaged, the page posts `w:<dy>` so the host scrolls the note
+/// (Obsidian-like: the diagram owns the hit area; vertical scroll still works).
+Set<Factory<OneSequenceGestureRecognizer>> mermaidGestureRecognizers() =>
+    {Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer())};

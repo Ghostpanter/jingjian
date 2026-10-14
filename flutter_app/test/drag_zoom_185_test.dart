@@ -53,10 +53,19 @@ void main() {
 
   test('Mermaid 页面包含缩放/拖动与工具栏', () {
     final html = buildMermaidHtml(source: 'flowchart TD\nA-->B', scriptTag: '', postJs: '', bg: '#000000', fg: '#fff', muted: '#888', dark: true);
-    for (final s in ['setupPanZoom', 'pointermove', 'ctrlKey', "post('f')", "'z:'", '复位', '全屏查看', 'touch-action:none']) {
+    for (final s in [
+      'setupPanZoom', 'pointermove', 'ctrlKey', "post('f')", "'z:'", "'e:'",
+      'engage', 'canPan', 'passScroll', '复位', '全屏查看', 'touch-action:none',
+    ]) {
       expect(html, contains(s), reason: s);
     }
     expect(html, contains('const FULL = false'));
+    expect(html, contains('const passScroll = false')); // default forwardWheel false
+    final scrolled = buildMermaidHtml(
+      source: 'flowchart TD\nA-->B', scriptTag: '', postJs: '', bg: '#000000', fg: '#fff', muted: '#888', dark: true,
+      forwardWheel: true,
+    );
+    expect(scrolled, contains('const passScroll = true'));
     final full = buildMermaidHtml(source: 'graph LR\nA-->B', scriptTag: '', postJs: '', bg: '#000000', fg: '#fff', muted: '#888', dark: true, fullscreen: true);
     expect(full, contains('const FULL = true'));
     expect(full, contains("if (!FULL) btn('⛶'")); // 全屏内不再显示全屏按钮

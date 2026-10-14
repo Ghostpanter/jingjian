@@ -84,11 +84,13 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('jingjian.sidebar.collapsed.v1'), false);
       if (size.width >= 720) {
-        await t.tap(find.byTooltip('收起笔记列表（编辑区全宽）'));
-        await t.pump();
+        // 笔记列表快捷按钮已去掉：拖动列表分隔条即可收起/展开
+        final listHandle = find.byTooltip('拖动调整宽度，拖到很窄松手会收起；双击恢复');
+        expect(listHandle, findsWidgets);
+        await t.drag(listHandle.at(1), const Offset(-500, 0));
+        await t.pump(const Duration(seconds: 1));
+        await t.pump(const Duration(milliseconds: 300));
         expect(ThemeController.instance.listCollapsed, true);
-        await t.tap(find.byTooltip('展开笔记列表'));
-        await t.pump();
       }
       await t.pump(const Duration(seconds: 1));
       await t.pump(const Duration(milliseconds: 300));
