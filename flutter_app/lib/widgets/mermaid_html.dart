@@ -14,6 +14,7 @@ String buildMermaidHtml({
   required String muted,
   required bool dark,
   bool forwardWheel = false,
+  bool fullscreen = false,
 }) {
   final vars = dark
       ? "{background:'$bg',primaryColor:'#2a2a2e',primaryTextColor:'$fg',lineColor:'#9a9a9a',"
@@ -27,15 +28,20 @@ String buildMermaidHtml({
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 $scriptTag
 <style>
-html,body{margin:0;background:$bg;color:$fg;font-family:sans-serif;overflow:hidden}
-body{padding:8px}
-#m{text-align:center;overflow-x:auto;overflow-y:hidden}
-#m svg{max-width:100%;height:auto}
+html,body{margin:0;background:$bg;color:$fg;font-family:sans-serif;overflow:hidden${fullscreen ? ';height:100%' : ''}}
+body{padding:8px;box-sizing:border-box;-webkit-user-select:none;user-select:none}
+#m{position:relative;text-align:center;overflow:hidden;touch-action:none${fullscreen ? ';height:100%' : ''}}
+#vp{transform-origin:0 0;will-change:transform}
+#m svg{max-width:100%;height:auto${fullscreen ? ';max-height:calc(100vh - 16px)' : ''}}
+.tb{position:fixed;top:6px;right:6px;display:flex;gap:4px;z-index:9;opacity:.85}
+.tb button{width:30px;height:30px;padding:0;border-radius:6px;border:1px solid $muted;background:$bg;color:$fg;font-size:16px;line-height:28px;touch-action:manipulation}
+.tb button:active{background:$muted}
 .err{font-size:13px;line-height:1.5;text-align:left}
 .err b{color:#e5534b}
 .err pre{white-space:pre-wrap;color:$muted;margin:6px 0 0;font-size:12px}
 </style>
 </head><body><div id="m"></div><script>
+const FULL = $fullscreen;
 function post(msg){ $postJs }
 const box = document.getElementById('m');
 const source = ${jsonEncode(source)};
@@ -55,7 +61,7 @@ function fail(e){
   box.innerHTML = '<div class="err"><b>Mermaid 图有语法错误，无法渲染</b><pre>' + esc(msg).slice(0, 600) + '</pre></div>';
   report();
 }
-${forwardWheel ? "window.addEventListener('wheel', e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); post('w:' + e.deltaY); } }, {passive:false});" : ''}
+${panZoomJs(forwardWheel: forwardWheel)}
 function whenReady(fn){
   let n = 0;
   (function tick(){
@@ -70,7 +76,6 @@ try {
     securityLevel:'strict', suppressErrorRendering:true, themeVariables:$vars});
   mermaid.parse(source).then(() => mermaid.render('jjsvg', source)).then(r => {
     box.innerHTML = r.svg;
-    // Very wide diagrams: don't shrink below 55% — scroll sideways instead.
     const svg = box.querySelector('svg');
     let vb = svg && svg.viewBox && svg.viewBox.baseVal;
     // Some diagrams (pie legend) draw outside their viewBox; grow it to fit.
@@ -84,10 +89,8 @@ try {
         vb = svg.viewBox.baseVal;
       }
     } catch (_) {}
-    if (vb && vb.width * 0.55 > box.clientWidth) {
-      svg.style.maxWidth = 'none';
-      svg.style.width = Math.round(vb.width * 0.55) + 'px';
-    }
+    // Wide diagrams fit the width; use ＋/双击/双指 to zoom in and drag.
+    setupPanZoom(svg);
     report();
     new ResizeObserver(report).observe(box);
   }).catch(fail);
@@ -103,3 +106,79 @@ const androidAssetBase = 'file:///android_asset/flutter_assets/assets/preview/';
 
 String mermaidScriptTag(String src) =>
     '<script src="$src" onerror="var s=document.createElement(\'script\');s.src=\'$mermaidCdn\';document.head.appendChild(s)"></script>';
+
+/// Pan / pinch-zoom / double-tap / ctrl+wheel for the rendered SVG, plus a
+/// small toolbar (＋ － 复位 全屏). Inline, a one-finger drag is not taken
+/// unless zoomed in, so the note keeps scrolling; it posts `z:<scale>` so the
+/// host can hand touches to the WebView only while zoomed, `f` for 全屏, and
+/// `w:<dy>` (web) to forward a vertical scroll to the page.
+String panZoomJs({bool forwardWheel = false}) => '''
+let S = 1, TX = 0, TY = 0, vp = null;
+const MIN = FULL ? 0.3 : 1, MAX = 8;
+function apply(){
+  if (!vp) return;
+  if (S <= MIN + 0.001 && !FULL) { S = MIN; TX = 0; TY = 0; }
+  vp.style.transform = 'translate(' + TX + 'px,' + TY + 'px) scale(' + S + ')';
+  post('z:' + S.toFixed(3));
+}
+function zoomAt(f, cx, cy){
+  const r = box.getBoundingClientRect();
+  const x = cx - r.left, y = cy - r.top;
+  const n = Math.min(MAX, Math.max(MIN, S * f));
+  TX = x - (x - TX) * (n / S); TY = y - (y - TY) * (n / S); S = n; apply();
+}
+function zoomCenter(f){ const r = box.getBoundingClientRect(); zoomAt(f, r.left + r.width / 2, r.top + r.height / 2); }
+function resetView(){ S = 1; TX = 0; TY = 0; apply(); }
+function setupPanZoom(svg){
+  if (!svg) return;
+  vp = document.createElement('div'); vp.id = 'vp';
+  svg.parentNode.insertBefore(vp, svg); vp.appendChild(svg);
+  const tb = document.createElement('div'); tb.className = 'tb';
+  const btn = (t, title, fn) => { const b = document.createElement('button'); b.textContent = t; b.title = title;
+    b.addEventListener('pointerdown', e => e.stopPropagation());
+    b.addEventListener('click', e => { e.stopPropagation(); fn(); }); tb.appendChild(b); };
+  btn('＋', '放大', () => zoomCenter(1.4));
+  btn('－', '缩小', () => zoomCenter(1 / 1.4));
+  btn('⟲', '复位', resetView);
+  if (!FULL) btn('⛶', '全屏查看', () => post('f'));
+  document.body.appendChild(tb);
+  const pts = new Map(); let lastDist = 0, lastMid = null, lastTap = 0, tapX = 0, tapY = 0, moved = 0;
+  box.addEventListener('pointerdown', e => {
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    try { box.setPointerCapture(e.pointerId); } catch (_) {}
+    moved = 0; lastDist = 0; lastMid = null;
+  });
+  box.addEventListener('pointermove', e => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    if (pts.size >= 2) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y), mid = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2};
+      if (lastDist) { TX += mid.x - lastMid.x; TY += mid.y - lastMid.y; zoomAt(d / lastDist, mid.x, mid.y); }
+      lastDist = d; lastMid = mid; e.preventDefault();
+    } else if (S > 1.001 || FULL) {
+      TX += dx; TY += dy; apply(); e.preventDefault();
+    } else if (${forwardWheel ? 'e.pointerType === "touch"' : 'false'}) {
+      post('w:' + (-dy));
+    }
+  });
+  const up = e => {
+    if (!pts.delete(e.pointerId)) return;
+    lastDist = 0; lastMid = null;
+    if (pts.size === 0 && moved < 10) {
+      const now = Date.now();
+      if (now - lastTap < 300 && Math.hypot(e.clientX - tapX, e.clientY - tapY) < 30) {
+        if (S > 1.05) resetView(); else zoomAt(2, e.clientX, e.clientY);
+        lastTap = 0;
+      } else { lastTap = now; tapX = e.clientX; tapY = e.clientY; }
+    }
+  };
+  box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up);
+}
+window.addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomAt(Math.exp(-e.deltaY / 300), e.clientX, e.clientY); return; }
+  if (S > 1.001 || FULL) { e.preventDefault(); TX -= e.deltaX; TY -= e.deltaY; apply(); return; }
+  ${forwardWheel ? "if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); post('w:' + e.deltaY); }" : ''}
+}, {passive:false});
+''';

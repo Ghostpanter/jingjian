@@ -11,6 +11,7 @@ import '../services/image_store.dart';
 import '../services/preview_blocks.dart';
 import '../theme/app_theme.dart';
 import 'mermaid_block.dart';
+import 'zoom_viewer.dart';
 
 /// `$...$` inline math inside a paragraph (kept in-line, not split into blocks).
 class _InlineMathSyntax extends md.InlineSyntax {
@@ -168,18 +169,32 @@ class MarkdownPreview extends StatelessWidget {
             case PreviewBlockKind.math:
               return Padding(
                 padding: EdgeInsets.symmetric(vertical: b.displayMath ? 10 : 2),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Math.tex(
-                    b.text,
-                    mathStyle: b.displayMath ? MathStyle.display : MathStyle.text,
-                    textStyle: TextStyle(fontSize: base, color: JingjianColors.ink),
-                    onErrorFallback: (err) => SelectableText(
-                      b.displayMath ? '\$\$${b.text}\$\$' : '\$${b.text}\$',
-                      style: TextStyle(color: JingjianColors.danger, fontFamily: 'monospace'),
-                    ),
-                  ),
-                ),
+                child: Builder(builder: (context) {
+                  Widget tex(double size) => Math.tex(
+                        b.text,
+                        mathStyle: b.displayMath ? MathStyle.display : MathStyle.text,
+                        textStyle: TextStyle(fontSize: size, color: JingjianColors.ink),
+                        onErrorFallback: (err) => SelectableText(
+                          b.displayMath ? '\$\$${b.text}\$\$' : '\$${b.text}\$',
+                          style: TextStyle(color: JingjianColors.danger, fontFamily: 'monospace'),
+                        ),
+                      );
+                  final row = SingleChildScrollView(scrollDirection: Axis.horizontal, child: tex(base));
+                  if (!b.displayMath) return row;
+                  // Long formulas: swipe sideways inline, or 双击/⛶ for full-screen pan & zoom.
+                  return GestureDetector(
+                    onDoubleTap: () => ZoomViewerPage.open(context, title: '查看公式', child: tex(base * 1.4)),
+                    child: Row(children: [
+                      Expanded(child: row),
+                      IconButton(
+                        tooltip: '全屏查看（可缩放、拖动）',
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(Icons.open_in_full, size: 16, color: JingjianColors.muted),
+                        onPressed: () => ZoomViewerPage.open(context, title: '查看公式', child: tex(base * 1.4)),
+                      ),
+                    ]),
+                  );
+                }),
               );
             case PreviewBlockKind.mermaid:
               return MermaidBlock(source: b.text);

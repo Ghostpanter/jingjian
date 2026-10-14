@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -15,14 +16,27 @@ bool get mermaidWebViewSupported =>
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS);
 
+/// Opens a diagram full screen with free pan / pinch-zoom.
+void openMermaidFullscreen(BuildContext context, String source) {
+  Navigator.of(context).push(MaterialPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => Scaffold(
+      backgroundColor: JingjianColors.paper,
+      appBar: AppBar(title: const Text('查看图表'), backgroundColor: JingjianColors.paper),
+      body: SafeArea(child: MermaidBlock(source: source, fullscreen: true)),
+    ),
+  ));
+}
+
 class MermaidBlock extends StatelessWidget {
-  const MermaidBlock({super.key, required this.source});
+  const MermaidBlock({super.key, required this.source, this.fullscreen = false});
   final String source;
+  final bool fullscreen;
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) return MermaidIframe(source: source);
-    if (mermaidWebViewSupported) return _MermaidWebView(source: source);
+    if (kIsWeb) return MermaidIframe(source: source, fullscreen: fullscreen, onFullscreen: () => openMermaidFullscreen(context, source));
+    if (mermaidWebViewSupported) return _MermaidWebView(source: source, fullscreen: fullscreen);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(10),
@@ -43,8 +57,9 @@ class MermaidBlock extends StatelessWidget {
 }
 
 class _MermaidWebView extends StatefulWidget {
-  const _MermaidWebView({required this.source});
+  const _MermaidWebView({required this.source, this.fullscreen = false});
   final String source;
+  final bool fullscreen;
 
   @override
   State<_MermaidWebView> createState() => _MermaidBlockState();
@@ -53,6 +68,7 @@ class _MermaidWebView extends StatefulWidget {
 class _MermaidBlockState extends State<_MermaidWebView> {
   late final WebViewController _controller;
   double _height = 160;
+  bool _zoomed = false;
   String _loadedKey = '';
   static String? _cachedMermaidJs;
 
@@ -66,6 +82,15 @@ class _MermaidBlockState extends State<_MermaidWebView> {
         'JingjianHeight',
         onMessageReceived: (msg) {
           final m = msg.message;
+          if (m == 'f') {
+            if (mounted) openMermaidFullscreen(context, widget.source);
+            return;
+          }
+          if (m.startsWith('z:')) {
+            final z = (double.tryParse(m.substring(2)) ?? 1) > 1.001;
+            if (z != _zoomed && mounted) setState(() => _zoomed = z);
+            return;
+          }
           if (!m.startsWith('h:')) return;
           final h = double.tryParse(m.substring(2));
           if (h != null && h > 24 && mounted && (h - _height).abs() > 1) setState(() => _height = h);
@@ -122,6 +147,7 @@ class _MermaidBlockState extends State<_MermaidWebView> {
       fg: fg,
       muted: JingjianColors.cssHex(JingjianColors.muted),
       dark: dark,
+      fullscreen: widget.fullscreen,
     );
     await _controller.loadHtmlString(
       html,
@@ -137,15 +163,29 @@ class _MermaidBlockState extends State<_MermaidWebView> {
         if (mounted) _load();
       });
     }
+    final view = WebViewWidget(
+      controller: _controller,
+      gestureRecognizers: mermaidGestureRecognizers(fullscreen: widget.fullscreen, zoomed: _zoomed),
+    );
+    if (widget.fullscreen) return view;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: JingjianColors.paper,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: JingjianColors.border),
       ),
       height: _height,
-      child: WebViewWidget(controller: _controller),
+      child: view,
     );
   }
 }
+
+/// Which touches the diagram WebView takes. Full screen or zoomed in: all of
+/// them (free pan). Otherwise only pinches: a one-finger vertical drag stays
+/// with the note's scroll view, taps (toolbar, double-tap) pass through.
+Set<Factory<OneSequenceGestureRecognizer>> mermaidGestureRecognizers({required bool fullscreen, required bool zoomed}) =>
+    fullscreen || zoomed
+        ? {Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer())}
+        : {Factory<OneSequenceGestureRecognizer>(() => ScaleGestureRecognizer())};

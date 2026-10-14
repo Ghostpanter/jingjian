@@ -10,8 +10,10 @@ import 'mermaid_html.dart';
 
 /// Web: render Mermaid in a sandboxed iframe (scripts only, no same-origin).
 class MermaidIframe extends StatefulWidget {
-  const MermaidIframe({super.key, required this.source});
+  const MermaidIframe({super.key, required this.source, this.fullscreen = false, this.onFullscreen});
   final String source;
+  final bool fullscreen;
+  final VoidCallback? onFullscreen;
 
   @override
   State<MermaidIframe> createState() => _MermaidIframeState();
@@ -49,6 +51,11 @@ class _MermaidIframeState extends State<MermaidIframe> {
       final s = (d as JSString).toDart;
       if (!s.startsWith('$_token:')) return;
       final body = s.substring(_token.length + 1);
+      if (body == 'f') {
+        widget.onFullscreen?.call();
+        return;
+      }
+      if (body.startsWith('z:')) return;
       if (body.startsWith('w:')) {
         final dy = double.tryParse(body.substring(2));
         final pos = mounted ? Scrollable.maybeOf(context)?.position : null;
@@ -90,7 +97,8 @@ class _MermaidIframeState extends State<MermaidIframe> {
       fg: fg,
       muted: JingjianColors.cssHex(JingjianColors.muted),
       dark: dark,
-      forwardWheel: true,
+      forwardWheel: !widget.fullscreen,
+      fullscreen: widget.fullscreen,
     ).toJS;
     _renderedKey = _themeKey;
   }
@@ -102,6 +110,7 @@ class _MermaidIframeState extends State<MermaidIframe> {
       WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _render(); });
       _renderedKey = _themeKey;
     }
+    if (widget.fullscreen) return HtmlElementView(viewType: _viewType);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       height: _height,

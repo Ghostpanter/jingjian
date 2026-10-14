@@ -53,9 +53,11 @@ void main() {
       await t.runAsync(() async {});
       await pump(t, size);
       expect(find.text('全部笔记'), findsOneWidget);
-      final handle = find.byTooltip('拖动调整宽度，拖到最窄会收起；双击恢复').first;
+      final handle = find.byTooltip('拖动调整宽度，拖到很窄松手会收起；双击恢复').first;
       await t.drag(handle, const Offset(-400, 0));
       await t.pump(const Duration(seconds: 1));
+      await t.pump(const Duration(milliseconds: 300));
+      await t.pump();
       expect(ThemeController.instance.sidebarCollapsed, true);
       expect(find.text('全部笔记'), findsNothing);
       await t.tap(find.byTooltip('展开文件夹栏'));
@@ -64,10 +66,14 @@ void main() {
       expect(find.text('全部笔记'), findsOneWidget);
       // widen by dragging
       await t.pump(const Duration(seconds: 1));
+      await t.pump(const Duration(milliseconds: 300));
+      await t.pump();
       final before = ThemeController.instance.sidebarWidth;
       final dx = size.width >= 720 ? 40.0 : -30.0;
-      await t.drag(find.byTooltip('拖动调整宽度，拖到最窄会收起；双击恢复').first, Offset(dx, 0));
+      await t.drag(find.byTooltip('拖动调整宽度，拖到很窄松手会收起；双击恢复').first, Offset(dx, 0));
       await t.pump(const Duration(seconds: 1));
+      await t.pump(const Duration(milliseconds: 300));
+      await t.pump();
       final after = ThemeController.instance.sidebarWidth;
       if (size.width >= 720) {
         expect(after, greaterThan(before));
@@ -85,6 +91,8 @@ void main() {
         await t.pump();
       }
       await t.pump(const Duration(seconds: 1));
+      await t.pump(const Duration(milliseconds: 300));
+      await t.pump();
       t.view.reset();
     });
   }

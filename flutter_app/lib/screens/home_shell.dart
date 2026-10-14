@@ -19,6 +19,7 @@ import '../services/search_index.dart';
 import '../services/collab/collab_session.dart';
 import '../services/publish/blog_platforms.dart';
 import '../widgets/collab_dialog.dart';
+import '../widgets/pane_resizer.dart';
 import '../services/sync/sync_service.dart';
 import '../theme/app_theme.dart';
 import 'editor_screen.dart';
@@ -42,7 +43,6 @@ class _HomeShellState extends State<HomeShell> {
   String _query = '';
   bool _zen = false; // 专注模式: editor only, not persisted
   final _searchCtl = TextEditingController();
-  double _sbRaw = 0, _lsRaw = 0;
   bool get _filtered_ => _bookFilter != null || _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
   String? _folderFilter;
   String? _tagFilter;
@@ -916,7 +916,6 @@ class _HomeShellState extends State<HomeShell> {
 
     Widget body;
     final T = ThemeController.instance;
-    const slack = ThemeController.collapseSlack;
     // Phone: folders | list (editor opens full screen). Tablet/desktop:
     // folders | list | editor. Each pane can be dragged narrower until it
     // collapses; the AppBar buttons expand/collapse it again.
@@ -941,58 +940,49 @@ class _HomeShellState extends State<HomeShell> {
       }
     }
 
-    Widget sidebarHandle() => _ResizeHandle(
-          onStart: () => _sbRaw = T.sidebarCollapsed ? 0 : sw,
-          onDrag: (dx) {
-            _sbRaw += dx;
-            final collapse = _sbRaw < ThemeController.sidebarMin - slack;
-            setState(() {
-              if (collapse != T.sidebarCollapsed) T.sidebarCollapsed = collapse;
-              if (!collapse) T.sidebarWidth = _sbRaw.clamp(ThemeController.sidebarMin, maxSidebar);
-            });
-          },
-          onEnd: () {
-            T.saveWidths(sidebar: T.sidebarWidth);
-            T.setCollapsed(sidebar: T.sidebarCollapsed);
-          },
+    Widget sidebar() => ResizablePane(
+          key: const ValueKey('sidebar-pane'),
+          width: sw,
+          collapsed: !sidebarFits,
+          min: ThemeController.sidebarMin,
+          max: maxSidebar,
+          onCommit: (w, c) => setState(() {
+            T.saveWidths(sidebar: w);
+            T.setCollapsed(sidebar: c);
+          }),
           onReset: () => setState(() {
             T.saveWidths(sidebar: 230);
             T.setCollapsed(sidebar: false);
           }),
+          child: _folderPane(),
         );
 
-    Widget listHandle() => _ResizeHandle(
-          onStart: () => _lsRaw = T.listCollapsed ? 0 : lw,
-          onDrag: (dx) {
-            _lsRaw += dx;
-            final collapse = _lsRaw < ThemeController.listMin - slack;
-            setState(() {
-              if (collapse != T.listCollapsed) T.listCollapsed = collapse;
-              if (!collapse) T.listWidth = _lsRaw.clamp(ThemeController.listMin, ThemeController.listMax);
-            });
-          },
-          onEnd: () {
-            T.saveWidths(list: T.listWidth);
-            T.setCollapsed(list: T.listCollapsed);
-          },
+    Widget list() => ResizablePane(
+          key: const ValueKey('list-pane'),
+          width: lw,
+          collapsed: !showList,
+          min: ThemeController.listMin,
+          max: ThemeController.listMax,
+          onCommit: (w, c) => setState(() {
+            T.saveWidths(list: w);
+            T.setCollapsed(list: c);
+          }),
           onReset: () => setState(() {
             T.saveWidths(list: 300);
             T.setCollapsed(list: false);
           }),
+          child: _noteList(),
         );
 
     if (!wide) {
-      body = Row(children: [
-        if (sidebarFits) SizedBox(width: sw, child: _folderPane()),
-        sidebarHandle(),
+      body = Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        sidebar(),
         Expanded(child: _noteList()),
       ]);
     } else {
-      body = Row(children: [
-        if (sidebarFits && !_zen) SizedBox(width: sw, child: _folderPane()),
-        if (!_zen) sidebarHandle(),
-        if (showList && !_zen) SizedBox(width: lw, child: _noteList()),
-        if (!_zen) listHandle(),
+      body = Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (!_zen) sidebar(),
+        if (!_zen) list(),
         Expanded(
           child: active == null
               ? Center(child: Text(showList ? '选择或新建一篇笔记' : '列表已收起，点左上角按钮展开', style: TextStyle(color: JingjianColors.muted)))
@@ -1116,56 +1106,6 @@ class _QuickOpenState extends State<_QuickOpen> {
             ),
           ),
         ]),
-      ),
-    );
-  }
-}
-
-
-/// 1px divider with a wider invisible drag area; double-click resets width.
-class _ResizeHandle extends StatefulWidget {
-  const _ResizeHandle({required this.onDrag, required this.onEnd, required this.onReset, this.onStart});
-  final VoidCallback? onStart;
-  final void Function(double dx) onDrag;
-  final VoidCallback onEnd;
-  final VoidCallback onReset;
-
-  @override
-  State<_ResizeHandle> createState() => _ResizeHandleState();
-}
-
-class _ResizeHandleState extends State<_ResizeHandle> {
-  bool _hover = false, _drag = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = _hover || _drag;
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: (_) {
-          widget.onStart?.call();
-          setState(() => _drag = true);
-        },
-        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
-        onHorizontalDragEnd: (_) {
-          setState(() => _drag = false);
-          widget.onEnd();
-        },
-        onDoubleTap: widget.onReset,
-        child: Tooltip(
-          message: '拖动调整宽度，拖到最窄会收起；双击恢复',
-          waitDuration: const Duration(seconds: 1),
-          child: SizedBox(
-            width: 12, // wide enough for a finger on phones
-            child: Center(
-              child: Container(width: active ? 3 : 1, color: active ? JingjianColors.accent : JingjianColors.border),
-            ),
-          ),
-        ),
       ),
     );
   }
