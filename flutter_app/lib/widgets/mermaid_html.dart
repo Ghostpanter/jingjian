@@ -45,12 +45,26 @@ function report(){
   if (Math.abs(h - last) > 1) { last = h; post('h:' + h); }
 }
 function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function failLoad(){
+  box.innerHTML = '<div class="err"><b>Mermaid 渲染引擎加载失败</b><pre>未能加载内置的 mermaid 脚本，也无法从网络获取。'
+    + '若系统 WebView 版本过旧，请在应用商店更新“Android System WebView”或 Chrome 后重试。</pre></div>';
+  report();
+}
 function fail(e){
   const msg = (e && (e.message || e.str)) || String(e || '未知错误');
   box.innerHTML = '<div class="err"><b>Mermaid 图有语法错误，无法渲染</b><pre>' + esc(msg).slice(0, 600) + '</pre></div>';
   report();
 }
 ${forwardWheel ? "window.addEventListener('wheel', e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); post('w:' + e.deltaY); } }, {passive:false});" : ''}
+function whenReady(fn){
+  let n = 0;
+  (function tick(){
+    if (typeof mermaid !== 'undefined') return fn();
+    if (++n > 100) return failLoad(); // ~10 s incl. CDN fallback
+    setTimeout(tick, 100);
+  })();
+}
+whenReady(function(){
 try {
   mermaid.initialize({startOnLoad:false, theme:'${dark ? 'dark' : 'neutral'}', darkMode:$dark,
     securityLevel:'strict', suppressErrorRendering:true, themeVariables:$vars});
@@ -78,5 +92,14 @@ try {
     new ResizeObserver(report).observe(box);
   }).catch(fail);
 } catch (e) { fail(e); }
+});
 </script></body></html>''';
 }
+
+/// Bundled mermaid inside the Android APK (always readable by WebView, even
+/// with file access off), with a CDN fallback if it fails to load.
+const mermaidCdn = 'https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js';
+const androidAssetBase = 'file:///android_asset/flutter_assets/assets/preview/';
+
+String mermaidScriptTag(String src) =>
+    '<script src="$src" onerror="var s=document.createElement(\'script\');s.src=\'$mermaidCdn\';document.head.appendChild(s)"></script>';

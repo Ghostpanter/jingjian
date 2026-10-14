@@ -105,10 +105,15 @@ class _MermaidBlockState extends State<_MermaidWebView> {
     final fg = JingjianColors.cssHex(JingjianColors.ink);
     final dark = JingjianColors.dark;
     _controller.setBackgroundColor(JingjianColors.paper);
-    final local = await _mermaidJs();
-    final scriptTag = local.isNotEmpty
-        ? '<script>${local.replaceAll('</', r'<\/')}</script>'
-        : '<script src="https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js"></script>';
+    // Android: reference the asset by URL. Inlining the 2.6 MB script made the
+    // page exceed WebView's data-URL limit, so `mermaid` was never defined.
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final local = android ? '' : await _mermaidJs();
+    final scriptTag = android
+        ? mermaidScriptTag('${androidAssetBase}mermaid.min.js')
+        : local.isNotEmpty
+            ? '<script>${local.replaceAll('</', r'<\/')}</script>'
+            : mermaidScriptTag(mermaidCdn);
     final html = buildMermaidHtml(
       source: widget.source,
       scriptTag: scriptTag,
@@ -120,7 +125,7 @@ class _MermaidBlockState extends State<_MermaidWebView> {
     );
     await _controller.loadHtmlString(
       html,
-      baseUrl: local.isNotEmpty ? null : 'https://cdn.jsdelivr.net/',
+      baseUrl: android ? androidAssetBase : (local.isNotEmpty ? null : 'https://cdn.jsdelivr.net/'),
     );
   }
 
