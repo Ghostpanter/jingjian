@@ -1,3 +1,4 @@
+import 'services/bookshelf.dart';
 import 'services/legacy_migration.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +25,9 @@ Future<void> main() async {
   await NoteHistory.instance.init();
   await NoteStore.instance.init();
   final migrated = await LegacyMigration.runIfNeeded();
+  try {
+    await migrateLegacyBookFolders(NoteStore.instance); // old 电子书/<书名> folders → shelf
+  } catch (_) {}
   // New installs start in dark mode with OLED pure black.
   await ThemeController.instance.init(newInstall: NoteStore.instance.firstRun && migrated == 0);
   // Don't hold the first frame for long on slow links; it finishes in the background.

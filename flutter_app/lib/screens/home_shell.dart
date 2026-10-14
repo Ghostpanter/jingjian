@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/note.dart';
 import '../models/sync_config.dart';
 import '../services/backlinks.dart';
+import '../services/bookshelf.dart';
 import '../services/app_prefs.dart';
 import '../services/ebook_service.dart';
 import '../services/export_service.dart';
@@ -42,10 +43,11 @@ class _HomeShellState extends State<HomeShell> {
   bool _zen = false; // 专注模式: editor only, not persisted
   final _searchCtl = TextEditingController();
   double _sbRaw = 0, _lsRaw = 0;
-  bool get _filtered_ => _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
+  bool get _filtered_ => _bookFilter != null || _folderFilter != null || _starredOnly || _tagFilter != null || _query.isNotEmpty;
   String? _folderFilter;
   String? _tagFilter;
   bool _starredOnly = false;
+  String? _bookFilter; // selected book on the shelf
   final Set<String> _expanded = {};
   String _syncMsg = '';
   String? _syncErr;
@@ -95,6 +97,7 @@ class _HomeShellState extends State<HomeShell> {
       };
     });
     // Book chapters keep reading order inside a book folder.
+    if (_bookFilter != null && _query.trim().isEmpty) return _filtered;
     if (_folderFilter != null && out.isNotEmpty && out.every((n) => n.bookId != null && n.bookId == out.first.bookId)) {
       out.sort((a, b) => (a.chapterIndex ?? 0).compareTo(b.chapterIndex ?? 0));
     }
@@ -102,7 +105,16 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   List<Note> get _filtered {
+    if (_bookFilter != null) {
+      // Chapters in the book's TOC order, never by modified time.
+      final ch = bookChapters(_store.notes, _bookFilter!);
+      return _query.trim().isEmpty ? ch : SearchIndex.instance.search(ch, _query);
+    }
     var all = _store.notes;
+    // Book chapters live on the shelf; keep 全部笔记 for notes (search still finds them).
+    if (_folderFilter == null && _tagFilter == null && !_starredOnly && _query.trim().isEmpty) {
+      all = all.where((n) => n.bookId == null).toList();
+    }
     if (_folderFilter != null) all = notesInFolder(all, _folderFilter, includeNested: true);
     if (_starredOnly) all = all.where((n) => n.starred).toList();
     if (_tagFilter != null) all = all.where((n) => noteHasTag(n, _tagFilter!)).toList();
@@ -450,8 +462,8 @@ class _HomeShellState extends State<HomeShell> {
       final notes = await EbookService.instance.importAsNotes(book);
       setState(() {
         if (notes.isNotEmpty) {
-          _folderFilter = '电子书/${book.title}';
-          _expanded.add('电子书');
+          _bookFilter = notes.first.bookId;
+          _folderFilter = null;
           _activeId = notes.first.id;
         }
       });
@@ -569,6 +581,8 @@ class _HomeShellState extends State<HomeShell> {
     final tree = buildFolderTree(_store.notes, extraFolders: _store.extraFolders);
     final tags = tagIndex(_store.notes).entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final starred = _store.notes.where((n) => n.starred).length;
+    final books = bookshelf(_store.notes);
+    final plainCount = _store.notes.where((n) => n.bookId == null).length;
     return Material(
       color: JingjianColors.surface,
       child: ListView(
@@ -577,9 +591,10 @@ class _HomeShellState extends State<HomeShell> {
             dense: true,
             leading: const Icon(Icons.notes, size: 20),
             title: const Text('全部笔记'),
-            trailing: Text('${_store.notes.length}', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
-            selected: _folderFilter == null && !_starredOnly && _tagFilter == null,
+            trailing: Text('$plainCount', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
+            selected: _folderFilter == null && !_starredOnly && _tagFilter == null && _bookFilter == null,
             onTap: () => setState(() {
+              _bookFilter = null;
               _folderFilter = null;
               _starredOnly = false;
               _tagFilter = null;
@@ -591,9 +606,33 @@ class _HomeShellState extends State<HomeShell> {
             title: const Text('星标'),
             trailing: Text('$starred', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
             selected: _starredOnly,
-            onTap: () => setState(() => _starredOnly = !_starredOnly),
+            onTap: () => setState(() {
+              _bookFilter = null;
+              _starredOnly = !_starredOnly;
+            }),
           ),
-          ..._buildTree(tree, 0),
+          ..._buildTree(tree.where((n) => !(n is FolderNode && isPureBookFolder(n.path, _store.notes))).toList(), 0),
+          if (books.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text('书架', style: TextStyle(fontSize: 12, color: JingjianColors.muted, fontWeight: FontWeight.w600)),
+            ),
+          for (final b in books)
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.menu_book_outlined, size: 20),
+              title: Text(b.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+              subtitle: b.author == null ? null : Text(b.author!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+              trailing: Text('${b.chapters.length} 章', style: TextStyle(color: JingjianColors.muted, fontSize: 12)),
+              selected: _bookFilter == b.id,
+              onTap: () => setState(() {
+                _bookFilter = b.id;
+                _folderFilter = null;
+                _starredOnly = false;
+                _tagFilter = null;
+                if (!b.chapters.any((c) => c.id == _activeId)) _activeId = b.chapters.first.id;
+              }),
+            ),
           if (tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -641,6 +680,7 @@ class _HomeShellState extends State<HomeShell> {
               ),
             ]),
             onTap: () => setState(() {
+              _bookFilter = null;
               _folderFilter = node.path;
               _expanded.add(node.path);
             }),
@@ -703,7 +743,7 @@ class _HomeShellState extends State<HomeShell> {
               ),
             ]),
           ),
-          if (_syncMsg.isNotEmpty || _tagFilter != null || _folderFilter != null)
+          if (_syncMsg.isNotEmpty || _tagFilter != null || _folderFilter != null || _bookFilter != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Align(
@@ -712,6 +752,7 @@ class _HomeShellState extends State<HomeShell> {
                   onTap: _syncErr == null ? null : _showSyncError,
                   child: Text(
                   [
+                    if (_bookFilter != null) '《${bookshelf(_store.notes).where((b) => b.id == _bookFilter).map((b) => b.title).firstOrNull ?? ''}》',
                     if (_folderFilter != null) _folderFilter!,
                     if (_tagFilter != null) '#$_tagFilter',
                     if (_syncMsg.isNotEmpty) _syncMsg,
