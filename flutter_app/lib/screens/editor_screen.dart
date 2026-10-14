@@ -18,6 +18,7 @@ import '../services/image_store.dart';
 import '../services/note_history.dart';
 import '../services/note_store.dart';
 import '../services/note_text.dart';
+import '../services/quick_actions.dart';
 import '../services/tts_service.dart';
 import '../services/wiki_links.dart';
 import '../theme/app_theme.dart';
@@ -112,6 +113,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   @override
   void initState() {
     super.initState();
+    QuickActions.instance.addListener(_onQuick);
+    QuickActions.instance.load();
     final note = _store.byId(widget.noteId);
     _controller = TextEditingController(text: note?.content ?? '');
     _previewText = _controller.text;
@@ -181,6 +184,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    QuickActions.instance.removeListener(_onQuick);
     WidgetsBinding.instance.removeObserver(this);
     _collab.removeListener(_onCollab);
     if (_inCollab) {
@@ -200,6 +204,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _findFocus.dispose();
     if (_ttsOn) TtsService.instance.stop();
     super.dispose();
+  }
+
+  void _onQuick() {
+    if (mounted) setState(() {});
   }
 
   Note? get _note => _store.byId(widget.noteId);
@@ -386,6 +394,157 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     widget.onChanged?.call();
     setState(() {});
     _snack('已合并下一章（原章节移入回收站）');
+  }
+
+  // ---------- quick action bar ----------
+
+  Future<void> _runAction(String v) async {
+    final note = _note;
+    if (note == null) return;
+    _menuPickedAt = DateTime.now();
+    switch (v) {
+      case 'tts':
+        await _toggleTts();
+      case 'search':
+        _findOpen ? _closeFind() : _openFind();
+      case 'pane':
+        _cyclePane();
+      case 'list':
+        final t = ThemeController.instance;
+        t.setCollapsed(list: !t.listCollapsed);
+        widget.onChanged?.call();
+      case 'customize':
+        await showQuickActionsEditor(context);
+      case 'outline':
+        await _outline();
+      case 'links':
+        await _links();
+      case 'count':
+        _showCount();
+      case 'history':
+        await _history();
+      case 'focus':
+        _toggleFocusMode();
+      case 'palette':
+        await _commandPalette();
+      case 'format':
+        setState(() => _formatBar = !_formatBar);
+      case 'replace':
+        _openFind(replace: true);
+      case 'export':
+        await _export();
+      case 'print':
+        await _print();
+      case 'publish':
+        await _publish();
+      case 'collab':
+        await _collabMenu();
+      case 'pasteImage':
+        await _pasteImage();
+      case 'folder':
+        await _moveFolder();
+      case 'plain':
+        await _store.update(note.copyWith(
+            format: note.format == NoteFormat.txt ? NoteFormat.markdown : NoteFormat.txt));
+        widget.onChanged?.call();
+        setState(() {});
+      case 'star':
+        await _store.toggleStar(widget.noteId);
+        widget.onChanged?.call();
+        setState(() {});
+      case 'split':
+        await _splitChapter();
+      case 'merge':
+        await _mergeNext();
+      case 'trash':
+        await _trash();
+    }
+  }
+
+  (IconData, String) _actionLook(String id, Note note) {
+    final a = QuickActions.byId(id)!;
+    return switch (id) {
+      'tts' => (_ttsOn ? Icons.stop_circle_outlined : a.icon, _ttsOn ? '停止朗读' : a.label),
+      'pane' => (
+          switch (_pane) {
+            _Pane.edit => Icons.edit_note,
+            _Pane.split => Icons.vertical_split,
+            _Pane.preview => Icons.visibility_outlined,
+          },
+          a.label
+        ),
+      'star' => (note.starred ? Icons.star : Icons.star_border, note.starred ? '取消星标' : '加星标'),
+      'focus' => (a.icon, _focusMode ? '退出专注模式' : a.label),
+      'list' => (
+          ThemeController.instance.listCollapsed ? Icons.view_list_outlined : a.icon,
+          ThemeController.instance.listCollapsed ? '展开笔记列表' : '收起笔记列表'
+        ),
+      _ => (a.icon, a.label),
+    };
+  }
+
+  Widget _quickBar(Note note, Note? next) {
+    final qa = QuickActions.instance;
+    final ids = qa.enabled
+        .where((id) => id != 'collab' && (id != 'list' || widget.embedded))
+        .toList();
+    return Flexible(
+      flex: 0,
+      child: LayoutBuilder(builder: (ctx, c) {
+        // Leave at least ~40% of the bar for the title on narrow screens.
+        final w = MediaQuery.sizeOf(ctx).width;
+        final room = (w * (w < 600 ? 0.6 : 0.7)).clamp(96.0, 48.0 * (ids.length + 1));
+        final n = QuickActions.fit(room, ids.length);
+        final shown = ids.take(n).toList();
+        final hidden = ids.skip(n).toSet();
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          for (final id in shown)
+            Builder(builder: (_) {
+              final (icon, tip) = _actionLook(id, note);
+              return IconButton(
+                tooltip: tip,
+                onPressed: () => _runAction(id),
+                icon: Icon(icon, color: id == 'star' && note.starred ? JingjianColors.accent : null),
+              );
+            }),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: _runAction,
+            itemBuilder: (_) => [
+              for (final id in ['tts', 'search', 'pane'])
+                if (!shown.contains(id))
+                  PopupMenuItem(value: id, child: Text(_actionLook(id, note).$2)),
+              if (hidden.contains('list'))
+                PopupMenuItem(value: 'list', child: Text(_actionLook('list', note).$2)),
+              const PopupMenuItem(value: 'outline', child: Text('大纲')),
+              const PopupMenuItem(value: 'links', child: Text('双链 / 反向链接')),
+              const PopupMenuItem(value: 'count', child: Text('字数统计')),
+              const PopupMenuItem(value: 'history', child: Text('历史版本')),
+              const PopupMenuItem(value: 'palette', child: Text('命令面板  Ctrl+Shift+P')),
+              CheckedPopupMenuItem(value: 'focus', checked: _focusMode, child: const Text('专注模式  F11')),
+              const PopupMenuItem(value: 'replace', child: Text('查找替换')),
+              CheckedPopupMenuItem(value: 'format', checked: _formatBar, child: const Text('格式工具栏')),
+              CheckedPopupMenuItem(
+                  value: 'plain', checked: note.format == NoteFormat.txt, child: const Text('纯文本笔记')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'export', child: Text('导出 / 分享…')),
+              const PopupMenuItem(value: 'print', child: Text('打印 / 存为 PDF')),
+              const PopupMenuItem(value: 'publish', child: Text('发布到博客…')),
+              if (_inCollab || collabAvailable())
+                PopupMenuItem(value: 'collab', child: Text(_inCollab ? '协作中…' : '多人协作…')),
+              const PopupMenuItem(value: 'pasteImage', child: Text('粘贴图片')),
+              const PopupMenuItem(value: 'folder', child: Text('移动到文件夹')),
+              PopupMenuItem(value: 'star', child: Text(note.starred ? '取消星标' : '加星标')),
+              const PopupMenuItem(value: 'split', child: Text('在光标处拆分章节')),
+              if (next != null) const PopupMenuItem(value: 'merge', child: Text('与下一章合并')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'customize', child: Text('自定义快捷栏…')),
+              const PopupMenuItem(value: 'trash', child: Text('移到回收站')),
+            ],
+          ),
+        ]);
+      }),
+    );
   }
 
   // ---------- actions ----------
@@ -1379,100 +1538,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       onPressed: _collabMenu,
                     ),
                   ),
-                IconButton(
-                  tooltip: '朗读',
-                  onPressed: _toggleTts,
-                  icon: Icon(_ttsOn ? Icons.stop_circle_outlined : Icons.record_voice_over_outlined),
-                ),
-                IconButton(
-                  tooltip: '查找 Ctrl+F',
-                  onPressed: () => _findOpen ? _closeFind() : _openFind(),
-                  icon: const Icon(Icons.search),
-                ),
-                IconButton(
-                  tooltip: '源码 / 分栏 / 预览（Ctrl+E）',
-                  onPressed: _cyclePane,
-                  icon: Icon(switch (_pane) {
-                    _Pane.edit => Icons.edit_note,
-                    _Pane.split => Icons.vertical_split,
-                    _Pane.preview => Icons.visibility_outlined,
-                  }),
-                ),
-                PopupMenuButton<String>(
-                  onSelected: (v) async {
-                    _menuPickedAt = DateTime.now();
-                    switch (v) {
-                      case 'outline':
-                        await _outline();
-                      case 'links':
-                        await _links();
-                      case 'count':
-                        _showCount();
-                      case 'history':
-                        await _history();
-                      case 'focus':
-                        _toggleFocusMode();
-                      case 'palette':
-                        await _commandPalette();
-                      case 'format':
-                        setState(() => _formatBar = !_formatBar);
-                      case 'replace':
-                        _openFind(replace: true);
-                      case 'export':
-                        await _export();
-                      case 'print':
-                        await _print();
-                      case 'publish':
-                        await _publish();
-                      case 'collab':
-                        await _collabMenu();
-                      case 'pasteImage':
-                        await _pasteImage();
-                      case 'folder':
-                        await _moveFolder();
-                      case 'plain':
-                        await _store.update(note.copyWith(
-                            format: note.format == NoteFormat.txt ? NoteFormat.markdown : NoteFormat.txt));
-                        widget.onChanged?.call();
-                        setState(() {});
-                      case 'star':
-                        await _store.toggleStar(widget.noteId);
-                        widget.onChanged?.call();
-                        setState(() {});
-                      case 'split':
-                        await _splitChapter();
-                      case 'merge':
-                        await _mergeNext();
-                      case 'trash':
-                        await _trash();
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'outline', child: Text('大纲')),
-                    const PopupMenuItem(value: 'links', child: Text('双链 / 反向链接')),
-                    const PopupMenuItem(value: 'count', child: Text('字数统计')),
-                    const PopupMenuItem(value: 'history', child: Text('历史版本')),
-                    const PopupMenuItem(value: 'palette', child: Text('命令面板  Ctrl+Shift+P')),
-                    CheckedPopupMenuItem(value: 'focus', checked: _focusMode, child: const Text('专注模式  F11')),
-                    const PopupMenuItem(value: 'replace', child: Text('查找替换')),
-                    CheckedPopupMenuItem(value: 'format', checked: _formatBar, child: const Text('格式工具栏')),
-                    CheckedPopupMenuItem(
-                        value: 'plain', checked: note.format == NoteFormat.txt, child: const Text('纯文本笔记')),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(value: 'export', child: Text('导出…')),
-                    const PopupMenuItem(value: 'print', child: Text('打印 / 存为 PDF')),
-                    const PopupMenuItem(value: 'publish', child: Text('发布到博客…')),
-                    if (_inCollab || collabAvailable())
-                      PopupMenuItem(value: 'collab', child: Text(_inCollab ? '协作中…' : '多人协作…')),
-                    const PopupMenuItem(value: 'pasteImage', child: Text('粘贴图片')),
-                    const PopupMenuItem(value: 'folder', child: Text('移动到文件夹')),
-                    PopupMenuItem(value: 'star', child: Text(note.starred ? '取消星标' : '加星标')),
-                    const PopupMenuItem(value: 'split', child: Text('在光标处拆分章节')),
-                    if (next != null) const PopupMenuItem(value: 'merge', child: Text('与下一章合并')),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(value: 'trash', child: Text('移到回收站')),
-                  ],
-                ),
+                _quickBar(note, next),
               ],
             ),
           ),
